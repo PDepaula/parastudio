@@ -3,7 +3,9 @@
 # summary on a pass, a `failures[N]{suite,test,at}` table naming exactly what
 # broke on a fail. nimble 0.22.2 exits 0 even when a task fails (AGENTS.md),
 # so pass/fail comes from whether `tmp/tests-passed` was (re)written, not from
-# `nimble`'s own exit code. `--filter` and `--area` narrow which test files
+# `nimble`'s own exit code. Each run hands the task a plan file and a passed-marker of its own
+# (`tmp/test-plan-<pid>.txt`, `tmp/tests-passed-<pid>`), so two runs at once (two helpers, each
+# testing its own lane) never read each other's plan; a pass then also writes `tmp/tests-passed`. `--filter` and `--area` narrow which test files
 # run (testplan.nim picks them, the nimble task runs exactly that plan, so
 # the files left out are never compiled). A full run records its outcome as the
 # `tests` status of every game under examples/ (the games the repo suite in
@@ -137,7 +139,8 @@ proc countsLine*(summary: TestSummary): string =
   result = &"{summary.passed} passed, {summary.failed} failed"
   if summary.skipped > 0: result.add &", {summary.skipped} skipped"
 
-const planFile = "tmp" / "test-plan.txt"
+proc planFile(): string = "tmp" / ("test-plan-" & $getCurrentProcessId() & ".txt")
+proc passedFile(): string = "tmp" / ("tests-passed-" & $getCurrentProcessId())
 
 const buildingPrefix = "building "
   ## What paraloop.nimble's `test` task echoes before it builds a test group
@@ -285,6 +288,8 @@ proc runTest*(args: seq[string]): Run =
 
   if not dirExists("tmp"): createDir("tmp")
   discard tryRemoveFile("tmp" / "tests-passed")
+  discard tryRemoveFile(passedFile())
+  putEnv("PARALOOP_TEST_PASSED", passedFile())
 
   # A full run is the nimble task's own default; a narrowed one is a plan
   # file the task follows line by line.
@@ -293,8 +298,8 @@ proc runTest*(args: seq[string]): Run =
     if pytest: plan.add pytestId
     plan.add planEntries(files, discoverGroups())
     if paraBuild: plan.add paraBuildId
-    writeFile(planFile, plan.join("\n") & "\n")
-    putEnv("PARALOOP_TEST_PLAN", planFile)
+    writeFile(planFile(), plan.join("\n") & "\n")
+    putEnv("PARALOOP_TEST_PLAN", planFile())
   else:
     delEnv("PARALOOP_TEST_PLAN")
 
@@ -313,8 +318,13 @@ proc runTest*(args: seq[string]): Run =
   let started = epochTime()
   let p = runStreamed("nimble", @["test"], proc (line: string) = show(progress.feed(line)))
   let elapsed = epochTime() - started
-  show(progress.finish(fileExists("tmp" / "tests-passed")))
+  let passed = fileExists(passedFile())
+  show(progress.finish(passed))
   delEnv("PARALOOP_TEST_PLAN")
+  delEnv("PARALOOP_TEST_PASSED")
+  discard tryRemoveFile(planFile())
+  discard tryRemoveFile(passedFile())
+  if passed: writeFile("tmp" / "tests-passed", "")
   if hadBalance: putEnv(balanceEnv, balanceWas) else: delEnv(balanceEnv)
 
   var summary: TestSummary
@@ -332,7 +342,7 @@ proc runTest*(args: seq[string]): Run =
     if skipBalance: "balance: pins skipped (--skip-balance)\n"
     elif onlyBalance: "balance: pins only (--only-balance)\n"
     else: ""
-  let ok = fileExists("tmp" / "tests-passed") and summary.failed == 0
+  let ok = passed and summary.failed == 0
   var status: string
   if ok:
     result.output = &"tests: {counts} ({summary.suites} suites, {elapsed:.1f}s)\n"

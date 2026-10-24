@@ -29,7 +29,11 @@ task test, "Run headless tests":
   # for the test files it imports), `build tools/para/para.nim` -- and only
   # those entries run. Unset (a bare `nimble test`, or a bare `para test`),
   # everything runs, each test file as its own program.
-  rmFile "tmp/tests-passed"
+  #
+  # PARALOOP_TEST_PASSED names the passed-marker instead of tmp/tests-passed (`para test` gives
+  # each run its own, so two runs at once cannot see each other's).
+  let passedFile = getEnv("PARALOOP_TEST_PASSED", "tmp/tests-passed")
+  rmFile passedFile
   if not dirExists("tmp"): mkDir "tmp"
   let planPath = getEnv("PARALOOP_TEST_PLAN")
   var plan: seq[string]
@@ -105,7 +109,7 @@ task test, "Run headless tests":
   for id in plan:
     if id notin ran:
       raise newException(ValueError, "test plan entry not run: " & id)
-  writeFile "tmp/tests-passed", ""
+  writeFile passedFile, ""
 
 task webSmoke, "Build examples/hello for the web (wasm), postbuild, then smoke it headless (task 1.7 acceptance: wasm loads, ticks run, 0 console errors, frame saved to tmp/web-smoke/)":
   # Needs emcc + node 22+ on PATH -- local: `source $EMSDK/emsdk_env.sh`; CI: setup-emsdk + setup-node.

@@ -382,8 +382,9 @@ proc landLane(root, game, id: string): Run =
       return refuse(
         &"The helper and the game both changed {namesList(both)} since the helper started, in ways git cannot put together.",
         &"The helper's work is kept in its lane ({id}); nothing in the game was changed.",
-        toonHelp(@["Land the other work and save it first, then give the helper this as a new step in the same lane; or drop the lane with `para lane drop " &
-                   game & " " & id & " --discard --yes` (that loses its work)"]).strip)
+        toonHelp(@["Save what is in the game, then start a fresh lane for this step (the helper can read this one's files in " &
+                   lanePrefix(game, id) & "), and drop this one once that has landed: `para lane drop " & game & " " & id &
+                   " --discard --yes` (that loses its work)"]).strip)
     return gitFailed("bringing the game's save points into the lane", merged)
   # 3. put the lane's net change into the game's files, unsaved; git refuses before touching anything
   let squash = git(repo, "merge", "--squash", lane)
