@@ -215,12 +215,21 @@ finding the chat program to `para studio --check`.
   stand-in), and the stand-ins never ran a real compiler.
 - **Set up to run on a hosted Windows machine:** the `windows-launcher` job in
   `.github/workflows/platform-check.yml` runs `Paraloop-Studio.bat --dry-run`
-  there, once with Nim installed (it must finish ok) and once pretending
+  there, once with Nim installed (it must finish ok), once pretending
   everything is missing (it must print the offers above, ask nothing and install
-  nothing). It is started by
-  hand only, and had **not been run** when this page was written (the hosted
-  runners are paused; see [platforms.md](platforms.md)). If it has run, it proves
-  only that the script parses and its checks and messages run on Windows Server.
+  nothing), and three times more with the dry-run-only hook
+  `PARALOOP_LAUNCHER_DRY_ASK=1`, which asks each offer's real question and says what it
+  would do for the answer it got, still running no winget, `curl.exe` or `tar.exe`:
+  with only Enter typed, with the input closed and with `y` typed for each question.
+  Enter and a closed input must print "Okay, nothing was installed." and never a
+  "would: install" line, `y` must print "would: install" for all three, each offer
+  (what, from where, the winget ids, where to, how big) must come before its question,
+  and nothing may be created in `%USERPROFILE%\.paraloop`. It is started by
+  hand only (`workflow_dispatch`), and had **not been run** when this page was written
+  (the hosted runners are paused; see [platforms.md](platforms.md)). If it has run, it
+  proves that `cmd.exe` really runs the script, its checks, its messages, the question
+  and the yes/no default on a hosted Windows runner. It still cannot prove a real download
+  or install, winget, SmartScreen, a real user PATH, or a person typing.
 - **Never checked:** the SmartScreen prompt, the real double-click, a real winget
   or Nim install from this script, a yes or no typed by a person, a friend's PATH, `nimble` and the `para` build from this script,
   Studio's browser and chat from a plain Windows window, and the game window.

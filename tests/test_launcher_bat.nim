@@ -118,19 +118,48 @@ suite "launcher (Windows): offers to install":
         if l notin installs: continue
         inc seen
         checkpoint(":" & name & " runs " & l)
-        let dry = b.find("if \"%DRY_RUN%\"==\"1\" goto offer_dry")
-        let dryNim = b.find("if \"%DRY_RUN%\"==\"1\" goto offer_nim_dry")
+        let dry = b.find("if \"%DRY_RUN%\"==\"1\" if not defined DRY_ASK goto offer_dry")
+        let dryNim = b.find("if \"%DRY_RUN%\"==\"1\" if not defined DRY_ASK goto offer_nim_dry")
         check max(dry, dryNim) in 0 ..< i
         var asked = -1
         for j in 0 ..< i:
           if b[j].startsWith("call :ask "): asked = j
         check asked >= 0
         check b[asked + 1] == "if not \"%ANSWER%\"==\"yes\" exit /b 0"
+        check b[asked + 2].startsWith("if defined DRY_ASK call :would ") and b[asked + 2].endsWith(" & exit /b 0")
+        check asked + 2 < i
     check seen == installs.len
     # the downloads happen only inside :install_nim
     for name, body in parts:
       for l in body:
         if not isComment(l) and "curl.exe -" in l: check name == "install_nim"
+
+  test "the dry-run question hook is read only in a dry run and asks before it says what it would do":
+    check "set \"DRY_ASK=\"" in lines
+    check "if \"%DRY_RUN%\"==\"1\" if \"%PARALOOP_LAUNCHER_DRY_ASK%\"==\"1\" set \"DRY_ASK=1\"" in lines
+    for l in lines:
+      if not isComment(l) and "PARALOOP_LAUNCHER_DRY_ASK" in l:
+        check l.startsWith("if \"%DRY_RUN%\"==\"1\" ")
+    for name in ["offer_cc", "offer_git", "offer_nim"]:
+      let b = parts[name].filterIt(not isComment(it)).mapIt(code(it))
+      checkpoint(name)
+      check b.anyIt(it.startsWith("if \"%DRY_RUN%\"==\"1\" if not defined DRY_ASK goto "))
+      check b.anyIt(it.startsWith("if defined DRY_ASK call :would \"install "))
+
+  test "echoed and logged text has no redirect characters (a bare > writes a file named after the rest)":
+    for l in lines:
+      if isComment(l): continue
+      let t = code(l)
+      var text = ""
+      if t.toLowerAscii.startsWith("echo "): text = t[5 .. ^1]
+      else:
+        for fn in ["call :log ", "call :note ", "call :ok ", "call :bad ", "call :would "]:
+          let at = t.find(fn)
+          if at >= 0: text = t[at + fn.len .. ^1].split(" & ")[0]
+      if text.len == 0: continue
+      checkpoint(l)
+      check '<' notin text
+      check '>' notin text
 
   test "each offer says what, from where, the command or link, where to and how big":
     for name in ["offer_cc", "offer_git", "offer_nim"]:

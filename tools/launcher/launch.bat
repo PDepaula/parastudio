@@ -10,8 +10,9 @@ rem   launch.bat [--dry-run | --check] [--help]
 rem
 rem --dry-run (or --check, the same) runs the same checks (they only look), says what it would offer
 rem to install and what each later step WOULD do; it installs, builds, fetches, opens and asks
-rem nothing. Test hook, read only in a dry run: PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim pretends
-rem those are not installed.
+rem nothing. Test hooks, read only in a dry run: PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim pretends
+rem those are not installed; PARALOOP_LAUNCHER_DRY_ASK=1 makes the dry run ask each offer's real
+rem question and say what it WOULD do for the answer it got, still running no install.
 rem
 rem When something is missing it is offered, never just installed: the launcher prints what it would
 rem install (name and version), from where (the exact link or winget command), into which folder and
@@ -81,6 +82,8 @@ if "%DRY_RUN%"=="1" set "LOG=NUL"
 if not "%DRY_RUN%"=="1" set "LOG=%ROOT%\tmp\launcher.log"
 set "FAKE=,"
 if "%DRY_RUN%"=="1" set "FAKE=,%PARALOOP_LAUNCHER_FAKE_MISSING%,"
+set "DRY_ASK="
+if "%DRY_RUN%"=="1" if "%PARALOOP_LAUNCHER_DRY_ASK%"=="1" set "DRY_ASK=1"
 
 set "ARCH=%PROCESSOR_ARCHITECTURE%"
 if defined PROCESSOR_ARCHITEW6432 set "ARCH=%PROCESSOR_ARCHITEW6432%"
@@ -159,6 +162,7 @@ echo ---------------------------------------------------------------------------
 set "HAVE_WINGET="
 where winget >nul 2>&1
 if not errorlevel 1 set "HAVE_WINGET=1"
+if defined DRY_ASK set "HAVE_WINGET=1"
 set "NIM_PROBLEM="
 if defined MISSING_CC call :offer_cc
 if defined MISSING_GIT call :offer_git
@@ -342,7 +346,7 @@ set "RES=no"
 if /i "!REPLY!"=="y" set "RES=yes"
 if /i "!REPLY!"=="yes" set "RES=yes"
 endlocal & set "ANSWER=%RES%"
-call :log "asked: %~1 -> %ANSWER%"
+call :log "asked: %~1 - answer: %ANSWER%"
 if not "%ANSWER%"=="yes" echo       Okay, nothing was installed.
 exit /b 0
 
@@ -380,9 +384,10 @@ echo     Where:   your user folder (%LOCALAPPDATA%\Microsoft\WinGet\Packages), n
 echo     Size:    winget shows it as it downloads (a few hundred MB)
 echo     PATH:    winget adds the compiler to your user PATH itself, as it does for every program
 echo   winget may first ask you to agree to its catalog's terms; answer Y there if you agree.
-if "%DRY_RUN%"=="1" goto offer_dry
+if "%DRY_RUN%"=="1" if not defined DRY_ASK goto offer_dry
 call :ask "Install the C compiler now?"
 if not "%ANSWER%"=="yes" exit /b 0
+if defined DRY_ASK call :would "install the C compiler with: %CC_WINGET%" & exit /b 0
 call :log "$ %CC_WINGET%"
 %CC_WINGET%
 if errorlevel 1 call :note "winget did not finish (exit code %ERRORLEVEL%)." & exit /b 0
@@ -405,9 +410,10 @@ echo     Where:   your user folder (%LOCALAPPDATA%\Programs\Git), no administrat
 echo     Size:    winget shows it as it downloads
 echo     PATH:    Git's installer adds git to your user PATH itself
 echo   winget may first ask you to agree to its catalog's terms; answer Y there if you agree.
-if "%DRY_RUN%"=="1" goto offer_dry
+if "%DRY_RUN%"=="1" if not defined DRY_ASK goto offer_dry
 call :ask "Install git now?"
 if not "%ANSWER%"=="yes" exit /b 0
+if defined DRY_ASK call :would "install git with: %GIT_WINGET%" & exit /b 0
 call :log "$ %GIT_WINGET%"
 %GIT_WINGET%
 if errorlevel 1 call :note "winget did not finish (exit code %ERRORLEVEL%)." & exit /b 0
@@ -433,9 +439,10 @@ echo              (your user folder: no administrator password, nothing else on 
 echo     Size:    %NIM_ZIP_SIZE%
 echo     PATH:    added inside this window only; your Windows settings are not changed
 echo   It downloads with curl.exe and unpacks with tar.exe, both part of Windows 10 and 11.
-if "%DRY_RUN%"=="1" goto offer_nim_dry
+if "%DRY_RUN%"=="1" if not defined DRY_ASK goto offer_nim_dry
 call :ask "Download and install Nim %NIM_VERSION% now?"
 if not "%ANSWER%"=="yes" exit /b 0
+if defined DRY_ASK call :would "install Nim %NIM_VERSION%: download %NIM_ZIP_URL%, check its SHA-256, unpack it into %NIM_HOME%" & exit /b 0
 call :install_nim
 exit /b 0
 :offer_nim_dry
