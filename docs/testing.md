@@ -70,12 +70,13 @@ imports (transitively) include that area's source roots
 Pushes to main, `workflow_dispatch` and any non-PR run always use `all`, and an
 unreadable or empty diff fails open to `all`.
 
+`PR_FULL_TESTS=off` skips the full-suite jobs on pull requests.
+
 The `docs` job is not scoped: it runs on every pull request and push, docs-only ones included,
 builds the documentation site with `uv run tools/docs/build.py` (about half a minute) and fails
 on a broken link or image, missing alt text, headings out of order, or a local path, tailnet
 address or email address ([site.md](site.md) has the full list). Run the same command locally
 before pushing a docs change.
-`PR_FULL_TESTS=off` skips the full-suite jobs on pull requests.
 
 Heavy simulation tests (`test_sim_replay`, `test_para_shot_script`,
 `test_para_sim_cli`, and a game's bot-run and driver tests) each carry a `test_<name>.nims` beside them that builds that
