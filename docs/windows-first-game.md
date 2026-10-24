@@ -160,19 +160,20 @@ tmp/para studio
 What should happen: it prints a link that starts with `http://127.0.0.1:` and
 your default browser opens on it. If the browser does not open, copy the link
 into one yourself. Then try, in the page: press the **+** next to the message box
-and choose **Check the game** or **Save…**, which opens the "Check & save" panel: its
-"Where we left off" part shows your game's next step and last save point;
-**Check the game** runs the checks (a few minutes the first time) and says whether
-they passed; type a note and press **Save** (it refuses, in plain words, until a check
-passed on the game as it is now); the save points list in the sidebar shows what you
-saved; **Back up online…** in the sidebar says whether an online backup is set up. Windows may ask whether to allow the program
+and choose **Check the game** or **Save…**, which opens the game panel on the right (on
+a narrow window it slides in over the chat): its "Where we left off" part shows your
+game's next step and last save point; **Check the game** runs the checks (a few minutes
+the first time) and says whether they passed; type a note and press **Save** (it refuses,
+in plain words, until a check passed on the game as it is now); the save points list in
+the sidebar shows what you saved; the cloud button at the bottom of the sidebar (**Back
+up online**) says whether an online backup is set up. Windows may ask whether to allow the program
 through its firewall: it only listens on your own computer, so "Cancel" or
 "Allow" should both work, and please tell us which prompt appeared. Stop it
 with Ctrl+C in the terminal.
 
 **The Play step.** Once the page is open:
 
-1. Press **Play**. The page says "Building the game…" (the first build takes a few
+1. Press **Play** in the game panel. The page says "Building the game…" (the first build takes a few
    minutes on Windows, later ones are quick) and then "Opening the game window…" and
    "The game window is open." Your game's own window opens on the desktop; the arrow
    keys move the sprite. There is no console window and nothing to type.

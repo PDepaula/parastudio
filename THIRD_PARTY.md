@@ -48,6 +48,15 @@ the user and are not redistributed here.
 The Roboto file names the Apache 2.0 licence in its own name table, which is why that
 text is the one included.
 
+The Studio page (`tmp/para studio`) carries two more fonts, built into the `para` binary as
+`data:` addresses (see `docs/studio.md`, "The page"). Both are the Latin subset as packaged by
+[Fontsource](https://fontsource.org/), unmodified.
+
+| File | Licence | Licence text |
+|------|---------|--------------|
+| `tools/para/studio/fonts/nunito-latin-{400,700,800}-normal.woff2` (Nunito, Copyright 2014 The Nunito Project Authors, https://github.com/googlefonts/nunito) | SIL Open Font License 1.1 | `tools/para/studio/fonts/LICENSE-nunito.txt` |
+| `tools/para/studio/fonts/fredoka-latin-600-normal.woff2` (Fredoka, Copyright 2016 The Fredoka Project Authors, https://github.com/hafontia/Fredoka-One) | SIL Open Font License 1.1 | `tools/para/studio/fonts/LICENSE-fredoka.txt` |
+
 ## Test fixtures
 
 Images under `tests/fixtures/art/`; the full per-file credits are in

@@ -25,6 +25,7 @@ import tools/para/agent
 import tools/para/agents
 import tools/para/claudeagent
 import tools/para/preflight
+import tools/para/studioapi
 import tools/para/studiocmd
 import tools/para/studiohttp
 
@@ -367,6 +368,9 @@ suite "preflight: GET /api/preflight":
     for c in d["checks"]:
       check c["state"].getStr == "ok" and c["label"].getStr.len > 0
       check not c.hasKey("problem") and not c.hasKey("fix")
+    # the first-run helper's command names this folder; a terminal is offered only where there is a standard one
+    check d["folder"].getStr == s.root
+    check d["terminal"].getBool == (terminalCommand(s.root).len > 0)
 
   test "not ready: the failing check carries its problem and its fix; the others stay short":
     putEnv("FAKE_CLAUDE_AUTH", "out")

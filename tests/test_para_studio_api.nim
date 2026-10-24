@@ -14,6 +14,7 @@ import tools/para/art/clihelpers
 import tools/para/checkcmd
 import tools/para/savecmd
 import tools/para/backupcmd
+import tools/para/newcmd
 
 when isMainModule:
   if getEnv("PARA_STUDIO_TEST_CHILD") == "1":
@@ -31,6 +32,7 @@ when isMainModule:
       of "check": run = runCheckWith(args[1 .. ^1], steps)
       of "save": run = runSaveWith(args[1 .. ^1])
       of "backup": run = runBackupWith(args[1 .. ^1], "", "/nonexistent/para-test-gh")
+      of "new": run = runNew(args[1 .. ^1])
       else: discard
     stdout.write run.output
     quit run.code
@@ -92,7 +94,8 @@ suite "para studio api: the page and the facts":
     let csp = r.headers["content-security-policy"]
     check "default-src 'none'" in csp
     check "frame-ancestors 'none'" in csp
-    check "font-src" notin csp          # so nothing may ask for a web font
+    check "font-src data:;" in csp      # the fonts are inside the page: nothing may ask for a web font
+    check csp.count("font-src") == 1
     check "img-src data: blob:" in csp  # so the favicon has to be a data: address
     let nonce = csp.split("script-src 'nonce-")[1].split("'")[0]
     check nonce.len >= 32
@@ -115,7 +118,7 @@ suite "para studio api: the page and the facts":
     for tagName in ["script", "image", "use", "foreignObject", "style"]:
       check svg.findAll(tagName).len == 0
 
-  test "in a real browser: bubbles, Pip, theme, cost notes, favicon and Content-Security-Policy hold":
+  test "in a real browser: bubbles, Pip, theme, the notes moved off the message box, fonts, favicon and Content-Security-Policy hold":
     var chrome = getEnv("CHROME_BIN")
     if chrome.len == 0:
       for c in ["chromium", "google-chrome", "chromium-browser", "chrome"]:
@@ -138,13 +141,16 @@ suite "para studio api: the page and the facts":
         check u.getStr.startsWith(origin & "/") or u.getStr.startsWith("data:") or u.getStr.startsWith("blob:")
       check seen["problems"].getElems.len == 0
 
-      # at a wide and a narrow window the director sees both notes, the chips, and Pip beside the producer
+      # at a wide and a narrow window nothing is written under the message box; the two notes are one
+      # click away, in the startup checks and in the help, and the chips and Pip beside the producer show
       for width in ["1280", "600"]:
         let w = seen["layout"][width]
+        check w["underBox"].getElems.len == 0
         check w["calmText"].getStr.startsWith("Nothing is sent until")
-        check w["calmShown"].getBool
+        check not w["calmShown"].getBool and w["calmInReady"].getBool
         check w["costText"].getStr.len > 0
-        check w["costShown"].getBool
+        check not w["costShown"].getBool and w["costInReady"].getBool and w["costInHelp"].getBool
+        check w["aboutInHelp"].getInt >= 1
         check w["chipsShown"].getBool
         check w["avatarDrawn"].getBool
         check w["avatarShown"].getBool
@@ -155,6 +161,13 @@ suite "para studio api: the page and the facts":
         check w["youRight"].getBool
         check w["prodTextIsText"].getBool
       check seen["layout"]["600"]["avatarBox"].getFloat < seen["layout"]["1280"]["avatarBox"].getFloat
+      # Pip is a mascot, not an icon: at least three times the area it had (30px beside a message and in
+      # the sidebar, 72px on the greeting, 26px and 56px on a phone)
+      let wide = seen["layout"]["1280"]
+      check wide["avatarBox"].getFloat >= 52 and wide["sideBox"].getFloat >= 52 and wide["helloBox"].getFloat >= 125
+      check seen["layout"]["600"]["avatarBox"].getFloat >= 45 and seen["layout"]["600"]["helloBox"].getFloat >= 97
+      # the page's own fonts load (from inside the page, so the policy above allows them)
+      check seen["fonts"]["text"].getBool and seen["fonts"]["headings"].getBool
 
       # on a phone the closed drawer is off-screen and out of the tab order; open, it takes focus; closed again, it is gone again
       let drawer = seen["drawer"]
@@ -270,6 +283,50 @@ suite "para studio api: several games, or none":
     check s["games"].getElems.len == 0
     check s["game"].kind == JNull
     check running.request("POST", "/api/check", body = "{}").status == 400
+
+suite "para studio api: a new game from the page":
+  teardown: finish()
+
+  test "the name is checked in plain words first; then `para new` runs as a step and the game is there":
+    begin()
+    root.put("template/PLAN.md", "# __GAME__: plan\n\nCall the friend: director\n")
+    root.put("template/template.nim", "echo \"__GAME__\"\n")
+    for (body, code) in [(%*{}, "needs-name"), (%*{"name": "  "}, "needs-name"), (%*{"name": "Space Frogs"}, "bad-name"),
+                         (%*{"name": "1st"}, "bad-name"), (%*{"name": "../x"}, "bad-name"), (%*{"name": repeat('a', 41)}, "bad-name")]:
+      let r = running.post("/api/new", body)
+      check r.status == 400
+      check jsonOf(r)["error"].getStr == code
+      check "small letters" in jsonOf(r)["message"].getStr or "name" in jsonOf(r)["message"].getStr
+    let started = running.post("/api/new", %*{"name": "space_frogs"})
+    check started.status == 200
+    let job = jsonOf(started)["job"]
+    check job["kind"].getStr == "new"
+    let done = running.waitJob(job["id"].getInt)
+    check done["code"].getInt == 0
+    check fileExists(root / "games/space_frogs/PLAN.md")
+    check readFile(root / "games/space_frogs/space_frogs.nim") == "echo \"space_frogs\"\n"
+    let s = jsonOf(running.request("GET", "/api/state"))
+    check s["games"].getElems.mapIt(it.getStr) == @["space_frogs"]
+    # a name that is taken is refused before anything runs
+    let again = running.post("/api/new", %*{"name": "space_frogs"})
+    check again.status == 409 and jsonOf(again)["error"].getStr == "exists"
+
+  test "a new game waits for a running step, like Check and Save":
+    begin("pong")
+    putEnv("FAKE_CHECK_SLEEP_MS", "1500")
+    let first = running.post("/api/check", %*{"game": "pong"})
+    check first.status == 200
+    check running.post("/api/new", %*{"name": "frogs"}).status == 409
+    discard running.waitJob(jsonOf(first)["job"]["id"].getInt)
+
+  test "open a terminal: only where the system has one standard way (macOS), else plainly not":
+    begin("pong")
+    when defined(macosx):
+      check terminalCommand(root) == @["open", "-a", "Terminal", root] # not run here: it would open a window
+    else:
+      check terminalCommand(root).len == 0
+      let r = running.post("/api/terminal", %*{})
+      check r.status == 501 and jsonOf(r)["error"].getStr == "no-terminal"
 
 suite "para studio api: check":
   setup: begin("pong")
