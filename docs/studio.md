@@ -52,11 +52,34 @@ Your message goes to it on standard input (never on a command line), and
 `PARALOOP_UI=studio` is added to its environment so the producer says "press Play"
 instead of giving terminal commands. `--setting-sources project,local` keeps your
 user-level hooks out; the folder's own `.claude/settings.json` (the producer's
-session-start hook and the allow-list of commands the helpers may run) still applies.
+session-start hook and the allow-list of commands the helpers may run and files they may
+change) still applies.
 The studio never passes `--bare`, `--dangerously-skip-permissions` or a permission
 mode; a command the allow-list does not cover is refused by `claude`, and the chat
 shows that in plain words ("A helper wasn't allowed to run ... Ask the producer to do
 it a different way.") instead of hanging.
+
+**What the producer and its helpers can change.** A headless `claude -p` turn cannot ask
+anyone, so it refuses every edit that no rule allows. The allow-list therefore holds two
+edit rules, `Edit(/games/**)` and `Write(/games/**)` (`/` is the repository root, so this
+is the `games/` folder and nothing else): the producer writes `PITCH.md`, `PLAN.md`,
+`CHOICES.md`, `DESIGN.md`, `PLAYTEST.md` and `NOTES.md` there, and the builder, checker
+and scouts (they share the turn's rules) change the game's code and reports there. The
+rest of the allow-list is the `tmp/para ...` commands. Everything outside `games/` stays
+read-only in the studio: the playbooks (`.agents`), `.claude/settings.json`, `AGENTS.md`,
+`tools`, `src`, `docs`, `tests`, `template`, `skills` and the files at the top of the
+repository. A game's own `.git` folder is refused too (Claude Code treats it as a
+sensitive file); saving goes through `para save`. If something wants to change a file
+outside `games/`, the chat shows, for example:
+
+> The producer wasn't allowed to change `AGENTS.md`: in the studio it can only change
+> files inside your game folder (`games/`). To change the studio itself, use the terminal.
+
+and the producer is told (`.agents/skills/producer/SKILL.md`) not to work around it. Both
+edit rules take effect only in a folder Claude Code trusts (see "If something goes wrong" below);
+in an untrusted folder `claude` ignores the whole allow-list, edits included.
+`tests/test_para_producer_cmd.nim` guards the shape: only those two edit rules, only on
+`games/**`, and no bare `Edit`, `Write` or `Bash(*)`.
 
 - **Accounts.** The studio never reads, asks for, stores, logs, forwards or shows a
   login, a token or an API key, and has no sign-in screen. It only starts the
@@ -228,6 +251,11 @@ How it works, for whoever changes it:
   from Anthropic's setup page (https://code.claude.com/docs/en/setup), open a terminal,
   run `claude` once and sign in, then press "Check again" on the page. The studio never
   asks for a login or key itself.
+- **The producer says it is not allowed to run commands or change files in your game folder.**
+  Claude Code ignores the folder's allow-list until you have said Yes to its trust question
+  there (the chat says "Claude doesn't trust this folder yet"): open a terminal in the folder,
+  run `claude`, answer Yes, then send your message again. If the refusal names a file
+  outside `games/`, that is on purpose (see "What the producer and its helpers can change").
 - **Play says the game did not build.** Ask the producer to fix it; "Show the details"
   has the lines the compiler printed. If it says Nim or a C compiler was not found,
   `nim --version` and `gcc --version` need to work in the terminal you started the studio

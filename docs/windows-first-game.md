@@ -255,9 +255,9 @@ except the hook: the voice still comes from `AGENTS.md`.
 
 Claude Code also reads the folder's `.claude/settings.json` permission list once you
 have said yes to the trust prompt: it lets the assistant and its helpers run the
-project's own `tmp/para test`, `check`, `build`, `sim` and `save -m` commands without
-asking each time. It lists nothing that uploads, deletes, resets or reaches the
-network, and `save --back`, `save --set-aside` and `backup --push` still ask first.
+project's own `tmp/para test`, `check`, `build`, `sim` and `save -m` commands, and edit
+files inside `games/`, without asking each time. It lists nothing that uploads, deletes,
+resets or reaches the network, and `save --back`, `save --set-aside` and `backup --push` still ask first.
 
 Not checked: the hook lines are written for a Bash-style shell (Git Bash from
 step 1). Whether Claude Code and Codex run them that way on Windows has not been

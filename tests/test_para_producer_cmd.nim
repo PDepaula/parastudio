@@ -6,13 +6,15 @@
 # The resume digest is checked on scratch git repos (and on folders that are
 # not one, or where git is slow or missing: those facts are then left out).
 
-import std/[unittest, os, strutils, tempfiles, json, tables, times]
+import std/[unittest, os, strutils, tempfiles, json, tables, times, sequtils, algorithm]
 import tools/para/art/clihelpers
 import tools/para/nimutil
 import tools/para/savepoint
 import tools/para/producercmd
 
-const repoRoot = currentSourcePath().parentDir.parentDir
+const
+  repoRoot = currentSourcePath().parentDir.parentDir
+  editRules = ["Edit(/games/**)", "Write(/games/**)"] ## the only non-Bash rules in .claude/settings.json
 
 proc put(root, rel, body: string) =
   let p = root / rel
@@ -575,6 +577,27 @@ suite "owned file contracts: voice core, AGENTS.md, CLAUDE.md, hook configs":
     for entry in perms["allow"]:
       check "codex" notin entry.getStr
 
+  test ".claude/settings.json: the producer may edit files under games/ and nothing else":
+    # a headless `claude -p` refuses any edit that no rule allows, so without these two rules the
+    # producer cannot write PITCH.md/PLAN.md/... and a helper cannot build; they stay on games/**
+    # (project-root-relative, gitignore-style) so the playbooks, settings and engine stay read-only
+    let allow = parseJson(readFile(repoRoot / ".claude" / "settings.json"))["permissions"]["allow"].mapIt(it.getStr)
+    check allow.filterIt(it.startsWith("Edit") or it.startsWith("Write") or it.startsWith("MultiEdit") or
+                         it.startsWith("NotebookEdit")).sorted == @editRules.sorted
+    for rule in allow:
+      let tool = rule.split('(')[0]
+      if tool in ["Edit", "Write", "MultiEdit", "NotebookEdit"]:
+        check rule.endsWith(")")
+        let path = rule[tool.len + 1 .. ^2]
+        check path.startsWith("/games/") # "/" is the project root; "//" is the disk root, "~" is home
+        check ".." notin path and "~" notin path and "\\" notin path and "!" notin path
+        for outside in [".claude", ".agents", "tools", "src", "docs", "tests", "template", "skills", "AGENTS.md", "CLAUDE.md"]:
+          check outside notin path
+      else:
+        check tool == "Bash" # no bare `Edit`, `Write`, `Read`, `WebFetch`, `mcp__...` or wildcard rule
+    check "Bash" notin allow and "Bash(*)" notin allow and "Edit" notin allow and "Write" notin allow
+    check "Edit(*)" notin allow and "Edit(**)" notin allow and "Write(*)" notin allow and "Write(**)" notin allow
+
   test ".claude/settings.json: the permission allow-list is narrow, and the hook is still there":
     let cfg = parseJson(readFile(repoRoot / ".claude" / "settings.json"))
     check cfg["hooks"]["SessionStart"][0]["hooks"][0]["command"].getStr.contains("tmp/para producer-context")
@@ -586,6 +609,7 @@ suite "owned file contracts: voice core, AGENTS.md, CLAUDE.md, hook configs":
                   "web ", "shot", "balance", "live", "commit", "tag ", "merge", "fetch", "pull", "remote add", "git add", ".."]
     for entry in allow:
       let rule = entry.getStr
+      if rule in editRules: continue
       check rule.startsWith("Bash(") and rule.endsWith(")")
       check rule notin ["Bash(*)", "Bash(tmp/para:*)", "Bash(tmp/para *)", "Bash(git:*)", "Bash(git *)", "Bash(nim:*)", "Bash(nim *)"]
       check "&&" notin rule and ";" notin rule and "|" notin rule and ">" notin rule

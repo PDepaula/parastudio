@@ -75,6 +75,24 @@ suite "claude events: what recorded runs turn into":
     check events.ofKind(ukSay).len == 2
     check m.sawResult and m.errorEmitted == false
 
+  test "a refused edit outside the game folder says where the producer may edit and where to go":
+    var (events, m) = mapFile("refused_edit_outside_games.jsonl")
+    let refusals = events.ofKind(ukRefused)
+    check refusals.len == 1
+    check refusals[0].text.startsWith("The producer wasn't allowed to change `.agents/skills/producer/voice-core.md`")
+    check "only change files inside your game folder" in refusals[0].text
+    check "use the terminal" in refusals[0].text
+    check "/work/repo" notin refusals[0].text
+    check m.finish(0, false).len == 0
+
+  test "a refused edit inside a game folder keeps the plain refusal":
+    var m = newClaudeMapper("/work/repo")
+    let line = """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Claude requested permissions to edit /work/repo/games/frog/.git/hooks/x which is a sensitive file.","is_error":true,"tool_use_id":"t1"}]},"parent_tool_use_id":null}"""
+    discard m.mapLine("""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/work/repo/games/frog/.git/hooks/x","content":"x"}}]},"parent_tool_use_id":null}""")
+    let refusals = m.mapLine(line).ofKind(ukRefused)
+    check refusals.len == 1
+    check refusals[0].text == "The producer wasn't allowed to change games/frog/.git/hooks/x. Ask the producer to do it a different way."
+
   test "a background shell command is a line, never a helper card":
     let (events, _) = mapFile("background_shell.jsonl")
     check events.ofKind(ukHelper).len == 0

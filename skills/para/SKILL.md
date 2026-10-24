@@ -76,6 +76,6 @@ shot` does) and shows it as a card in the chat; the studio keeps the newest 20 i
 `tmp/studio/shots/` and serves only those, by exact name. When the window cannot open the
 page says why in plain words (the game did not build, no screen, no OpenGL). Helpers show up as cards (builder, checker, scout); a call the project
 allow-list in `.claude/settings.json` does not cover is refused by `claude` and shown
-in plain words. Agents are adapters (`tools/para/agent.nim`, `claudeagent.nim`,
+in plain words (edits are allowed under `games/` only; see `docs/studio.md`). Agents are adapters (`tools/para/agent.nim`, `claudeagent.nim`,
 `agents.nim`); the other is Codex (`codexagent.nim`, `codex app-server`), picked per game on the page with Claude the default; see `docs/studio.md`, "Claude or Codex". Tests: `para test --filter
 test_para_studio`.
