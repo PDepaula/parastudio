@@ -29,6 +29,9 @@
 #   sleep           wait FAKE_CODEX_SLEEP_MS (default two minutes), then exit 0: the grandchild of `deaf`
 #   noversion       `--version` prints something that is not a version
 #
+# `login status` (the startup check) answers by FAKE_CODEX_LOGIN, whatever the mode: "in" (the
+# default; "Logged in using ChatGPT", exit 0), "out" ("Not logged in", exit 1) or "garbage".
+#
 # FAKE_CODEX_HOME is the `codexHome` the stand-in reports (default /home/friend/.codex); the line
 # `__SAVED__` in a fixture is replaced by FAKE_CODEX_SAVED.
 
@@ -59,6 +62,16 @@ proc fakeCodexMain*() =
   let mode = getEnv("FAKE_CODEX_MODE", "normal")
   if args == @["--version"]:
     emit(if mode == "noversion": "who knows" else: "codex-cli 0.159.2")
+    quit 0
+  if args == @["login", "status"]:
+    case getEnv("FAKE_CODEX_LOGIN", "in")
+    of "out":
+      emit "Not logged in"
+      quit 1
+    of "garbage":
+      emit "Welcome to a different program"
+    else:
+      emit "Logged in using ChatGPT"
     quit 0
   if mode == "sleep":
     sleep(parseInt(getEnv("FAKE_CODEX_SLEEP_MS", "120000")))

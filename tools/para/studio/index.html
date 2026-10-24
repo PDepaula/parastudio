@@ -262,6 +262,8 @@ pre { margin: 8px 0 0; padding: 8px; background: var(--bg); border: 1px solid va
 .agent-opt:hover:not(:disabled) { background: var(--surface); }
 .agent-opt[aria-checked="true"] { background: var(--selected); border-color: var(--focus); font-weight: 600; }
 .agent-opt:disabled { opacity: .5; }
+#preflight-list { margin: 6px 0 0; padding-left: 22px; font-size: 14px; }
+#preflight-list li { margin-top: 4px; }
 
 /* the right-hand sheets */
 .scrim { position: absolute; inset: 0; background: var(--scrim); z-index: 5; }
@@ -404,9 +406,14 @@ dd { margin: 0; overflow-wrap: anywhere; }
         <span class="pip-tile" data-pip="live"></span>
         <h2 id="greeting" aria-live="polite">Opening your game&hellip;</h2>
         <p id="hello-facts"></p>
-        <div class="nogame result" id="nogame" hidden><span>This folder has no game with a plan yet. Ask the producer to start one (in your terminal, with <code>para new</code>), then reload this page.</span></div>
+        <div class="nogame result" id="nogame" hidden><span>This folder has no game with a plan yet. In a terminal in this folder, run <code>tmp/para new mygame</code> (any name without spaces), then reload this page.</span></div>
       </div>
       <div class="cwrap" id="cwrap">
+        <div id="preflight" hidden>
+          <div id="preflight-sum" class="result" role="status" aria-live="polite"></div>
+          <ul id="preflight-list"></ul>
+          <div class="row-inline"><button type="button" class="btn ghost" id="preflight-recheck" hidden>Check again</button></div>
+        </div>
         <div id="chat-setup" class="result bad" role="status" hidden></div>
         <form id="chat-form" class="composer">
           <button type="button" class="plus" id="plus-btn" aria-label="More: screenshot, check, save" title="More" aria-haspopup="true" aria-expanded="false"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
@@ -968,6 +975,32 @@ async function pickAgent(name) {
   catch (e) { say($("chat-result"), e.message, "bad"); }
 }
 
+// The startup checks (installed, signed in, folder trusted, edits allowed): one "Ready" line when all
+// pass, else what is wrong with one plain fix each. Informational only: it never blocks Play or the chat.
+async function loadPreflight() {
+  const box = $("preflight"), sum = $("preflight-sum"), list = $("preflight-list");
+  let p;
+  try { p = await api("GET", "/api/preflight" + gameQuery()); } catch (e) { return; }
+  list.textContent = "";
+  const todo = p.checks.filter((c) => c.state !== "ok");
+  const failed = todo.filter((c) => c.state === "fail").length;
+  box.hidden = false;
+  $("preflight-recheck").hidden = todo.length === 0;
+  if (todo.length === 0) {
+    say(sum, "Ready", "ok");
+    sum.title = p.checks.map((c) => c.label).join(", ");
+    return;
+  }
+  sum.title = "";
+  say(sum, failed > 0 ? "Not ready yet: " + plural(failed, "thing needs", "things need") + " fixing before " + p.label + " can work here."
+                      : "Could not check everything for " + p.label + ".", failed > 0 ? "bad" : "busy");
+  for (const c of todo) {
+    const li = document.createElement("li");
+    li.append(textEl("strong", "", c.problem), document.createTextNode(" " + c.fix));
+    list.append(li);
+  }
+}
+
 async function loadAgent() {
   const a = await api("GET", "/api/agent" + gameQuery());
   agentReady = a.installed;
@@ -987,6 +1020,7 @@ async function loadAgent() {
   setup.className = "result" + (a.installed ? "" : " bad");
   $("chat-recheck").hidden = a.installed;
   syncButtons();
+  loadPreflight();
 }
 
 function resetChatView() {
@@ -1059,6 +1093,7 @@ $("chat-new").addEventListener("click", async () => {
   catch (e) { say($("chat-result"), e.message, "bad"); }
 });
 $("chat-recheck").addEventListener("click", () => { loadAgent().catch((e) => say($("chat-result"), e.message, "bad")); });
+$("preflight-recheck").addEventListener("click", () => { say($("preflight-sum"), "Checking…", "busy"); loadAgent().catch((e) => say($("chat-result"), e.message, "bad")); });
 
 // --- the game window ----------------------------------------------------------------
 // The studio builds the game and opens its own window; this only shows how that is going.

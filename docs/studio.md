@@ -29,7 +29,8 @@ sends to Anthropic or OpenAI when you chat (see "The chat" below).
 - Going back to an earlier save point and setting work aside are not in the page
   yet (use `para save --back` / `--set-aside` in the terminal).
 - The code is `tools/para/studiohttp.nim` (the server and its checks),
-  `studioapi.nim` (the routes and jobs), `studiocmd.nim` (the command),
+  `studioapi.nim` (the routes and jobs), `preflight.nim` (the startup checks, below),
+  `studiocmd.nim` (the command),
   `studiochat.nim` (the chat's turns, session files and the pick per game), `agent.nim`
   (the interface every agent adapter fills in), `claudeagent.nim` (the Claude adapter),
   `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
@@ -37,6 +38,34 @@ sends to Anthropic or OpenAI when you chat (see "The chat" below).
   `studioshot.nim` (the pictures) and `studio/index.html` (the page, compiled
   into the binary; editing it needs a rebuild of `para`). Tests: `para test
   --filter test_para_studio`.
+
+### Startup checks
+
+The first thing the page does, before any chat, is ask the studio to look at the setup. When
+everything is fine it shows one word, **Ready**. When something is not, it says what, with one plain
+line on how to fix it, and a **Check again** button to press afterwards. It is only information: it
+never blocks Play, Check, Save or the chat (a chat you send anyway still gets the same plain
+messages as before), and it makes no model call, so it costs nothing.
+
+| Check | What the studio looks at | Shown when it fails |
+| --- | --- | --- |
+| Installed | the `claude` (or `codex`) program is on the PATH | the setup page to install it from |
+| Signed in | `claude auth status --json` (Codex: `codex login status`); only its yes/no is read | "open a terminal, run: claude, and follow its sign-in" |
+| Folder trusted | Claude's own record, `projects["<this folder>"].hasTrustDialogAccepted` in `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` if set) | "open a terminal in this folder, run: claude, and choose Yes, I trust this folder" |
+| Edits in `games/` allowed | the folder's `.claude/settings.json` (and `.claude/settings.local.json`) still allow `Edit(/games/**)` and `Write(/games/**)` and nothing denies them | "put the file back: git checkout -- .claude/settings.json" |
+
+A check the studio has no safe way to answer says **Could not check** with a hint instead of a
+guess (for example a `claude` too old to have `auth status`, a config file in a shape it does not
+know, or Codex's trust record, which it can only confirm, not rule out). Codex gets the first three
+checks and no edit-rule check, since its sandbox needs no list of rules. Claude's trust record is
+per folder: trusting a parent folder does not cover it (checked with Claude Code 2.1.306), and
+the first question `claude` asks has **No, exit** highlighted, so pressing Enter without moving
+down leaves the folder untrusted. The studio only reads that one entry and the yes/no of the
+sign-in answer: it never reads, keeps, logs or shows a login, a token, an email address or any other
+folder in those files. `GET /api/preflight?game=` returns the checks for the producer picked
+for the game (or the default one, with no game yet), asking again every time. Tests:
+`tmp/para test --filter test_para_studio_preflight`; Linux is where it was checked, the trust
+record's format on Windows has not been seen (a folder with no entry there is "could not check").
 
 ### The chat
 
@@ -247,14 +276,16 @@ How it works, for whoever changes it:
   it from https://developers.openai.com/codex/cli, run `codex` once in a terminal and sign
   in, then press "Check again". A turn that ends with "no usage left" is Codex's plan
   talking; wait for it to reset (the message says when, if Codex told us) or pick Claude.
-- **"claude" is not installed, or not signed in.** The chat says so. Install Claude Code
+- **"claude" is not installed, or not signed in.** The startup check at the top of the chat
+  says so, and so does the chat if you send a message anyway. Install Claude Code
   from Anthropic's setup page (https://code.claude.com/docs/en/setup), open a terminal,
   run `claude` once and sign in, then press "Check again" on the page. The studio never
   asks for a login or key itself.
 - **The producer says it is not allowed to run commands or change files in your game folder.**
   Claude Code ignores the folder's allow-list until you have said Yes to its trust question
-  there (the chat says "Claude doesn't trust this folder yet"): open a terminal in the folder,
-  run `claude`, answer Yes, then send your message again. If the refusal names a file
+  there (the startup check says "Claude does not trust this folder yet", and so does the chat):
+  open a terminal in the folder, run `claude`, choose **Yes, I trust this folder** (the
+  highlighted choice is "No, exit", so move down first), then press "Check again" on the page. If the refusal names a file
   outside `games/`, that is on purpose (see "What the producer and its helpers can change").
 - **Play says the game did not build.** Ask the producer to fix it; "Show the details"
   has the lines the compiler printed. If it says Nim or a C compiler was not found,

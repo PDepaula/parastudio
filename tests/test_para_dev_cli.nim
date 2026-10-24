@@ -18,6 +18,7 @@ import tools/para/livecmd
 import tools/para/games
 import tools/para/art/toon
 import paraloop/dev
+import paraloop/devsock
 
 const tmpDir = currentSourcePath().parentDir.parentDir / "tmp"
 
@@ -174,6 +175,28 @@ proc serveFakeGame(args: ServerArgs) {.thread.} =
       got = server.poll(handler)
     if got: inc handled
     else: sleep(10)
+
+suite "devclient: a socket path longer than a unix socket address allows":
+  test "an absolute path past the limit still connects, by its path from the current directory":
+    when tcpChannel:
+      skip() # the TCP route has no address length to run into
+    else:
+      let start = getCurrentDir()
+      let top = tmpDir / "test-para-long-sock"
+      var dir = top
+      while dir.len < 130: dir = dir / "a-deep-folder"
+      createDir(dir)
+      setCurrentDir(dir)
+      defer:
+        setCurrentDir(start)
+        removeDir(top)
+      let sockPath = dir / "dev.sock"
+      check sockPath.len > 108
+      var t: Thread[ServerArgs]
+      createThread(t, serveFakeGame, ("dev.sock", "", 1)) # the game binds a path relative to where it runs
+      defer: joinThread(t)
+      waitForSocket(sockPath)
+      check sendDevRequest(sockPath, "ping").text == "pong"
 
 suite "para live: a real round trip over the control channel":
   test "status, shot and a generic passthrough":

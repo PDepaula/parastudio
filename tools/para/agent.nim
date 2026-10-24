@@ -71,11 +71,28 @@ type
     note*: string        ## one plain line to show when something is off (not installed, no version)
     url*: string         ## where to read more
 
+  CheckState* = enum
+    csOk       ## looked, and it is fine
+    csFail     ## looked, and it is not
+    csUnknown  ## could not tell (no safe way to ask, or the answer was not in a shape we know)
+
+  PreflightCheck* = object
+    ## One line of the startup check on the page (`GET /api/preflight`).
+    id*: string          ## "installed", "signed-in", "trusted" or "edits": a stable word the page and tests use
+    state*: CheckState
+    label*: string       ## what should be true: "Claude is signed in"
+    problem*: string     ## when not ok: what is wrong, or "Could not check ..."
+    fix*: string         ## when not ok: one plain line saying what to do
+
   AgentAdapter* = object
     name*: string        ## "claude": the word in file names and requests
     label*: string       ## "Claude": what the page calls it
     exe*: string         ## "" = look the program up on PATH; set by tests
     describe*: proc (a: AgentAdapter): AgentInfo {.nimcall, gcsafe.}
+    preflight*: proc (a: AgentAdapter, root: string): seq[PreflightCheck] {.nimcall, gcsafe.}
+      ## Read-only setup checks before the first chat (installed, signed in, folder trusted, edits
+      ## allowed); nil for an adapter that has none. Never starts a model turn, never reads or
+      ## returns a login, a token or a key.
     runTurn*: proc (a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl,
                     emit: EmitProc): TurnResult {.nimcall, gcsafe.}
     cost*: string        ## one plain sentence about who pays, shown beside the chat

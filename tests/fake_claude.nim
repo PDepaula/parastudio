@@ -23,6 +23,12 @@
 #                   `hang`, or a stand-in for a long `para check`
 #   garbage         print text that is not stream-json at all, exit 0
 #   noversion       `--version` prints something that is not a version
+#
+# `auth status --json` (the startup check) answers by FAKE_CLAUDE_AUTH, whatever the mode: "in"
+# (the default; loggedIn true, with an email address that must never come back out), "out"
+# (loggedIn false, exit 1), "garbage" (text that is not JSON), "noauth" (an older claude that has no
+# `auth` command, exit 1). It starts no turn and writes nothing to FAKE_CLAUDE_LOG, so a test can see
+# that no turn was started.
 
 import std/[os, json, osproc, strtabs, strutils]
 
@@ -41,6 +47,19 @@ proc fakeClaudeMain*() =
   let mode = getEnv("FAKE_CLAUDE_MODE", "normal")
   if args == @["--version"]:
     emit(if mode == "noversion": "who knows" else: "2.1.296 (Claude Code)")
+    quit 0
+  if args == @["auth", "status", "--json"]:
+    case getEnv("FAKE_CLAUDE_AUTH", "in")
+    of "out":
+      emit "{\"loggedIn\":false,\"authMethod\":\"none\",\"apiProvider\":\"firstParty\"}"
+      quit 1
+    of "garbage":
+      emit "Welcome to a different program"
+    of "noauth":
+      emit "error: unknown command 'auth'"
+      quit 1
+    else:
+      emit "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"email\":\"friend@example.com\",\"subscriptionType\":\"pro\"}"
     quit 0
   if mode == "sleep":
     sleep(parseInt(getEnv("FAKE_CLAUDE_SLEEP_MS", "120000")))
