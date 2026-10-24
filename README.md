@@ -9,6 +9,15 @@ or [Codex](https://developers.openai.com/codex/cli)): you say what you want to p
 and its helpers build it, check it, and keep a save point you can go back to.
 You do not need to be an engineer.
 
+Two ways to use it:
+
+- **Para Studio, the default.** One place to do everything: open it, talk to the producer, play, check
+  and save. You do not wire up any agent yourself. Start at [The Studio](#the-studio) and the
+  [Quick start](#quick-start).
+- **Power users.** Skip the Studio and drive the engine and the `para` CLI directly with your own coding
+  agent. See [docs/para.md](docs/para.md), [AGENTS.md](AGENTS.md) and the skills in
+  [skills/](skills/) and [.agents/skills/](.agents/skills/).
+
 ## The Studio
 
 `tmp/para studio` opens a page on your own computer (nothing is sent anywhere but
@@ -103,7 +112,10 @@ Upload the zip's contents to [itch.io](https://itch.io) (an HTML5 project) or an
 
 ## Docs
 
-- [docs/studio.md](docs/studio.md): the Studio page, its chat, Claude or Codex, Play and screenshots, what to do when something goes wrong
+Most people only need the Studio page. If you drive the engine with your own agent, start from
+[docs/para.md](docs/para.md), [AGENTS.md](AGENTS.md) and the skills below.
+
+- [docs/studio.md](docs/studio.md): the default interface, the Studio page, its chat, Claude or Codex, Play and screenshots, what to do when something goes wrong
 - [docs/para.md](docs/para.md): every `para` command
 - [docs/testing.md](docs/testing.md): running the tests, the local loop, what CI runs
 - [docs/web.md](docs/web.md): the wasm target, `para web smoke`, packing a build
