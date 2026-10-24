@@ -8,6 +8,16 @@ Nothing to install (no Node, no Python), no account of ours and no telemetry. Th
 that leaves your computer is what the `claude` or `codex` program you installed sends to
 Anthropic or OpenAI when you chat.
 
+## First run in 60 seconds
+
+1. In the folder, run `tmp/para studio`. Your browser opens the page (the terminal prints the link
+   too).
+2. Look at the pill in the top bar. Green **Ready 4/4**: go on. Red **Setup needed**: click it,
+   read the one line under the check that is not ready, do that, then press **Check again**.
+3. Press **Where did we leave off?** or **Start a game**, and talk to the producer.
+
+Anything else not working: [If something goes wrong](#if-something-goes-wrong).
+
 ## Open it
 
 In the folder, run:
@@ -21,17 +31,13 @@ changes every run, so use the new link each time. Ctrl+C in that terminal stops 
 closes the game window Studio opened and ends a chat turn that is still running. Closing the
 browser tab does not stop it.
 
-- Studio only listens on your own computer (`127.0.0.1`), on any free port. `--port N` picks the
-  port, `--no-open` only prints the link, `--game NAME` starts on one game.
-- It is meant for your own computer. On a shared computer, another user who can list your
-  running programs could read the key in the link.
+- `--port N` picks the port, `--no-open` only prints the link, `--game NAME` starts on one game.
 - Going back to an earlier save point and setting work aside are not in the page yet (use
   `para save --back` / `--set-aside` in the terminal).
 
 ## The page
 
-The page is a desk in three columns, big and round on purpose (18px messages, a message box at
-least 64px tall, Pip the parakeet three times the size it used to be):
+The page is a desk in three columns, big and round on purpose:
 
 - **On the left**, Pip's card: the producer's face (it bobs while idle, thinks while a turn
   runs and talks when an answer arrives) and, when this computer knows more than one, the
@@ -111,6 +117,48 @@ producer said anything (not signed in, out of credit, not installed), your messa
 the message box (in front of anything typed since, with a blank line between) and the page says to
 fix the problem and press Send again. The startup checks are asked again at the same time.
 
+## If something goes wrong
+
+- **The page says it lost touch with Studio.** The terminal window running `tmp/para studio` was
+  closed or stopped. Run it again and use the new link (the key in the link changes every run).
+  Closing the browser tab does not stop Studio.
+- **"codex" is not installed, or not signed in.** Same as the next item for Codex: install it from
+  https://developers.openai.com/codex/cli, run `codex` once in a terminal and sign in, then press
+  "Check again". A turn that ends with "no usage left" is Codex's plan talking; wait for it to
+  reset (the message says when, if Codex told us) or pick Claude.
+- **"claude" is not installed, or not signed in.** The startup checks pill turns red and the
+  checks open with the fix (and, for signing in, the first-run card), and so does the chat if you
+  send a message anyway; your message stays in the box to send again. Install Claude Code from
+  Anthropic's setup page (https://code.claude.com/docs/en/setup), open a terminal, run `claude`
+  once and sign in, then press "Check again" on the page. Studio never asks for a login or key
+  itself.
+- **The producer says it is not allowed to run commands or change files in your game folder.**
+  Claude Code ignores the folder's allow-list until you have said Yes to its trust question there
+  (the startup check says "Claude does not trust this folder yet", and so does the chat): open a
+  terminal in the folder, run `claude`, choose **Yes, I trust this folder** (the highlighted
+  choice is "No, exit", so move down first), then press "Check again" on the page. If the refusal
+  names a file outside `games/`, that is on purpose (see "What the producer can and cannot
+  change").
+- **Play says the game did not build.** Ask the producer to fix it; "Show the details" has the
+  lines the compiler printed. If it says Nim or a C compiler was not found, `nim --version` and
+  `gcc --version` need to work in the terminal you started Studio from (see
+  [windows-first-game.md](windows-first-game.md) for what to install).
+- **Play says there is no screen.** On Linux a window needs `DISPLAY` or `WAYLAND_DISPLAY`; over a
+  remote connection (SSH) there is none. Run Studio on the computer in front of you.
+- **Play says the graphics driver cannot start OpenGL**, or the game stops straight away and says
+  nothing. Update the graphics driver. A virtual machine often has no real graphics at all; that
+  is not a bug in your game (see the top of [windows-first-game.md](windows-first-game.md)).
+- **The port is busy** ("could not start listening"). Run `tmp/para studio --port N` with another
+  number, or leave `--port` out and Studio picks a free one.
+- **A firewall or antivirus asks about Studio.** It only listens on your own computer,
+  so no prompt should appear; if one does, "Cancel" and "Allow" both work, and
+  please tell us it happened.
+- **Where are the logs?** Studio writes none. The page's "Show the details" boxes hold the last
+  lines of a failed build or a window that stopped; the terminal where you started it only shows
+  the link. The pictures are in `tmp/studio/shots/`.
+- **How do I stop it?** Press Ctrl+C in the terminal where you started it. That closes the game
+  window Studio opened and ends a chat turn that is still running.
+
 ## Start a game
 
 With no game in `games/` the greeting says so and offers **Start a game**; **Start a new game** in
@@ -189,48 +237,6 @@ They do what the same commands do in a terminal (`para check`, `para save -m`,
 backup only goes to the remote named `backup`, never to `origin`, and only after you click yes.
 Save and Backup work in the game's own git repository (`games/<game>/.git`, which `para new`
 makes); a game without one is saved in the repository that contains `games/`, as before.
-
-## If something goes wrong
-
-- **The page says it lost touch with Studio.** The terminal window running `tmp/para studio` was
-  closed or stopped. Run it again and use the new link (the key in the link changes every run).
-  Closing the browser tab does not stop Studio.
-- **"codex" is not installed, or not signed in.** Same as the next item for Codex: install it from
-  https://developers.openai.com/codex/cli, run `codex` once in a terminal and sign in, then press
-  "Check again". A turn that ends with "no usage left" is Codex's plan talking; wait for it to
-  reset (the message says when, if Codex told us) or pick Claude.
-- **"claude" is not installed, or not signed in.** The startup checks pill turns red and the
-  checks open with the fix (and, for signing in, the first-run card), and so does the chat if you
-  send a message anyway; your message stays in the box to send again. Install Claude Code from
-  Anthropic's setup page (https://code.claude.com/docs/en/setup), open a terminal, run `claude`
-  once and sign in, then press "Check again" on the page. Studio never asks for a login or key
-  itself.
-- **The producer says it is not allowed to run commands or change files in your game folder.**
-  Claude Code ignores the folder's allow-list until you have said Yes to its trust question there
-  (the startup check says "Claude does not trust this folder yet", and so does the chat): open a
-  terminal in the folder, run `claude`, choose **Yes, I trust this folder** (the highlighted
-  choice is "No, exit", so move down first), then press "Check again" on the page. If the refusal
-  names a file outside `games/`, that is on purpose (see "What the producer can and cannot
-  change").
-- **Play says the game did not build.** Ask the producer to fix it; "Show the details" has the
-  lines the compiler printed. If it says Nim or a C compiler was not found, `nim --version` and
-  `gcc --version` need to work in the terminal you started Studio from (see
-  [windows-first-game.md](windows-first-game.md) for what to install).
-- **Play says there is no screen.** On Linux a window needs `DISPLAY` or `WAYLAND_DISPLAY`; over a
-  remote connection (SSH) there is none. Run Studio on the computer in front of you.
-- **Play says the graphics driver cannot start OpenGL**, or the game stops straight away and says
-  nothing. Update the graphics driver. A virtual machine often has no real graphics at all; that
-  is not a bug in your game (see the top of [windows-first-game.md](windows-first-game.md)).
-- **The port is busy** ("could not start listening"). Run `tmp/para studio --port N` with another
-  number, or leave `--port` out and Studio picks a free one.
-- **A firewall or antivirus asks about Studio.** It only listens on your own computer
-  (`127.0.0.1`), so no prompt should appear; if one does, "Cancel" and "Allow" both work, and
-  please tell us it happened.
-- **Where are the logs?** Studio writes none. The page's "Show the details" boxes hold the last
-  lines of a failed build or a window that stopped; the terminal where you started it only shows
-  the link. The pictures are in `tmp/studio/shots/`.
-- **How do I stop it?** Press Ctrl+C in the terminal where you started it. That closes the game
-  window Studio opened and ends a chat turn that is still running.
 
 ## Two copies, two studios
 

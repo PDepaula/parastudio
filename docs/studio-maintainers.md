@@ -47,6 +47,9 @@ column is a drawer). The page's own behaviour is described for the friend in
 [studio.md](studio.md), "The page". The notes that used to sit under the message box moved to the
 startup checks and the help (?).
 
+**Sizes.** Big and round on purpose: 18px messages, a message box at least 64px tall, Pip the
+parakeet three times the size it used to be.
+
 **Fonts.** The page uses Nunito for text and Fredoka for headings, Latin letters only, SIL Open
 Font License 1.1 (`tools/para/studio/fonts/`, with their licences; listed in
 `THIRD_PARTY.md`). They are put inside the page as `data:` addresses when `para` is built
