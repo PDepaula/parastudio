@@ -356,6 +356,15 @@ proc agentInfo*(c: ptr ChatState, name: string): AgentInfo =
   c.infos[adapter.name] = (result, epochTime())
   release(c.lock)
 
+proc agentPreflight*(c: ptr ChatState, name: string): seq[PreflightCheck] =
+  ## The startup checks for `name` (see preflight.nim). Not kept: each call asks again, so "Check
+  ## again" on the page sees what the friend just fixed. Called with the lock free: a probe can take a moment.
+  let adapter = c.adapterFor(name)
+  if adapter.preflight.isNil: return
+  {.cast(gcsafe).}:
+    result = adapter.preflight(adapter, c.root)
+
+proc agentLabel*(c: ptr ChatState, name: string): string = c.adapterFor(name).label
 proc agentCost*(c: ptr ChatState, name: string): string = c.adapterFor(name).cost
 proc agentAbout*(c: ptr ChatState, name: string): string = c.adapterFor(name).about
 proc timeoutMinutes*(c: ptr ChatState): int = c.timeoutSec div 60

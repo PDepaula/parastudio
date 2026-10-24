@@ -50,7 +50,7 @@ please send the captain what you see if anything looks different from this page.
    | 4 Game libraries | "working" with dots, a few minutes | Wait. It is working even when nothing moves. |
    | 5 Building para | "working" with dots, a few minutes | Wait. |
    | 6 Claude or Codex | Says which it found, or where to install one | See "The producer's chat" below. |
-   | 7 Starting Studio | Studio opens in your browser | Keep the Terminal window open while you use Studio. |
+   | 7 Starting Studio | Studio opens in your browser | Keep the Terminal window open while you use Studio. The first time it says there is no game yet: in Terminal, in the same folder, run `tmp/para new mygame` (any name without spaces), then reload the page. |
 
 4. To stop Studio, press **Control+C** in the Terminal window, then close it.
 
@@ -70,7 +70,11 @@ and sign in there, in its own window:
 - Codex CLI: <https://developers.openai.com/codex/cli>
 
 You can start Studio before that; the chat starts working once one is installed and
-signed in.
+signed in. Claude Code also asks, the first time you open a folder, whether you trust it:
+in Terminal, in the `parastudio` folder, run `claude`, sign in, and choose **Yes, I trust this
+folder** (the highlighted choice is "No, exit", so move down first). Until you do, Claude
+ignores the list of things the producer may do. Studio checks all of this when its page opens and
+says "Ready" or what is missing (see [studio.md](studio.md#startup-checks)).
 
 ## If the game window does not open
 
@@ -108,7 +112,7 @@ nothing secret (Studio's own output, which carries its private link, is not in i
   to let nimble fetch the game libraries, and through git. No telemetry.
 - It does not read, copy or change any login or setting of Claude or Codex.
 - To see what it would do without changing anything, run
-  `bash tools/launcher/launch.sh --dry-run` in Terminal from the `paraloop` folder.
+  `bash tools/launcher/launch.sh --dry-run` in Terminal from the `parastudio` folder.
 
 ## Linux and Windows
 

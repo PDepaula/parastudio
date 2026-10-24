@@ -24,6 +24,7 @@
 #   POST /api/backup            {game, confirm: true, isPrivate?: bool}: run `para backup --game G --push --yes`
 #   GET  /api/agent?game=       the producer's tool for this game (installed? version?), who pays, the turn time
 #                               limit, and `agents`: every producer the page may pick, with `current` named
+#   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line
 #   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation)
 #   GET  /api/chat?game=&since= the chat lines after number `since`, and whether a turn is running
 #   POST /api/chat/send         {game, text}: one turn with the producer (one at a time)
@@ -53,6 +54,7 @@ import savepoint
 import producercmd
 import backupcmd
 import studiohttp
+import preflight
 import agent
 import agents
 import studiochat
@@ -349,6 +351,23 @@ proc agentJson(st: ptr Studio, req: Request): Response =
   node["agents"] = rows
   jsonResponse(200, node)
 
+proc preflightJson(st: ptr Studio, req: Request): Response =
+  ## Read-only and free: nothing here calls a model, writes a file or returns anything the agent
+  ## program keeps secret (see preflight.nim). Works with no game picked yet, for the default producer.
+  let asked = req.queryValue("game")
+  let current = if asked.len > 0 and validGameName(asked): agentOf(addr st.chat, asked)
+                else: agentNames(addr st.chat)[0]
+  let checks = agentPreflight(addr st.chat, current)
+  var rows = newJArray()
+  for c in checks:
+    var row = %*{"id": c.id, "state": stateName(c.state), "label": c.label}
+    if c.state != csOk:
+      row["problem"] = %c.problem
+      row["fix"] = %c.fix
+    rows.add row
+  jsonResponse(200, %*{"agent": current, "label": agentLabel(addr st.chat, current),
+                        "ready": allOk(checks), "checks": rows})
+
 proc agentPickJson(st: ptr Studio, body: JsonNode): Response =
   var game: string
   let picked = pickGame(st, body.fieldString("game"), game)
@@ -449,6 +468,7 @@ proc handle(st: ptr Studio, req: Request): Response =
     of "/api/backup": return backupJson(st, req.queryValue("game"))
     of "/api/job": return jobJson(st, req)
     of "/api/agent": return agentJson(st, req)
+    of "/api/preflight": return preflightJson(st, req)
     of "/api/chat": return chatJson(st, req)
     of "/api/play": return playJson(st)
     of "/api/shot": return shotImage(st, req)

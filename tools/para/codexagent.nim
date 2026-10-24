@@ -47,6 +47,7 @@ import std/[json, os, osproc, streams, strutils, tables, sets, times, locks]
 import agent
 import agentjson
 import nimutil
+import preflight
 import studioshot
 
 const
@@ -549,6 +550,35 @@ proc codexDescribe(a: AgentAdapter): AgentInfo =
     result.note = "I couldn't read Codex's version, so I can't tell whether it is one this studio was tested with (" &
       testedCodexVersion & "). Chat may still work."
 
+proc codexPreflight(a: AgentAdapter, root: string): seq[PreflightCheck] =
+  ## The setup checks for the Codex producer. Read-only and free: `codex login status` asks no model
+  ## anything. There is no edit-rule check: Codex's sandbox (`workspace-write`) lets it change files
+  ## in this folder without a list of rules.
+  let exe = locate(a)
+  if exe.len == 0:
+    result.add failed("installed", "Codex is installed", "Codex is not installed on this computer.",
+      "Install it from " & installUrl & ", open a terminal and run: codex  to sign in, then press Check again.")
+    return
+  result.add passed("installed", "Codex is installed")
+  const signedIn = "Codex is signed in"
+  let r = runCaptured(exe, @["login", "status"], timeoutMs = 8000)
+  case codexSignedIn(r.exitCode, r.output)
+  of csOk: result.add passed("signed-in", signedIn)
+  of csFail:
+    result.add failed("signed-in", signedIn, "Codex is not signed in.",
+      "Open a terminal, run: codex  and follow its sign-in, then press Check again.")
+  of csUnknown:
+    result.add couldNotCheck("signed-in", signedIn, "Could not check whether Codex is signed in.",
+      "If the producer says it is not signed in, open a terminal, run: codex  and follow its sign-in.")
+  const trusted = "Codex trusts this folder"
+  let cfg = readSmallFile(codexConfigFile())
+  if cfg.readable and codexTrust(cfg.text, folderForms(root)) == csOk:
+    result.add passed("trusted", trusted)
+  else:
+    result.add couldNotCheck("trusted", trusted, "Could not check whether Codex trusts this folder.",
+      "If the producer seems to ignore this folder's settings, open a terminal in this folder (" & root &
+      "), run: codex  and answer yes to trusting the folder.")
+
 type
   Link = object
     ## What the thread that stops a turn may touch: the way to write to the app-server and the ids a
@@ -675,5 +705,5 @@ proc codexRunTurn(a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl, emit:
 
 proc newCodexAdapter*(exe = ""): AgentAdapter =
   ## `exe` is for tests (a stand-in program); left out, `codex` is looked up on PATH each time.
-  AgentAdapter(name: "codex", label: "Codex", exe: exe, describe: codexDescribe, runTurn: codexRunTurn,
-               cost: costSentence, about: aboutSentence)
+  AgentAdapter(name: "codex", label: "Codex", exe: exe, describe: codexDescribe, preflight: codexPreflight,
+               runTurn: codexRunTurn, cost: costSentence, about: aboutSentence)

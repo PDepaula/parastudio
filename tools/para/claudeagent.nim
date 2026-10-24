@@ -35,6 +35,7 @@ import std/[json, os, osproc, streams, strutils, tables, sets]
 import agent
 import agentjson
 import nimutil
+import preflight
 
 const
   testedClaudeVersion* = "2.1.296"
@@ -358,6 +359,56 @@ proc claudeDescribe(a: AgentAdapter): AgentInfo =
     result.note = "I couldn't read Claude's version, so I can't tell whether it is one this studio was tested with (" &
       testedClaudeVersion & "). Chat may still work."
 
+# --- the startup checks ---------------------------------------------------------------
+
+const
+  settingsFile = ".claude" / "settings.json"
+  localSettingsFile = ".claude" / "settings.local.json"
+  signedOutFix* = "Open a terminal, run: claude  and follow its sign-in (Anthropic's setup page explains the options), then press Check again."
+  editsMissingFix* = "Put the file back by running this in your terminal, in this folder: git checkout -- .claude/settings.json  then press Check again."
+  editsBlockedFix* = "Open .claude/settings.local.json in this folder and remove the line that forbids Edit or Write, then press Check again."
+
+proc trustFix*(root: string): string =
+  "Open a terminal in this folder (" & root & "), run: claude  and choose \"Yes, I trust this folder\" " &
+    "(it is the second choice, not the highlighted one), then press Check again."
+
+proc claudePreflight(a: AgentAdapter, root: string): seq[PreflightCheck] =
+  ## The four setup checks for the Claude producer. Read-only and free: `claude auth status` asks no
+  ## model anything, and the rest is reading three small files.
+  let exe = locate(a)
+  if exe.len == 0:
+    result.add failed("installed", "Claude is installed", "Claude Code is not installed on this computer.",
+      "Install it from " & installUrl & ", open a terminal and run: claude  to sign in, then press Check again.")
+  else:
+    result.add passed("installed", "Claude is installed")
+    const signedIn = "Claude is signed in"
+    let r = runCaptured(exe, @["auth", "status", "--json"], timeoutMs = 8000)
+    case claudeSignedIn(r.output)
+    of csOk: result.add passed("signed-in", signedIn)
+    of csFail: result.add failed("signed-in", signedIn, "Claude is not signed in.", signedOutFix)
+    of csUnknown:
+      result.add couldNotCheck("signed-in", signedIn, "Could not check whether Claude is signed in.",
+        "If the producer says it is not signed in, open a terminal, run: claude  and follow its sign-in.")
+    const trusted = "Claude trusts this folder"
+    let cfg = readSmallFile(claudeConfigFile())
+    let trust =
+      if not cfg.found: csFail # claude has never been opened here
+      elif not cfg.readable: csUnknown
+      else: claudeTrust(cfg.text, folderForms(root), strict = not defined(windows))
+    case trust
+    of csOk: result.add passed("trusted", trusted)
+    of csFail: result.add failed("trusted", trusted, "Claude does not trust this folder yet.", trustFix(root))
+    of csUnknown:
+      result.add couldNotCheck("trusted", trusted, "Could not check whether Claude trusts this folder.",
+        "If the producer says it is not allowed to change files, " & trustFix(root))
+  const edits = "The producer may change files in games/"
+  case editRulesIn(readSmallFile(root / settingsFile).text, readSmallFile(root / localSettingsFile).text)
+  of erAllowed: result.add passed("edits", edits)
+  of erMissing:
+    result.add failed("edits", edits, "This folder's .claude/settings.json no longer lets the producer change files in games/.", editsMissingFix)
+  of erBlocked:
+    result.add failed("edits", edits, "A rule in this folder's .claude settings forbids changing files in games/.", editsBlockedFix)
+
 type Attempt = object
   exitCode: int
   started: bool
@@ -423,5 +474,5 @@ proc claudeRunTurn(a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl, emit
 
 proc newClaudeAdapter*(exe = ""): AgentAdapter =
   ## `exe` is for tests (a stand-in program); left out, `claude` is looked up on PATH each time.
-  AgentAdapter(name: "claude", label: "Claude", exe: exe, describe: claudeDescribe, runTurn: claudeRunTurn,
-               cost: costSentence, about: aboutSentence)
+  AgentAdapter(name: "claude", label: "Claude", exe: exe, describe: claudeDescribe, preflight: claudePreflight,
+               runTurn: claudeRunTurn, cost: costSentence, about: aboutSentence)

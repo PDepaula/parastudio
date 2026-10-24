@@ -23,6 +23,23 @@ proc socketExists*(path: string): bool =
   except OSError:
     false
 
+const maxSockPath = 100 ## a unix socket address holds 104 bytes on macOS, 108 on Linux
+
+proc connectPath*(path: string): string =
+  ## `path` as it can be connected to. A unix socket address cannot be longer than the OS allows
+  ## (a game folder deep in a long path, or one synced into iCloud or OneDrive, can pass it), and
+  ## `connectUnix` then raises ValueError. The same socket is reachable by its path from the
+  ## current directory, which is short when the studio or `para` runs inside the repository.
+  when tcpChannel:
+    path
+  else:
+    if path.len <= maxSockPath: return path
+    try:
+      let rel = relativePath(path, getCurrentDir())
+      if rel.len < path.len: rel else: path
+    except OSError:
+      path
+
 proc sendDevRequest*(sockPath: string, request: string, timeoutMs = 2000): DevReply =
   ## Sends `request` (one line) to the unix socket at `sockPath` and returns
   ## the one-line reply. Raises `IOError` (never `OSError`/`TimeoutError`
@@ -32,9 +49,9 @@ proc sendDevRequest*(sockPath: string, request: string, timeoutMs = 2000): DevRe
     raise newException(IOError, "no live session at " & sockPath)
   var client: Socket
   try:
-    client = connectDev(sockPath)
-  except OSError as e:
-    raise newException(IOError, "cannot connect to " & sockPath & ": " & e.msg)
+    client = connectDev(connectPath(sockPath))
+  except OSError, ValueError:
+    raise newException(IOError, "cannot connect to " & sockPath & ": " & getCurrentExceptionMsg())
   try:
     client.send(request & "\n")
     var line: string

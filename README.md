@@ -49,12 +49,17 @@ tmp/para new mygame         # games/mygame/, a git repository of its own
 tmp/para studio --game mygame   # the Studio page (or, in a terminal: `tmp/para check`, `tmp/para save -m "what changed"`)
 ```
 
+Before the first message to the producer, do this once: install [Claude Code](https://code.claude.com/docs/en/setup)
+(or Codex), open a terminal **in this folder**, run `claude`, sign in, and answer **Yes, I trust this
+folder** (the highlighted choice is "No, exit", so move down first). The Studio page checks all of this
+when it opens, says "Ready" or what is missing in one line each, and never blocks Play.
+
 On a Mac, double-click `Paraloop-Studio.command` instead ([docs/mac.md](docs/mac.md)). On Windows
 double-click `Paraloop-Studio.bat` ([docs/windows.md](docs/windows.md), not yet tried on a real Windows PC) or follow [docs/windows-first-game.md](docs/windows-first-game.md). What was checked on each system is in
 [docs/platforms.md](docs/platforms.md).
 
 To talk to the producer from a terminal instead of the Studio, open the folder in Claude Code or Codex
-(say yes to the trust question): `AGENTS.md` starts the producer voice and `.agents/skills/` holds its helpers.
+(say yes to the trust question, as above): `AGENTS.md` starts the producer voice and `.agents/skills/` holds its helpers.
 
 ## What you get
 
