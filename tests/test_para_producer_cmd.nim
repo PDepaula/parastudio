@@ -11,6 +11,7 @@ import tools/para/art/clihelpers
 import tools/para/nimutil
 import tools/para/savepoint
 import tools/para/producercmd
+import tools/para/lanecmd
 
 const
   repoRoot = currentSourcePath().parentDir.parentDir
@@ -250,6 +251,31 @@ suite "resume digest: the facts, one line each":
     text = producerContext(root)
     check text.contains("- Unsaved changes in games/mygame/: 1 file changed since the last save (mygame.nim)")
     check "README.md" notin text
+
+  test "a helper's lane left over from last time is named, with its ticket and its files; it is not a second game":
+    let root = newGitRoot()
+    defer: removeDir(root)
+    discard gitOk(root, "rm", "-r", "-q", "--cached", "games")
+    root.put(".gitignore", "tmp/\ngames/*\n")
+    discard gitOk(root, "add", ".gitignore")
+    discard gitOk(root, "commit", "-q", "-m", "the game leaves")
+    let g = root / "games" / "mygame"
+    discard gitOk(g, "init", "-q")
+    discard gitOk(g, "config", "user.name", "Scratch")
+    discard gitOk(g, "config", "user.email", "scratch@example.com")
+    discard gitOk(g, "config", "commit.gpgsign", "false")
+    discard gitOk(g, "add", ".")
+    discard gitOk(g, "commit", "-q", "-m", "start")
+    check "Left over" notin producerContext(root)
+    check runLaneIn(root, @["start", "mygame", "--for", "builder", "--ticket", "rocks that fall"]).code == 0
+    check runLaneIn(root, @["start", "mygame", "--for", "art"]).code == 0
+    root.put("games/mygame.builder/rules.nim", "# rocks\n")
+    root.put("games/mygame.builder/tests/test_rocks.nim", "# test\n")
+    let text = producerContext(root)
+    check text.contains("\nThe game is games/mygame/.") # the lane's PLAN.md copy is not a second game
+    check text.contains("- Left over from last time, in a helper's own copy (`tmp/para lane list`): " &
+      "the art helper's lane art (nothing changed); the builder's lane builder for \"rocks that fall\" (2 files changed, not landed)\n")
+    check text.contains("- Unsaved changes in games/mygame/: none\n")
 
   test "nothing unsaved says so; a clean game has no marker line":
     let root = newGitRoot()
@@ -615,6 +641,11 @@ suite "owned file contracts: voice core, AGENTS.md, CLAUDE.md, hook configs":
       check "&&" notin rule and ";" notin rule and "|" notin rule and ">" notin rule
       for word in banned:
         check word notin rule
+      # a lane may be started, listed and landed without a prompt; dropping one (it can lose work) and
+      # cleaning up are left to ask
+      if rule.startsWith("Bash(tmp/para lane"):
+        check rule in ["Bash(tmp/para lane start *)", "Bash(tmp/para lane list)", "Bash(tmp/para lane list *)",
+                       "Bash(tmp/para lane land *)"]
       # a rule is a para subcommand, or one of a few exact read-only probes, or the one CLI build line
       check rule.startsWith("Bash(tmp/para ") or rule in ["Bash(nim c --hints:off --outdir:tmp tools/para/para.nim)",
         "Bash(git --version)", "Bash(nim -v)", "Bash(cc --version)", "Bash(git remote get-url origin)"]

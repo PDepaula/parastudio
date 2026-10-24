@@ -33,6 +33,10 @@ suite "para check: what it runs":
     check testArgs("pong2") == @["--filter", "games/pong2/", "--skip-balance"]
     check buildArgs("pong") == @["--game", "pong"]
 
+  test "a lane's steps run on its folder: the filter is the lane's, the build names the lane":
+    check testArgs("pong.builder") == @["--filter", "games/pong.builder/", "--skip-balance"]
+    check buildArgs("pong.builder") == @["--game", "pong", "--lane", "builder"]
+
   test "the real steps are the tests, then the build":
     let steps = realSteps()
     check steps.len == 2
@@ -95,6 +99,39 @@ suite "para check: result and stamp":
     check "tests: pass\nbuild: pass\n" in r.output
     check "changed while it was being checked" in r.output
     check not checksJustPassed(root, "pong")
+
+suite "para check --lane: a rehearsal on a helper's lane":
+  var root: string
+  setup:
+    root = newRoot()
+    root.put("games/pong.builder/pong.nim", "echo 2\n")
+    root.put("games/pong.builder/PLAN.md", "# plan\n")
+  teardown: removeDir(root)
+
+  test "runs both steps on the lane, passes, and leaves no stamp for save":
+    let log = new seq[string]
+    let r = runCheckWith(@["--game", "pong", "--lane", "builder"],
+                         @[fake("tests", 0, log = log), fake("build", 0, log = log)], root)
+    check r.code == 0
+    check r.output.startsWith("game: pong\nlane: builder\ntests: pass\nbuild: pass\ncheck: pass (the lane only")
+    check log[] == @["tests:pong.builder", "build:pong.builder"]
+    check not fileExists(stampFile(root, "pong"))
+    check not checksJustPassed(root, "pong")
+
+  test "a lane check does not take away the game's own pass":
+    check runCheckWith(@["--game", "pong"], @[fake("tests", 0)], root).code == 0
+    check runCheckWith(@["--game", "pong", "--lane", "builder"], @[fake("tests", 1)], root).code == 1
+    check checksJustPassed(root, "pong")
+
+  test "the game is still picked from its PLAN.md (the lane's copy is not a second game)":
+    check runCheckWith(@["--lane", "builder"], @[fake("tests", 0)], root).output.startsWith("game: pong\nlane: builder\n")
+
+  test "an unknown lane or a missing id is a usage error that runs nothing":
+    let log = new seq[string]
+    check runCheckWith(@["--game", "pong", "--lane", "art"], @[fake("tests", 0, log = log)], root).code == 2
+    check runCheckWith(@["--game", "pong", "--lane", "../x"], @[fake("tests", 0, log = log)], root).code == 2
+    check runCheckWith(@["--game", "pong", "--lane"], @[fake("tests", 0, log = log)], root).code == 2
+    check log[].len == 0
 
 suite "para check: flags and game choice":
   test "--help is exit 0; unknown flags and a missing name are usage errors":

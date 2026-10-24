@@ -7,10 +7,11 @@ import art/[clihelpers, toon]
 import nimutil
 import games
 import webbuild
+import savepoint
 
 type Run = clihelpers.Run
 
-const buildHelp = "para build [--game NAME] [--target native|web] [--release | --debug] [--define NAME[=VALUE]]...\n" &
+const buildHelp = "para build [--game NAME] [--lane ID] [--target native|web] [--release | --debug] [--define NAME[=VALUE]]...\n" &
   "                [--title TEXT] [--feedback-url URL] [--full]\n" &
   "  compiles examples/<game>/<game>.nim or games/<game>/<game>.nim; --target web needs emcc and node\n" &
   "  native: a debug build unless --release. web: a release build (the one that ships) unless --debug;\n" &
@@ -18,7 +19,9 @@ const buildHelp = "para build [--game NAME] [--target native|web] [--release | -
   "    it also renders the shell, so tmp/web/<game>/ holds index.html + <game>.js + <game>.wasm + manifest,\n" &
   "    icons and build.json, with a build id (short commit, mode and defines: no timestamp) stamped into\n" &
   "    the page; --title sets the page title (default \"paraloop <game>\"); --feedback-url adds a\n" &
-  "    \"Send feedback\" link to that http(s) URL (the build id appended as ?build=). `para web pack` zips it\n"
+  "    \"Send feedback\" link to that http(s) URL (the build id appended as ?build=). `para web pack` zips it\n" &
+  "  --lane ID: build a helper's lane of the game (games/<game>.<id>/, `para lane`) instead, natively, into\n" &
+  "    tmp/lanes/<game>.<id>/ (its own compile cache too, so it never slows the game's own build)\n"
 
 proc runBuild*(args: seq[string]): Run =
   var gameName = "hello"
@@ -29,6 +32,7 @@ proc runBuild*(args: seq[string]): Run =
   var defines: seq[string]
   var title = ""
   var feedbackUrl = ""
+  var lane = ""
   var i = 0
   while i < args.len:
     let a = args[i]
@@ -65,9 +69,13 @@ proc runBuild*(args: seq[string]): Run =
       feedbackUrl = args[i]
     of "--full":
       full = true
+    of "--lane":
+      inc i
+      if i >= args.len: return errorOut("--lane needs the lane id", @[])
+      lane = args[i]
     else:
       return errorOut(&"unknown flag \"{a}\"",
-        @["Valid flags: --game NAME, --target native|web, --release, --debug, --define NAME[=VALUE], --title TEXT, --feedback-url URL, --full"])
+        @["Valid flags: --game NAME, --lane ID, --target native|web, --release, --debug, --define NAME[=VALUE], --title TEXT, --feedback-url URL, --full"])
     inc i
 
   if release and debug:
@@ -83,8 +91,18 @@ proc runBuild*(args: seq[string]): Run =
     return errorOut("--define applies to --target web only",
       @["For a native build with a define, run `nim c -d:NAME ...` directly"])
   var game: Game
-  let notFound = resolveGame(gameName, game)
-  if notFound.code != 0: return notFound
+  var outDir = "tmp"
+  if lane.len > 0:
+    if target != "native" or release:
+      return errorOut("--lane builds a native debug build only", @["Land the lane first for any other build"])
+    if not validLaneId(lane) or not validGameName(gameName) or
+       not fileExists(laneDir("", gameName, lane) / (gameName & ".nim")):
+      return errorOut(&"{gameName} has no lane called \"{lane}\"", @["List them with `para lane list --game " & gameName & "`"])
+    game = (gameName, laneDir("", gameName, lane))
+    outDir = "tmp" / "lanes" / laneName(gameName, lane)
+  else:
+    let notFound = resolveGame(gameName, game)
+    if notFound.code != 0: return notFound
   let src = game.source
 
   var outPath: string
@@ -102,11 +120,11 @@ proc runBuild*(args: seq[string]): Run =
       return
     res = ProcResult(output: built.output, exitCode: 1)
   else:
-    createDir("tmp")
-    outPath = "tmp" / gameName
+    createDir(outDir)
+    outPath = outDir / gameName
     var nimArgs = @["c", "--hints:off"]
     if release: nimArgs.add "-d:release"
-    nimArgs.add @["--outdir:tmp", src]
+    nimArgs.add @["--outdir:" & outDir, src]
     res = runCaptured("nim", nimArgs)
 
   if res.exitCode == 0:
@@ -122,7 +140,8 @@ proc runBuild*(args: seq[string]): Run =
       result.output = "error: build failed (no parseable compiler diagnostics)\n"
       result.output.add lastLines(res.output, 20)
     result.output.add toonHelp(@[
-      &"Run `para build --target {target} --game {gameName} --full` to see the whole compiler output"])
+      &"Run `para build --target {target} --game {gameName}" & (if lane.len > 0: " --lane " & lane else: "") &
+        " --full` to see the whole compiler output"])
     result.code = 1
 
   if full:

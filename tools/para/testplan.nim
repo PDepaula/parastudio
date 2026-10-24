@@ -233,16 +233,25 @@ proc hasBalanceTests*(file: string): bool =
     if t.startsWith("balanceTest ") or t.startsWith("playtestRule ") or t == "balance:":
       return true
 
+proc laneFolder*(f: string): string =
+  ## `<game>.<id>` for a test file in a helper's lane (`games/<game>.<id>/...`,
+  ## tools/para/lanecmd.nim), else "".
+  let parts = f.replace('\\', '/').split('/')
+  if parts.len > 2 and parts[0] == "games" and '.' in parts[1]: parts[1] else: ""
+
 proc selectTests*(all: seq[string], areas: set[Area], filter = "",
                   onlyBalance = false): seq[string] =
   ## The test files to run: `all` narrowed by the areas (none given, `engine`
   ## or `all` keep every file -- an engine change can reach any test), then
   ## by the `filter` substring of the path, then, for `onlyBalance`, to the
-  ## files that tag a balance pin. The input order is kept.
+  ## files that tag a balance pin. The input order is kept. A lane's copy of
+  ## a game's tests runs only for a filter that names the lane's folder.
   let everything = areas == {} or arAll in areas or arEngine in areas
   let needle = filter.toLowerAscii
   for f in all:
     if needle.len > 0 and needle notin f.toLowerAscii: continue
+    let lane = laneFolder(f)
+    if lane.len > 0 and lane.toLowerAscii notin needle: continue
     if onlyBalance and not hasBalanceTests(f): continue
     if everything or touchesArea(importClosure(f), areas):
       result.add f

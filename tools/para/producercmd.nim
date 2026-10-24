@@ -20,7 +20,8 @@
 #
 # The resume digest is what lets the producer pick up where the last session
 # stopped without the friend explaining: one plain line per fact, read from
-# the game's files and (for the save point and the unsaved changes) from git.
+# the game's files and (for the save point, the unsaved changes and the helpers' lanes not landed
+# yet) from git.
 # A fact that cannot be found is left out (a line saying "none" means git or
 # the file said there is nothing); the playbook then asks git itself. PLAN.md,
 # CHOICES.md, PLAYTEST.md, NOTES.md and the save notes are text anyone can
@@ -46,6 +47,7 @@ import std/[os, strutils, times]
 import art/clihelpers
 import savepoint
 import boardcmd
+import lanecmd
 
 type Run = clihelpers.Run
 
@@ -115,7 +117,7 @@ proc isFriendCheckout*(root: string): bool =
   let base = root / gamesDir
   if not dirExists(base): return false
   for kind, path in walkDir(base):
-    if kind != pcDir: continue
+    if kind != pcDir or '.' in path.extractFilename: continue # a helper's lane (games/<game>.<id>) is not a game
     if fileExists(path / planFile) or
         not fileExists(path / "tools" / (path.extractFilename & "_driver.nim")):
       return true
@@ -133,7 +135,7 @@ proc findRoot*(start: string): string =
 
 type GameFacts = object
   ## What the digest knows of one game; "" (or -1) is "could not find out".
-  name, now, inProgress, lastSave, unsaved, playtest, notes: string
+  name, now, inProgress, lastSave, unsaved, playtest, notes, lanes: string
   openChoices: int
 
 proc readOrEmpty*(path: string): string =
@@ -228,6 +230,20 @@ proc unsavedSummary(paths: seq[string]): string =
   if paths.len > maxNamesListed: result.add ", and " & $(paths.len - maxNamesListed) & " more"
   result.add ")"
 
+proc lanesSummary*(lanes: seq[LaneInfo]): string =
+  ## The helpers' lanes still there: at session start none can have a helper in it, so each is left
+  ## over from an earlier turn or session. "" when there are none.
+  var parts: seq[string]
+  for l in lanes:
+    var p = roleWords(l.role) & "'s lane " & l.id
+    if l.ticket.len > 0: p.add " for \"" & cleanValue(l.ticket, maxFact) & "\""
+    let n = changedFiles(l).len
+    p.add " (" & (if l.landed: "landed, removal pending" elif not l.known: "git could not say what is in it"
+                  elif n == 0: "nothing changed" else: $n & (if n == 1: " file" else: " files") & " changed, not landed") & ")"
+    parts.add p
+  if parts.len > 0: result = parts[0 ..< min(parts.len, maxNamesListed)].join("; ") &
+    (if parts.len > maxNamesListed: "; and " & $(parts.len - maxNamesListed) & " more" else: "")
+
 proc gameFacts(root, game: string, gitBefore: float): GameFacts =
   ## `gitBefore`: the time (epochTime) after which git is no longer asked.
   let dir = gameDirOf(root, game)
@@ -250,6 +266,8 @@ proc gameFacts(root, game: string, gitBefore: float): GameFacts =
     var ok: bool
     let changed = gameChanges(root, game, ok)
     if ok: result.unsaved = unsavedSummary(changed)
+  if epochTime() < gitBefore:
+    result.lanes = lanesSummary(lanesOf(root, game, quick = true))
 
 proc singleDigest(f: GameFacts): string =
   var lines: seq[string]
@@ -257,6 +275,7 @@ proc singleDigest(f: GameFacts): string =
   if f.inProgress.len > 0: lines.add "In progress marker in PLAN.md: " & f.inProgress
   if f.lastSave.len > 0: lines.add "Last save point: " & f.lastSave
   if f.unsaved.len > 0: lines.add "Unsaved changes in games/" & f.name & "/: " & f.unsaved
+  if f.lanes.len > 0: lines.add "Left over from last time, in a helper's own copy (`tmp/para lane list`): " & f.lanes
   if f.openChoices >= 0: lines.add "Open choices in CHOICES.md: " & $f.openChoices
   if f.playtest.len > 0: lines.add "Last playtest note: " & f.playtest
   if f.notes.len > 0: lines.add "NOTES.md entries: " & f.notes
@@ -269,6 +288,7 @@ proc compactDigest(f: GameFacts): string =
   if f.inProgress.len > 0: parts.add "in progress: " & f.inProgress
   if f.lastSave.len > 0: parts.add "last save: " & f.lastSave
   if f.unsaved.len > 0: parts.add "unsaved: " & f.unsaved
+  if f.lanes.len > 0: parts.add "left over: " & f.lanes
   if f.openChoices >= 0: parts.add "open choices: " & $f.openChoices
   "- " & f.name & (if parts.len > 0: ": " & parts.join("; ") else: "") & "\n"
 

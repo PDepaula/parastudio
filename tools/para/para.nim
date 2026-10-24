@@ -1,5 +1,5 @@
 # The `para` AXI CLI (engine report §5, task 1.8): bare view, `art`
-# (task A1/A2), `test`, `check`, `save`, `backup`, `build`, `sim`, `shot`, `driver`, `live`,
+# (task A1/A2), `test`, `check`, `save`, `lane`, `backup`, `build`, `sim`, `shot`, `driver`, `live`,
 # `web smoke`, `setup hooks`, `producer-context`, `studio` and `board`. Every subcommand is a plain `run(args): (output, code)` proc
 # (`art/clihelpers.Run`), and so is `dispatch` below; the main block just
 # prints and quits with its result -- no direct stdout/exit calls anywhere
@@ -12,6 +12,7 @@ import artcmd
 import testcmd
 import checkcmd
 import savecmd
+import lanecmd
 import backupcmd
 import buildcmd
 import simcmd
@@ -60,6 +61,7 @@ proc dispatch*(args: seq[string]): Run =
   of "test": runTest(rest)
   of "check": runCheck(rest)
   of "save": runSave(rest)
+  of "lane": runLane(rest)
   of "backup": runBackup(rest)
   of "build": runBuild(rest)
   of "sim": runSim(rest)

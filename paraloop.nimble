@@ -42,20 +42,28 @@ task test, "Run headless tests":
     let id = path.replace('\\', '/')
     result = planPath.len == 0 or id in plan
     if result: ran.add id
+  # A helper's lane (`games/<game>.<id>/`, tools/para/lanecmd.nim) holds the same test files as
+  # its game, so its programs go to tmp/lanes/<game>.<id>/ (config.nims gives it its own cache
+  # too): two copies of a game testing at once never overwrite each other's binary.
+  proc outDirOf(f: string): string =
+    let parts = f.replace('\\', '/').split('/')
+    if parts.len > 2 and parts[0] == "games" and '.' in parts[1]: "tmp/lanes/" & parts[1] else: "tmp"
   # Compile, then run the binary: `nim c -r` keeps the compiler (2-3 GB for a test that links a
   # game) resident for as long as the test runs, and a test that builds another program (a game's
   # balance probe) would then hold two compilers at once -- over a CI container's 6 GB.
   proc runTest(f: string) =
     echo "running ", f
-    exec "nim c --hints:off --outdir:tmp " & f
-    exec "tmp" / f.extractFilename.changeFileExt(ExeExt)
+    let outDir = outDirOf(f)
+    exec "nim c --hints:off --outdir:" & outDir & " " & f
+    exec outDir / f.extractFilename.changeFileExt(ExeExt)
   # A test group is one compile for several test files. The program prints `running <file>`
   # itself as each file's tests start, and `finished` after the last, so this only says that
   # the build began (`para test` reads the three lines, tools/para/testcmd.nim).
   proc runGroup(group: string) =
     echo "building ", group
-    exec "nim c --hints:off --outdir:tmp " & group
-    exec "tmp" / group.extractFilename.changeFileExt(ExeExt)
+    let outDir = outDirOf(group)
+    exec "nim c --hints:off --outdir:" & outDir & " " & group
+    exec outDir / group.extractFilename.changeFileExt(ExeExt)
   # One tests directory: its group first, when the plan names it, then each test file the plan
   # names (a plan names a group instead of its files, never both).
   proc sweep(testsDir: string) =
@@ -78,11 +86,14 @@ task test, "Run headless tests":
   # A game's own tests travel with it (`template/tests/`, task 1.9), so a
   # game `para new` creates gets covered by `para test` with no wiring of
   # its own: every games/<name>/tests/ and examples/<name>/tests/ directory
-  # is swept the same way as the top-level tests/ above.
+  # is swept the same way as the top-level tests/ above. A helper's lane (a `games/<game>.<id>/`
+  # copy of a game) runs only when a plan names its files (`para test --filter games/<game>.<id>/`):
+  # a bare run would test the game twice.
   for base in ["examples", "games"]:
     if not dirExists(base): continue
     for kind, gameDir in walkDir(base):
       if kind != pcDir: continue
+      if planPath.len == 0 and '.' in gameDir.extractFilename: continue
       let testsDir = gameDir / "tests"
       if dirExists(testsDir): sweep testsDir
   # Building `para` itself is part of the test gate: it's the tool the game
