@@ -645,9 +645,12 @@ suite "para studio api: the helpers' lanes":
     putEnv("FAKE_CHECK_SLEEP_MS", "1200")
     let first = running.post("/api/check", %*{"game": "pong"})
     check first.status == 200
+    let t0 = epochTime()
     let second = running.post("/api/lane/land", %*{"game": "pong", "id": "builder"})
-    checkpoint second.raw
     check second.status == 409
+    # answered at once: the git questions the route asks never wait for the running step's
+    # program (nimutil.startLocked keeps one child from holding another's pipe)
+    check epochTime() - t0 < 1.0
     discard running.waitJob(jsonOf(first)["job"]["id"].getInt)
 
   test "the page says what the helpers do in words, and never a folder, branch or lane name":

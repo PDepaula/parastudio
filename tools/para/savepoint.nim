@@ -134,10 +134,17 @@ proc pickGame*(root, requested: string, game: var string): Run =
 
 # --- git ---------------------------------------------------------------------
 
+proc inDir(root: string): seq[string] =
+  ## `git -C <root>`, never a working directory for the child: starting a process in another
+  ## folder makes osproc change this whole process's current folder for a moment (posix_spawn has
+  ## no chdir), which a thread starting another program at the same time (the studio's Check, a
+  ## chat turn) would inherit.
+  if root.len > 0: @["-C", root] else: @[]
+
 proc gitArgs*(root: string, args: seq[string]): ProcResult =
   ## `git <args>` in `root`: stdout and stderr together, the real exit code,
   ## 127 when git cannot be started.
-  runCaptured("git", args, root)
+  runCaptured("git", inDir(root) & args)
 
 proc git*(root: string, args: varargs[string]): ProcResult =
   gitArgs(root, @args)
@@ -151,7 +158,7 @@ proc gitQuick*(root: string, args: varargs[string]): ProcResult =
   ## `git <args>` for a question asked at session start: it takes no optional
   ## lock (so it never gets in the way of another git) and is stopped after
   ## `quickGitMs` (the exit code is then `timedOutCode`).
-  runCaptured("git", @["--no-optional-locks"] & @args, root, timeoutMs = quickGitMs)
+  runCaptured("git", inDir(root) & @["--no-optional-locks"] & @args, timeoutMs = quickGitMs)
 
 proc isDetached*(root: string): bool =
   ## HEAD is not on a named line of work (`symbolic-ref` fails).
