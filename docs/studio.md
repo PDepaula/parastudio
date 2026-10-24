@@ -215,7 +215,7 @@ something wants to change a file outside `games/`, the chat shows, for example:
 and the producer is told not to work around it. A command that is not on the producer's list is
 refused too, and the chat says so in plain words ("A helper wasn't allowed to run ... Ask the
 producer to do it a different way.") instead of hanging. These permissions only take effect in a
-folder Claude Code trusts (see the first-run card above and "If something goes wrong" below).
+folder Claude Code trusts (see the first-run card and "If something goes wrong" above).
 
 ## Play and screenshots
 
