@@ -20,10 +20,12 @@
 # through a page with buttons instead of a terminal.
 #
 # What it never does: `--bare`, `--dangerously-skip-permissions`, any `--permission-mode`. Headless
-# permissions come from the allow-list in .claude/settings.json; a call that list does not cover is
-# refused by claude (it does not hang) and shown here in plain words. It never reads, asks for, keeps
-# or shows a login or an API key: those stay with the claude program the friend signed in to
-# themselves, and when it says it is not signed in the studio only tells the friend where to do that.
+# permissions come from the allow-list in .claude/settings.json (Bash for `tmp/para ...`, and Edit/Write
+# for `games/**` only, so the playbooks, settings and engine stay read-only here); a call that list
+# does not cover is refused by claude (it does not hang) and shown here in plain words. It never
+# reads, asks for, keeps or shows a login or an API key: those stay with the claude program the
+# friend signed in to themselves, and when it says it is not signed in the studio only tells the
+# friend where to do that.
 #
 # One stream can hold several `result` events: a helper that finishes after the producer has
 # answered wakes the producer up again. So the turn ends when the process exits, not at the first
@@ -157,7 +159,12 @@ proc refusal(m: var ClaudeMapper, id, toolName, detail, parent: string): seq[UiE
   var what = oneLine(detail, 100)
   if what.len > 0 and toolName == "Bash": what = "run `" & what & "`"
   elif what.len == 0 and toolName == "Bash": what = "run a command"
-  elif toolName in ["Edit", "MultiEdit", "Write", "NotebookEdit"]: what = "change " & (if what.len > 0: what else: "a file")
+  elif toolName in ["Edit", "MultiEdit", "Write", "NotebookEdit"]:
+    what = oneLine(m.relPath(detail), 100)
+    if what.len > 0 and not what.startsWith("games/"):
+      return @[UiEvent(kind: ukRefused, code: "refused", text: who & " wasn't allowed to change `" & what &
+        "`: in the studio it can only change files inside your game folder (`games/`). To change the studio itself, use the terminal.")]
+    what = "change " & (if what.len > 0: what else: "a file")
   elif what.len == 0: what = "use " & (if toolName.len > 0: oneLine(toolName, 40) else: "a tool")
   else: what = "use " & oneLine(toolName, 40) & " on " & what
   @[UiEvent(kind: ukRefused, code: "refused",

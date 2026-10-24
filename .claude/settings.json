@@ -1,6 +1,8 @@
 {
   "permissions": {
     "allow": [
+      "Edit(/games/**)",
+      "Write(/games/**)",
       "Bash(tmp/para producer-context)",
       "Bash(tmp/para check)",
       "Bash(tmp/para check --game *)",
