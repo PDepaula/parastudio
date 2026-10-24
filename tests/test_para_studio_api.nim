@@ -661,6 +661,8 @@ suite "para studio api: the helpers' lanes":
     let code = page[a ..< b]
     for words in ["is working on your change", "Checking it", "Art helper is drawing", "Land it", "Keep it"]:
       check words in code
+    # the chat's own lines and helper cards go through the same plain words
+    check "plainLaneText(ev.text)" in page and "plainLaneText(ev.text || \"\")" in page
     var literals: seq[string]
     var i = 0
     while i < code.len:

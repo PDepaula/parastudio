@@ -1182,8 +1182,8 @@ function renderEvent(ev) {
       break;
     }
     case "shot": renderShot(ev); break;
-    case "activity": unanswered = ""; append(textEl("div", "line", ev.text)); break;
-    case "refused": append(textEl("div", "line refused", ev.text)); break;
+    case "activity": unanswered = ""; append(textEl("div", "line", plainLaneText(ev.text))); break;
+    case "refused": append(textEl("div", "line refused", plainLaneText(ev.text))); break;
     case "notice": append(textEl("div", "line notice", ev.text)); break;
     case "error": {
       const d = textEl("div", "line error", ev.text);
@@ -1215,7 +1215,7 @@ function renderEvent(ev) {
       c.head.textContent = "";
       c.head.append(document.createTextNode((roleLabels[ev.role] || "Helper") + " "),
         textEl("span", "state", "· " + (statusWords[ev.status] || ev.status) + (ev.tools > 0 ? " · " + ev.tools + (ev.tools === 1 ? " step" : " steps") : "")));
-      c.what.textContent = plainHelperText(ev.text || "");
+      c.what.textContent = plainLaneText(ev.text || "");
       helperNow.set(ev.id, { role: ev.role, status: ev.status });
       renderLanes(lanesNow);
       break;
@@ -1299,8 +1299,16 @@ async function loadLanes() {
   if (!game) return;
   try { renderLanes((await api("GET", "/api/lanes" + gameQuery())).lanes); } catch (e) { /* the next poll tries again */ }
 }
-// A helper's card says what the producer told it, which may name the helper's folder: say "its own copy" instead.
-function plainHelperText(t) { return t.replace(/games\/[a-z][a-z0-9_]*\.[a-z0-9]+\/?[^\s,;)]*/g, "its own copy of the game"); }
+// The chat's lines and helper cards repeat what the producer and helpers ran and wrote, which names
+// the helpers' copies by folder and the `para lane` commands: say those in words instead.
+function plainLaneText(t) {
+  if (/tmp\/para lane start\b/.test(t)) return "Giving a helper its own copy of the game";
+  if (/tmp\/para lane land\b/.test(t)) return "Putting a helper's work into your game";
+  if (/tmp\/para lane\b/.test(t)) return "Looking at the helpers' copies of the game";
+  return t.replace(/games\/[a-z][a-z0-9_]*\.[a-z0-9]+\/?([^\s,;)`'\x22]*)/g, (m, rest) => rest ? rest + " (in the helper's copy)" : "the helper's copy of the game")
+          .replace(/--filter the helper's copy of the game/g, "in the helper's copy")
+          .replace(/--lane [a-z][a-z0-9]*/g, "in the helper's copy");
+}
 // --- end lanes ------------------------------------------------------------------------------
 
 // The producer picker, on Pip's card: one pill per agent the studio knows, the current one checked.
