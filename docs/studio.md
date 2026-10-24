@@ -52,7 +52,8 @@ Your message goes to it on standard input (never on a command line), and
 `PARALOOP_UI=studio` is added to its environment so the producer says "press Play"
 instead of giving terminal commands. `--setting-sources project,local` keeps your
 user-level hooks out; the folder's own `.claude/settings.json` (the producer's
-session-start hook and the allow-list of commands the helpers may run and the files they may change) still applies.
+session-start hook and the allow-list of commands the helpers may run and files they may
+change) still applies.
 The studio never passes `--bare`, `--dangerously-skip-permissions` or a permission
 mode; a command the allow-list does not cover is refused by `claude`, and the chat
 shows that in plain words ("A helper wasn't allowed to run ... Ask the producer to do
