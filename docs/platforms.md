@@ -18,6 +18,10 @@ everything after it has **not** been re-run on Windows. Opening a window was
 never checked and needs real hardware. The "set up to run" wording below
 describes what the workflow does when it is switched back on.
 
+**Double-click launcher on Windows:** `Paraloop-Studio.bat` ([windows.md](windows.md)) is not
+covered by the table below; the `windows-launcher` job in the same workflow dry-runs it (by hand
+only, and not run yet), and nobody has run it on a real Windows PC.
+
 **Trying it on a real Windows PC or VM?** Follow
 [windows-first-game.md](windows-first-game.md): the installs, the exact
 commands and what to report back. A VM may give only software OpenGL, in which

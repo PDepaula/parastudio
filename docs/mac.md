@@ -115,6 +115,7 @@ nothing secret (Studio's own output, which carries its private link, is not in i
 - **Linux:** run `./paraloop-studio.sh` from the `parastudio` folder. Same steps and
   messages; the C compiler is checked instead of Apple's tools (install one with your
   package manager if it asks).
-- **Windows: not covered by this launcher, and not verified.** Follow
-  [windows-first-game.md](windows-first-game.md); opening the game window on Windows
-  has never been checked either.
+- **Windows:** double-click `Paraloop-Studio.bat` instead; see [windows.md](windows.md).
+  It checks the same things but installs nothing itself, and it is not verified on a real
+  Windows PC. The command-by-command route is [windows-first-game.md](windows-first-game.md);
+  opening the game window on Windows has never been checked either.

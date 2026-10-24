@@ -50,7 +50,7 @@ tmp/para studio --game mygame   # the Studio page (or, in a terminal: `tmp/para 
 ```
 
 On a Mac, double-click `Paraloop-Studio.command` instead ([docs/mac.md](docs/mac.md)). On Windows
-follow [docs/windows-first-game.md](docs/windows-first-game.md). What was checked on each system is in
+double-click `Paraloop-Studio.bat` ([docs/windows.md](docs/windows.md), not yet tried on a real Windows PC) or follow [docs/windows-first-game.md](docs/windows-first-game.md). What was checked on each system is in
 [docs/platforms.md](docs/platforms.md).
 
 To talk to the producer from a terminal instead of the Studio, open the folder in Claude Code or Codex
