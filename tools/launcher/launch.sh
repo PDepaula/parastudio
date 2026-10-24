@@ -4,15 +4,26 @@
 # Run through Paraloop-Studio.command (macOS double-click) or paraloop-studio.sh (Linux); see
 # docs/mac.md. Plain bash 3.2 (what macOS ships): no associative arrays, no mapfile.
 #
-#   launch.sh [--dry-run] [--help]
+#   launch.sh [--dry-run | --check] [--help]
 #
-# --dry-run says what each step WOULD do and changes nothing: no install, no build, no browser.
-# Test hooks (read only by the tests): PARALOOP_LAUNCHER_OS / _ARCH replace `uname -s` / `-m`,
-# and, in a dry run only, PARALOOP_LAUNCHER_FAKE_CLT=missing pretends the Apple tools are missing.
+# --dry-run (or --check, the same) says what each step WOULD do and changes nothing: no install, no
+# build, no browser, and no question is asked. Test hooks (read only by the tests):
+# PARALOOP_LAUNCHER_OS / _ARCH replace `uname -s` / `-m`, and, in a dry run only,
+# PARALOOP_LAUNCHER_FAKE_CLT=missing pretends the Apple tools are missing and
+# PARALOOP_LAUNCHER_FAKE_MISSING=cc,git pretends those are.
 #
-# What it never does: use sudo, edit a shell profile, read or write a login or a config of
-# claude or codex, or send anything anywhere except to nim-lang.org (the Nim download and its
-# checksum), nimble's package fetch and git. The log (tmp/launcher.log) holds only what the steps
+# When something is missing it is offered, never just installed: the launcher prints what it would
+# install (name and version), from where (the exact link or command), into which folder and how big,
+# then asks a plain yes/no. Only "y" or "yes" is yes; Enter, anything else and an input that is closed
+# are no, and no stops with what to do by hand. The routes are the official ones: Nim's release
+# archive from nim-lang.org (its published SHA-256 checked), Apple's own installer for its command line
+# tools, and the Linux package manager for a C compiler and git.
+#
+# What it never does: run sudo except as the exact package-manager command it showed and you said yes
+# to, pipe a downloaded script into a shell, edit a shell profile (Nim's folder is added to PATH for
+# this run only), read or write a login or a config of claude or codex, or send anything anywhere
+# except to nim-lang.org (the Nim download and its checksum), the package manager or Apple installer you
+# said yes to, nimble's package fetch and git. The log (tmp/launcher.log) holds only what the steps
 # printed; Studio's own output, which carries its per-run key, is never written to it.
 
 set -eEuo pipefail
@@ -29,11 +40,12 @@ cd "$ROOT"
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
-    --dry-run) DRY_RUN=1 ;;
+    --dry-run|--check) DRY_RUN=1 ;;
     -h|--help)
       echo "Para Studio launcher"
-      echo "  launch.sh [--dry-run]"
-      echo "  --dry-run  say what each step would do; install, build and open nothing"
+      echo "  launch.sh [--dry-run | --check]"
+      echo "  --dry-run  say what each step would do and what it would offer to install;"
+      echo "             install, build and open nothing, and ask nothing (--check is the same)"
       echo "See docs/mac.md."
       exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
@@ -134,15 +146,33 @@ run_logged() {
   return "$status"
 }
 
+# The one way the launcher asks. Yes only for "y" or "yes" typed here; Enter, any other answer and an
+# input that is closed (nothing can be typed) are all no.
 ask_yes_no() {
   local answer=""
-  if [ ! -t 0 ] && [ ! -r /dev/tty ]; then
-    fail "I need to ask you a question but this window cannot take an answer. Open Terminal and run: bash tools/launcher/launch.sh"
+  printf '      %s (y/n, Enter means no) ' "$1"
+  if ! IFS= read -r answer; then
+    printf '\n'
+    say "      (no answer could be read, so the answer is no)"
+    answer=""
   fi
-  printf '      %s (y/n) ' "$1"
-  read -r answer </dev/tty || answer=n
-  log "asked: $1 -> $answer"
+  log "asked: $1 -> ${answer:-(no answer)}"
   case "$answer" in y|Y|yes|YES|Yes) return 0 ;; *) return 1 ;; esac
+}
+
+# The answer was no: nothing was installed. Says what to do by hand and stops.
+declined() {
+  say ""
+  say "      Okay, nothing was installed and nothing changed."
+  say "      $1"
+  log "declined: $1"
+  pause_before_close
+  exit 1
+}
+
+faked_missing() { # $1 = cc|git: true in a dry run told to pretend it is missing
+  [ "$DRY_RUN" = 1 ] || return 1
+  case ",${PARALOOP_LAUNCHER_FAKE_MISSING:-}," in *",$1,"*) return 0 ;; *) return 1 ;; esac
 }
 
 # --- finding things (no login-shell PATH needed) ----------------------------------------------
@@ -200,6 +230,15 @@ nim_platform() { # the name nim-lang.org uses for this computer, or nothing
 # SHA-256 of nim-$NIM_VERSION-<platform>.tar.xz, copied from the .sha256 files nim-lang.org
 # publishes next to each download (checked 2026-10-23). The install also compares the archive to
 # the value published there at download time; both must match.
+nim_download_size() {
+  case "$1" in
+    macosx_arm64) echo "about 15 MB" ;;
+    macosx_x64)   echo "about 15 MB" ;;
+    linux_x64)    echo "about 18 MB" ;;
+    linux_arm64)  echo "about 16 MB" ;;
+  esac
+}
+
 nim_pinned_sha256() {
   case "$1" in
     macosx_arm64) echo 9a3b012d0680d11d6163dd2f145470b090c1045f5e634f42daf119bea1cb2b5e ;;
@@ -228,6 +267,47 @@ find_agent() { # $1 = claude|codex; prints the path of the program, or nothing
 
 # --- the steps -------------------------------------------------------------------------------
 
+have_cc() { command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1; }
+
+# The install command for $1 (cc or git) with this Linux's own package manager, or nothing when
+# none is known. Without -y: the package manager shows the size and asks once more itself.
+linux_package_command() {
+  if command -v apt-get >/dev/null 2>&1; then
+    if [ "$1" = cc ]; then echo "sudo apt-get install build-essential"; else echo "sudo apt-get install git"; fi
+  elif command -v dnf >/dev/null 2>&1; then
+    if [ "$1" = cc ]; then echo "sudo dnf install gcc"; else echo "sudo dnf install git"; fi
+  elif command -v pacman >/dev/null 2>&1; then
+    if [ "$1" = cc ]; then echo "sudo pacman -S --needed base-devel"; else echo "sudo pacman -S --needed git"; fi
+  elif command -v zypper >/dev/null 2>&1; then
+    if [ "$1" = cc ]; then echo "sudo zypper install gcc"; else echo "sudo zypper install git"; fi
+  fi
+}
+
+# Offers to install $1 (cc or git) with the Linux package manager. $2 says what it is, $3 what to do by
+# hand when the answer is no or there is no package manager this launcher knows.
+offer_linux_package() {
+  local cmd manager
+  cmd=$(linux_package_command "$1")
+  if [ -z "$cmd" ]; then fail "$3"; fi
+  manager=$(printf '%s' "$cmd" | awk '{print $2}')
+  say "      I can install it with your Linux's own package manager ($manager):"
+  say "        What:    $2, the version your Linux ships"
+  say "        From:    the package servers $manager is already set up to use (nothing new is added)"
+  say "        Command: $cmd"
+  say "        Where:   the usual system folders, which is why it asks for your password (sudo)"
+  say "        Size:    $manager shows it and asks you once more before it downloads anything"
+  if [ "$DRY_RUN" = 1 ]; then
+    would "ask you: Run that command now? (y/n, Enter means no)"
+    would "on y, run exactly: $cmd   (your password is typed into sudo, never into this launcher)"
+    would "on n or Enter, stop here with nothing installed"
+    return 0
+  fi
+  if ! ask_yes_no "Run that command now?"; then declined "$3"; fi
+  log "\$ $cmd"
+  # shellcheck disable=SC2086  # the command is one of the fixed strings above; splitting it is the point
+  $cmd || fail "The install command stopped without finishing: $cmd. $3"
+}
+
 step_tools() {
   if [ "$OS" = Darwin ]; then
     step "Checking Apple's command line tools (the part of macOS that builds programs)..." "Apple command line tools"
@@ -240,12 +320,23 @@ step_tools() {
       missing=1
     fi
     if [ "$missing" = 1 ]; then
+      say "      Apple's command line tools are not installed yet. Studio needs them to build programs"
+      say "      (git comes with them). I can open Apple's own installer for them:"
+      say "        What:    Command Line Tools for Xcode, the version Apple offers for this macOS, free"
+      say "        From:    Apple, through macOS's own installer (this launcher downloads nothing)"
+      say "        Command: xcode-select --install"
+      say "        Where:   /Library/Developer/CommandLineTools (macOS may ask for your Mac password)"
+      say "        Size:    Apple's window shows it before anything downloads"
       if [ "$DRY_RUN" = 1 ]; then
-        would "run: xcode-select --install, tell you a window will pop up (click Install, wait for it to finish, then double-click this file again), and stop here without an error"
+        would "ask you: Open Apple's installer now? (y/n, Enter means no)"
+        would "on y, run: xcode-select --install, tell you a window will pop up (click Install, wait for it to finish, then double-click this file again), and stop here without an error"
+        would "on n or Enter, stop here with nothing installed"
         STOP_AFTER_TOOLS=1
         return 0
       fi
-      say "      Apple's command line tools are not installed yet. They are free and come from Apple."
+      if ! ask_yes_no "Open Apple's installer now?"; then
+        declined "When you are ready, open Terminal, run: xcode-select --install  click Install, wait until it is done, then double-click Paraloop-Studio.command again."
+      fi
       say "      A window is about to pop up: click Install, wait until it says it is done,"
       say "      then double-click Paraloop-Studio.command again."
       log "xcode-select --install"
@@ -256,22 +347,35 @@ step_tools() {
     ok "Apple's command line tools are installed."
   else
     step "Checking for a C compiler (the part of your computer that builds programs)..." "C compiler"
-    if command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1; then
+    if ! faked_missing cc && have_cc; then
       ok "found a C compiler."
-    else
-      fail "No C compiler was found. Install one with your package manager (on Debian/Ubuntu: sudo apt install build-essential; on Fedora: sudo dnf install gcc; on Arch: sudo pacman -S base-devel), then run this again."
+      return 0
+    fi
+    say "      No C compiler was found."
+    offer_linux_package cc "a C compiler (gcc and the usual build tools)" \
+      "Install a C compiler with your package manager (on Debian/Ubuntu: sudo apt install build-essential; on Fedora: sudo dnf install gcc; on Arch: sudo pacman -S base-devel), then run this again."
+    if [ "$DRY_RUN" = 0 ]; then
+      have_cc || fail "The install finished but no C compiler can be found yet. Open a new terminal window and run this again."
+      ok "found a C compiler."
     fi
   fi
 }
 
 step_git() {
   step "Checking for git (keeps your save points)..." "git"
-  if command -v git >/dev/null 2>&1; then
+  if ! faked_missing git && command -v git >/dev/null 2>&1; then
     ok "git is installed."
+  elif [ "$OS" = Darwin ]; then
+    fail "git was not found. On a Mac it comes with Apple's command line tools: run xcode-select --install, wait for it to finish, then double-click this file again."
   else
-    fail "git was not found. On a Mac it comes with Apple's command line tools: run xcode-select --install, wait for it to finish, then double-click this file again. On Linux install it with your package manager."
+    say "      git was not found."
+    offer_linux_package git "git" "Install git with your package manager (on Debian/Ubuntu: sudo apt install git; on Fedora: sudo dnf install git; on Arch: sudo pacman -S git), then run this again."
+    if [ "$DRY_RUN" = 0 ]; then
+      command -v git >/dev/null 2>&1 || fail "The install finished but git cannot be found yet. Open a new terminal window and run this again."
+      ok "git is installed."
+    fi
   fi
-  if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  if command -v git >/dev/null 2>&1 && ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
     note "Note: this folder was not copied with git (for example, it came from a zip file), so save points will not work until the captain gives you a git copy. Studio still starts."
   fi
 }
@@ -282,28 +386,32 @@ step_nim() {
   if [ -n "$NIM_DIR" ]; then
     ok "found Nim $NIM_VERSION in $NIM_DIR"
   else
-    local platform dest
+    local platform dest url
     platform=$(nim_platform)
     dest="$HOME/.paraloop/nim-$NIM_VERSION"
     if [ -n "$OTHER_NIM" ]; then note "Found a different Nim ($OTHER_NIM). Paraloop needs exactly $NIM_VERSION; the other one is left alone."; fi
     if [ -z "$platform" ]; then
       fail "This computer ($OS $ARCH) has no official Nim $NIM_VERSION download I know how to use. Install Nim $NIM_VERSION yourself from https://nim-lang.org/install.html, then run this again."
     fi
+    url="$NIM_BASE_URL/nim-$NIM_VERSION-$platform.tar.xz"
+    say "      Nim $NIM_VERSION is not installed. I can download the official release and set it up:"
+    say "        What:    Nim $NIM_VERSION for $platform (nimble, its package tool, comes with it)"
+    say "        From:    $url"
+    say "        Check:   its SHA-256 must match $url.sha256 and the value written in this launcher"
+    say "        Where:   $dest"
+    say "                 (your home folder: no password, nothing else on this computer changes)"
+    say "        Size:    $(nim_download_size "$platform")"
+    say "        PATH:    added for this run only; your shell settings are not changed"
     if [ "$DRY_RUN" = 1 ]; then
-      say "      Nim is missing. Install it now? (y/n)"
-      would "wait for your answer; on n, stop here and change nothing"
-      would "on y, download $NIM_BASE_URL/nim-$NIM_VERSION-$platform.tar.xz from nim-lang.org"
-      would "check its SHA-256 against $NIM_BASE_URL/nim-$NIM_VERSION-$platform.tar.xz.sha256 and against the value written in this launcher, and refuse to use it if either differs"
+      would "ask you: Download and install Nim $NIM_VERSION now? (y/n, Enter means no)"
+      would "on n or Enter, stop here and change nothing"
+      would "on y, download $url from nim-lang.org"
+      would "check its SHA-256 against $url.sha256 and against the value written in this launcher, and refuse to use it if either differs"
       would "unpack it into $dest (your home folder, no sudo, nothing else on the computer changes)"
       return 0
     fi
-    say "      Nim $NIM_VERSION will be downloaded from nim-lang.org, its checksum verified, and unpacked into"
-    say "      $dest"
-    say "      (your home folder only; no password needed, nothing else on this computer changes)."
-    if ! ask_yes_no "Nim is missing. Install it now?"; then
-      say "      Okay, nothing was installed. Studio cannot build games without Nim; double-click again when you are ready."
-      pause_before_close
-      exit 0
+    if ! ask_yes_no "Download and install Nim $NIM_VERSION now?"; then
+      declined "Studio cannot build games without Nim. Double-click again when you are ready, or install Nim $NIM_VERSION yourself from https://nim-lang.org/install.html."
     fi
     install_nim "$platform" "$dest"
     NIM_DIR="$dest/bin"
@@ -321,7 +429,7 @@ install_nim() { # $1 = platform, $2 = destination folder
   pinned=$(nim_pinned_sha256 "$platform")
   work=$(mktemp -d "${TMPDIR:-/tmp}/paraloop-nim.XXXXXX")
   CLEANUP_DIR=$work
-  note "Downloading $archive (about 15 MB)..."
+  note "Downloading $archive ($(nim_download_size "$platform"))..."
   log "\$ curl $NIM_BASE_URL/$archive"
   curl -fL --proto '=https' --tlsv1.2 --retry 2 --progress-bar -o "$work/$archive" "$NIM_BASE_URL/$archive" \
     || fail "The Nim download failed. Check that this computer is online, then run this again."
@@ -410,8 +518,8 @@ step_build() {
 }
 
 step_agent() {
-  step "Checking for the producer's chat program (claude or codex)..." "claude or codex"
-  local claude codex
+  step "Checking the producer's chat program (claude or codex: installed, signed in, folder trusted)..." "claude or codex"
+  local claude codex out line
   claude=$(find_agent claude)
   codex=$(find_agent codex)
   if [ -n "$claude" ]; then ok "found Claude Code: $claude"; PATH="$PATH:$(dirname "$claude")"; fi
@@ -425,7 +533,18 @@ step_agent() {
     say "      Studio never handles sign-in and never sees your password or key: you sign in once,"
     say "      inside that program's own window, and Studio just uses the program you installed."
     say "      You can still open Studio now; the chat starts working once one of them is installed."
+    return 0
   fi
+  if [ "$DRY_RUN" = 1 ]; then
+    would "run: tmp/para studio --check   (the startup checks the Studio page shows: signed in, folder trusted; they never stop Studio from opening)"
+    return 0
+  fi
+  # Read-only, like the page's checks: no model is asked anything and no login is read. Whatever it
+  # answers, Studio still opens.
+  out=$(tmp/para studio --check 2>&1) || true
+  while IFS= read -r line; do note "$line"; done <<EOF
+$out
+EOF
 }
 
 step_studio() {

@@ -15,6 +15,9 @@
 #
 # The studio never reads, keeps or forwards a login or a token of the friend's; the one secret it
 # has is its own per-run key in the link, which is never written to a file.
+#
+# `para studio --check` starts no server: it prints the page's startup checks (preflight.nim) as
+# plain lines and exits, so the double-click launchers can show them before they open the page.
 
 import std/[os, osproc, strutils, sequtils]
 import art/clihelpers
@@ -23,7 +26,9 @@ import producercmd
 import studiohttp
 import studioapi
 import studiochat
+import agent
 import agents
+import preflight
 when defined(windows):
   import std/browsers
 
@@ -35,13 +40,14 @@ type
     openBrowser*: proc (url: string): bool ## true when a browser was started
     ready*: proc (srv: ptr HttpServer) ## called once the server is listening (tests stop it here)
 
-const studioHelp* = "para studio [--game NAME] [--port N] [--no-open] [--turn-timeout MINUTES]\n" &
+const studioHelp* = "para studio [--game NAME] [--port N] [--no-open] [--turn-timeout MINUTES] [--check]\n" &
   "  opens a page in your browser with the producer's chat, Play (the game's own window) with screenshots in the chat, Check, Save, your save points and the backup, for the games in this folder\n" &
   "  the chat runs the claude or codex program you installed and signed in to yourself (the page lets you pick, per game); the studio never sees or keeps a login or key, and sends nothing until you send a message\n" &
   "  --game NAME  the game the page starts on; left out, the only game with a PLAN.md (the page asks when there are several)\n" &
   "  --port N     listen on this port (default: any free one, printed)\n" &
   "  --no-open    print the link and do not open the browser\n" &
   "  --turn-timeout MINUTES  stop a chat turn that runs longer than this (default 60; long builds are normal)\n" &
+  "  --check      print the page's startup checks (claude or codex installed, signed in, folder trusted, edits allowed) with one fix line each, and exit without starting anything; exit 1 when no producer program is ready\n" &
   "  it only listens on this computer (127.0.0.1); the link carries a key that changes every run\n" &
   "  Ctrl+C stops it, and closes the game window it opened. Check, Save and Backup run the same `para` commands a terminal would, with the same guards\n"
 
@@ -79,6 +85,35 @@ proc openInBrowser*(url: string): bool =
     except OSError:
       false
 
+proc checkLines(label: string, checks: seq[PreflightCheck]): seq[string] =
+  result.add label & ": " & (if allOk(checks): "ready" else: "not ready yet")
+  for c in checks:
+    case c.state
+    of csOk: result.add "  ok:  " & c.label
+    of csFail: result.add "  no:  " & c.label & ". " & c.problem
+    of csUnknown: result.add "  ?:   " & c.label & ". " & c.problem
+    if c.state != csOk: result.add "       fix: " & c.fix
+
+proc startupChecks*(root: string, adapters: seq[AgentAdapter]): Run =
+  ## `para studio --check`: the checks `GET /api/preflight` runs, for every producer program that is
+  ## installed (the page asks the one the game talks to; here no game is picked), or for the first
+  ## of `adapters` when none is, so its "not installed" line and fix are shown. Read-only, like the
+  ## page's: no model is asked anything. Exit 1 when no producer program is ready.
+  var shown: seq[(AgentAdapter, seq[PreflightCheck])]
+  for a in adapters:
+    if a.preflight.isNil: continue
+    let checks = a.preflight(a, root)
+    if checks.anyIt(it.id == "installed" and it.state == csOk): shown.add (a, checks)
+  if shown.len == 0 and adapters.len > 0 and not adapters[0].preflight.isNil:
+    shown.add (adapters[0], adapters[0].preflight(adapters[0], root))
+  var lines = @["Startup checks (the same ones the Studio page shows):"]
+  var ready = false
+  for (a, checks) in shown:
+    lines.add checkLines(a.label, checks)
+    if allOk(checks): ready = true
+  lines.add "These never stop Studio from opening; the page shows them too, with a Check button."
+  (lines.join("\n") & "\n", if ready: 0 else: 1)
+
 proc stdoutAnnounce(line: string) =
   stdout.write(line & "\n")
   stdout.flushFile()
@@ -90,6 +125,7 @@ proc runStudioWith*(args: seq[string], hooks: StudioHooks, root = "", paraExe = 
   var port = 0
   var open = true
   var turnSeconds = defaultTurnSeconds
+  var checkOnly = false
   var i = 0
   while i < args.len:
     let a = args[i]
@@ -107,20 +143,24 @@ proc runStudioWith*(args: seq[string], hooks: StudioHooks, root = "", paraExe = 
       port = parseInt(args[i])
     of "--no-open":
       open = false
+    of "--check":
+      checkOnly = true
     of "--turn-timeout":
       inc i
       if i >= args.len or args[i].len notin 1..4 or not args[i].allCharsInSet(Digits) or parseInt(args[i]) notin 1..1440:
         return errorOut("--turn-timeout needs a number of minutes from 1 to 1440", @["The default is 60"])
       turnSeconds = parseInt(args[i]) * 60
     of "--host", "--bind", "--address", "--listen":
-      return errorOut("para studio only listens on this computer (127.0.0.1); that cannot be changed", @["Valid flags: --game NAME, --port N, --no-open, --turn-timeout MINUTES"])
+      return errorOut("para studio only listens on this computer (127.0.0.1); that cannot be changed", @["Valid flags: --game NAME, --port N, --no-open, --turn-timeout MINUTES, --check"])
     else:
-      return errorOut("unknown flag \"" & a & "\"", @["Valid flags: --game NAME, --port N, --no-open, --turn-timeout MINUTES"])
+      return errorOut("unknown flag \"" & a & "\"", @["Valid flags: --game NAME, --port N, --no-open, --turn-timeout MINUTES, --check"])
     inc i
 
   let repo = if root.len > 0: root else: findRepoRoot(getCurrentDir())
   if repo.len == 0:
     return errorOut("this is not a paraloop folder", @["Run `para studio` from inside the paraloop folder (the one with paraloop.nimble)"])
+  if checkOnly:
+    return startupChecks(repo, allAdapters())
   let plans = gamesWithPlan(repo)
   if requested.len > 0 and (not validGameName(requested) or requested notin plans):
     return errorOut("there is no game called \"" & cleanValue(requested) & "\" with a " & planFile & " in " & gamesDir & "/",

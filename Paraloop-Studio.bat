@@ -1,7 +1,8 @@
 @echo off
 rem Double-click this file on Windows to start Para Studio. The steps, and what to do if Windows
 rem warns about this file, are in docs/windows.md; the work is done by tools\launcher\launch.bat.
-rem It installs nothing: if something is missing it says what to install and from where, and stops.
+rem If something is missing it says what it would install and from where, and installs it only
+rem after you answer y; any other answer stops with what to install by hand.
 setlocal
 cd /d "%~dp0"
 if not exist "tools\launcher\launch.bat" goto not_unpacked

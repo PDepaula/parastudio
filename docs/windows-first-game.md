@@ -1,6 +1,7 @@
 # Your first game on Windows
 
-Prefer a double-click? `Paraloop-Studio.bat` does the checks and builds below for you and
+Prefer a double-click? `Paraloop-Studio.bat` does the checks and builds below for you, offers to
+install a missing C compiler, git or Nim (it says what and from where, and asks first) and
 starts Studio: see [windows.md](windows.md). This page is the same route typed by hand in Git Bash.
 
 A short checklist to go from nothing to a game window on a Windows PC. Do the

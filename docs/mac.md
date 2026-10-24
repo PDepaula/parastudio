@@ -1,8 +1,9 @@
 # Para Studio on a Mac
 
 How to start Para Studio on a Mac by double-clicking one file. It needs
-nothing installed first: the file checks what your Mac has, asks before it installs
-anything, and tells you in plain words what it is doing.
+nothing installed first: the file checks what your Mac has, and for anything missing it
+says exactly what it would install, from where and into which folder, then asks a plain
+yes or no before it does anything. It tells you in plain words what it is doing.
 
 **Status:** this was written and tested on Linux only. Nobody has run it on a Mac yet,
 and opening the game window has never been checked on macOS. You are the first, so
@@ -40,16 +41,21 @@ please send the captain what you see if anything looks different from this page.
 
      Then double-click the file again. The first line removes the "downloaded from the
      internet" mark from the folder; the second makes the file runnable.
-3. A Terminal window opens and prints numbered steps. Each says what it is doing:
+3. A Terminal window opens and prints numbered steps. Each says what it is doing.
+   When something is missing it first lists what it would install (**What**), the exact
+   link or command (**From** or **Command**), the folder it goes into (**Where**) and how
+   big it is (**Size**), then asks a question ending in `(y/n, Enter means no)`. Only `y`
+   (or `yes`) and Return installs it; just Return, `n` or anything else installs nothing
+   and stops, saying how to do it yourself instead.
 
    | Step | What you see | What to do |
    |---|---|---|
-   | 1 Apple's command line tools | Usually "ok". If they are missing, a window pops up from Apple. | Click **Install**, wait until it says it is done, then **double-click `Paraloop-Studio.command` again**. This is not an error. |
-   | 2 git | "ok" | Nothing. |
-   | 3 Nim 2.2.10 | "ok", or "Nim is missing. Install it now? (y/n)" | Type `y` and press Return. It downloads Nim from nim-lang.org (about 15 MB), checks the download against the checksum nim-lang.org publishes, and unpacks it into `.paraloop/nim-2.2.10` in your home folder. No password is asked and nothing outside your home folder changes. Type `n` to stop with nothing installed. |
+   | 1 Apple's command line tools | Usually "ok". If they are missing: what they are, `xcode-select --install`, and "Open Apple's installer now?" | Type `y` and press Return. A window pops up from Apple: click **Install**, wait until it says it is done, then **double-click `Paraloop-Studio.command` again**. This is not an error. The tools come from Apple and go into `/Library/Developer/CommandLineTools`; Apple's window shows the size and may ask for your Mac password. |
+   | 2 git | "ok" | Nothing (git comes with Apple's tools). |
+   | 3 Nim 2.2.10 | "ok", or what it would download and "Download and install Nim 2.2.10 now?" | Type `y` and press Return. It downloads Nim from `https://nim-lang.org/download/` (about 15 MB), checks the download against the checksum nim-lang.org publishes, and unpacks it into `.paraloop/nim-2.2.10` in your home folder. No password is asked and nothing outside your home folder changes; Nim's folder is added to the PATH for this run only, not to your shell settings. If the checksum does not match it stops and installs nothing. |
    | 4 Game libraries | "working" with dots, a few minutes | Wait. It is working even when nothing moves. |
    | 5 Building para | "working" with dots, a few minutes | Wait. |
-   | 6 Claude or Codex | Says which it found, or where to install one | See "The producer's chat" below. |
+   | 6 Claude or Codex | Which it found, then the same startup checks the Studio page shows (installed, signed in, folder trusted), each "ok" or with one fix line; or where to install one | See "The producer's chat" below. These never stop Studio from opening. |
    | 7 Starting Studio | Studio opens in your browser | Keep the Terminal window open while you use Studio. The first time it says there is no game yet: in Terminal, in the same folder, run `tmp/para new mygame` (any name without spaces), then reload the page. |
 
 4. To stop Studio, press **Control+C** in the Terminal window, then close it.
@@ -70,7 +76,8 @@ and sign in there, in its own window:
 - Codex CLI: <https://developers.openai.com/codex/cli>
 
 You can start Studio before that; the chat starts working once one is installed and
-signed in. Claude Code also asks, the first time you open a folder, whether you trust it:
+signed in. The launcher prints the same startup checks as the Studio page before it opens
+it (step 6); they only read, and never stop Studio from opening. Claude Code also asks, the first time you open a folder, whether you trust it:
 in Terminal, in the `parastudio` folder, run `claude`, sign in, and choose **Yes, I trust this
 folder** (the highlighted choice is "No, exit", so move down first). Until you do, Claude
 ignores the list of things the producer may do. Studio checks all of this when its page opens and
@@ -105,21 +112,33 @@ nothing secret (Studio's own output, which carries its private link, is not in i
 
 ## What the launcher does and does not do
 
-- It never uses `sudo` and never asks for your password.
+- It installs nothing without asking first, and only `y` or `yes` counts as yes. If the
+  window cannot take an answer at all, that counts as no.
+- On a Mac it never uses `sudo` and never asks for your password itself (Apple's own
+  installer window may, if you say yes to it).
+- It never runs a script downloaded from the internet. Nim comes as the release archive
+  from nim-lang.org, checked against the published checksum.
 - It does not edit your shell settings. It finds Nim in `~/.paraloop/nim-2.2.10`,
   `~/.nimble/bin`, Homebrew and the usual places on its own each time.
 - It talks to the internet only to download Nim (and its checksum) from nim-lang.org,
-  to let nimble fetch the game libraries, and through git. No telemetry.
-- It does not read, copy or change any login or setting of Claude or Codex.
-- To see what it would do without changing anything, run
-  `bash tools/launcher/launch.sh --dry-run` in Terminal from the `parastudio` folder.
+  through Apple's installer if you say yes to it, to let nimble fetch the game libraries,
+  and through git. No telemetry.
+- It does not read, copy or change any login or setting of Claude or Codex. The startup
+  checks in step 6 are `tmp/para studio --check`, the same read-only checks the page runs.
+- To see what it would do and what it would offer without changing or asking anything,
+  run `bash tools/launcher/launch.sh --dry-run` (or `--check`, the same) in Terminal from
+  the `parastudio` folder.
 
 ## Linux and Windows
 
 - **Linux:** run `./paraloop-studio.sh` from the `parastudio` folder. Same steps and
-  messages; the C compiler is checked instead of Apple's tools (install one with your
-  package manager if it asks).
+  messages; the C compiler is checked instead of Apple's tools. If the C compiler or git is
+  missing it shows the exact command for your package manager (for example
+  `sudo apt-get install build-essential`) and runs it only if you answer `y`; that command
+  asks for your password through `sudo`, and the package manager shows the size and asks
+  once more itself. Nim is offered the same way as on a Mac.
 - **Windows:** double-click `Paraloop-Studio.bat` instead; see [windows.md](windows.md).
-  It checks the same things but installs nothing itself, and it is not verified on a real
-  Windows PC. The command-by-command route is [windows-first-game.md](windows-first-game.md);
-  opening the game window on Windows has never been checked either.
+  It offers the same way (winget for the C compiler and git, the nim-lang.org zip for Nim),
+  and it is not verified on a real Windows PC. The command-by-command route is
+  [windows-first-game.md](windows-first-game.md); opening the game window on Windows has
+  never been checked either.
