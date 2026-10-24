@@ -1,0 +1,9 @@
+# parasurvivors src/data.nim:158 SheetDef(file: "koalio.png", cellW: 18, cellH: 26)
+cell_w = 18
+cell_h = 26
+profile = "lowbit"
+pivot = "bottom"
+
+[[waiver]]
+rule = "grid"
+reason = "hand-offset into 18x26 cells by design (libgdx Super Koalio sheet), so they never tile its 128x32 sheet"

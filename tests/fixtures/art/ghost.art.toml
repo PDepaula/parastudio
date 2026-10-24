@@ -1,0 +1,9 @@
+# parasurvivors src/data.nim:154 SheetDef(file: "ghost.png", cellW: 64, cellH: 64)
+cell_w = 64
+cell_h = 64
+profile = "hibit"
+pivot = "bottom"
+
+[[waiver]]
+rule = "alpha"
+reason = "bleached and made translucent by design, per CREDITS.md - not a bug to fix"

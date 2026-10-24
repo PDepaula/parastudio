@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<!--
+  paraloop web shell template (task 1.7, engine report §3.3 `paraloop/web`
+  row; pulled from parasurvivors' shell_minimal.html, parameterized: the
+  title, theme, script and build-info markers (spelled out in
+  tools/web/postbuild.mjs, which replaces every occurrence in the file, so
+  they are not written here) are rendered by postbuild when it copies the
+  template into the web output dir).
+
+  One `#canvas`. Emscripten's `canvas` is the same 2d-context-agnostic
+  object the game (paraloop/app) reads its size from, and the game draws
+  to its WebGL2 context created from it — no second canvas.
+
+  Input for web games: the Nim-side `Module._psKeyDown(code)` /
+  `Module._psKeyUp(code)` KEEPALIVE exports (paraloop/input), which the
+  touch controls below drive with GLFW key codes, and `Module._psPointer(x, y)`
+  / `Module._psButton(button, down)`, which the canvas's pointer events drive:
+  the pointer in canvas pixels (CSS pixels times devicePixelRatio, the
+  framebuffer's own) and a mouse button in GLFW numbering (0 left, 1 right,
+  2 middle). A tap is a left click. The touch controls are optional: they
+  show only on touch devices (pointer: coarse), and desktop plays with the
+  keyboard and the mouse. The labelled buttons hold Enter, C, Esc, Tab and M
+  (the keys the games read, GLFW codes from paraloop/input.nim). The shell
+  never synthesises KeyboardEvents, and arrow keys / space are
+  preventDefault'd, as is the canvas's context menu (a right click is a game
+  input). Touch devices also get a fullscreen toggle (where the Fullscreen
+  API exists) and a dismissible rotate-to-landscape notice in portrait.
+  Hiding the page releases the keys and mouse buttons the shell holds; it
+  never sends Esc.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="__PARALOOP_THEME__">
+<meta name="description" content="A paraloop game">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>__PARALOOP_TITLE__</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: __PARALOOP_THEME__;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    position: fixed;         /* fixed layout viewport + 100dvh = stable fullscreen, no URL-bar jolt */
+    inset: 0;
+    height: 100dvh;
+    display: grid;
+    place-items: center;
+  }
+  canvas#canvas {
+    display: block;
+    background: __PARALOOP_THEME__;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+
+  /* on-screen touch controls (phone play), shown only on touch devices
+     (pointer: coarse): a column of labelled buttons bottom-right (Esc / Tab /
+     M, then C, then the Enter pad), with the bottom edge pushed clear of the
+     home-indicator notch. Moving is a tap on the playfield (a click), so
+     there is no thumbstick. In landscape the canvas is letterboxed (the
+     playfield is 960x540), so the controls sit in the black bars at either
+     side; the fullscreen toggle takes the top-left corner and the build id
+     keeps the top-right. */
+  #actions, #fullscreen, #rotate { display: none; }
+  @media (pointer: coarse) {
+    #actions { display: flex; }
+    #fullscreen.available { display: block; }
+  }
+  #actions {
+    position: absolute;
+    right: max(16px, env(safe-area-inset-right, 0px));
+    bottom: max(30px, env(safe-area-inset-bottom, 0px));
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    z-index: 10;
+  }
+  #aux { display: flex; gap: 6px; }
+  .tbtn {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    border: 2px solid rgba(255,255,255,.28);
+    background: rgba(255,255,255,.14);
+    color: rgba(255,255,255,.85);
+    font: 600 14px/1 ui-monospace, Menlo, Consolas, monospace;
+    text-shadow: 0 0 2px rgba(0,0,0,.8);
+    touch-action: none;
+    -webkit-appearance: none;
+    appearance: none;
+    -webkit-touch-callout: none;
+    cursor: pointer;
+  }
+  .tbtn.down { background: rgba(255,255,255,.38); border-color: rgba(255,255,255,.6); }
+  .tbtn b { font-weight: 600; pointer-events: none; }
+  .tbtn small { display: block; margin-top: 3px; font-size: 9px; font-weight: 400; opacity: .75; pointer-events: none; }
+  .tbtn.aux { width: 50px; height: 46px; border-radius: 10px; font-size: 13px; background: rgba(255,255,255,.08); }
+  .tbtn.pad { border-radius: 50%; }
+  #cpad { width: 76px; height: 76px; font-size: 20px; }
+  #cpad small { margin-top: 2px; }
+  #firepad { width: 96px; height: 96px; }
+  #fullscreen {
+    position: absolute;
+    left: max(8px, env(safe-area-inset-left, 0px));
+    top: max(8px, env(safe-area-inset-top, 0px));
+    z-index: 10;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 18px;
+    font-size: 12px;
+    background: rgba(255,255,255,.08);
+  }
+  /* portrait on a touch device: the 960x540 playfield would be a thin strip,
+     so ask for landscape. Dismissible ("Play anyway"); rotating to
+     landscape forgets the dismissal. Above the controls and the canvas. */
+  @media (pointer: coarse) and (orientation: portrait) {
+    html:not(.rotate-dismissed) #rotate { display: flex; }
+  }
+  #rotate {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px;
+    box-sizing: border-box;
+    text-align: center;
+    background: rgba(0,0,0,.88);
+    color: #fff;
+    font: 18px/1.4 ui-monospace, Menlo, Consolas, monospace;
+  }
+  #rotate .glyph { font-size: 48px; line-height: 1; display: inline-block; transform: rotate(90deg); }
+  #rotate button { font: 600 16px/1 ui-monospace, Menlo, Consolas, monospace; padding: 12px 20px; border-radius: 10px;
+    border: 2px solid rgba(255,255,255,.4); background: rgba(255,255,255,.12); color: #fff; touch-action: manipulation; }
+  /* the build id (and, when postbuild got --feedback-url, a feedback link):
+     small HTML text over the canvas's corner, not drawn into it. The id is
+     inert; only the link takes pointer events. Touch devices put it at the
+     top so the action buttons keep the bottom. */
+  #buildinfo {
+    position: absolute;
+    right: max(6px, env(safe-area-inset-right, 0px));
+    bottom: max(4px, env(safe-area-inset-bottom, 0px));
+    z-index: 5;
+    font: 10px/1.3 ui-monospace, Menlo, Consolas, monospace;
+    color: rgba(255,255,255,.55);
+    text-shadow: 0 0 2px rgba(0,0,0,.8);
+    pointer-events: none;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  #buildinfo a { color: inherit; pointer-events: auto; margin-left: .75em; }
+  @media (pointer: coarse) {
+    #buildinfo { bottom: auto; top: max(4px, env(safe-area-inset-top, 0px)); }
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="actions">
+  <div id="aux">
+    <button type="button" class="tbtn aux" id="escbtn" data-key="256" aria-label="Escape: pause, leave, back out" tabindex="-1"><b>Esc</b><small>pause</small></button>
+    <button type="button" class="tbtn aux" id="tabbtn" data-key="258" aria-label="Tab: switch Areas and Market" tabindex="-1"><b>Tab</b><small>switch</small></button>
+    <button type="button" class="tbtn aux" id="mutebtn" data-key="77" aria-label="M: mute" tabindex="-1"><b>M</b><small>mute</small></button>
+  </div>
+  <button type="button" class="tbtn pad" id="cpad" data-key="67" aria-label="C: cultivate" tabindex="-1"><b>C</b><small>cultivate</small></button>
+  <button type="button" class="tbtn pad" id="firepad" data-key="257" aria-label="Enter: confirm" tabindex="-1"><b>Enter</b></button>
+</div>
+<button type="button" class="tbtn" id="fullscreen" tabindex="-1">Fullscreen</button>
+<div id="rotate" role="dialog" aria-label="Rotate your phone">
+  <span class="glyph" aria-hidden="true">&#x1F4F1;</span>
+  <div>Rotate your phone to landscape to play.</div>
+  <button type="button" id="rotate-dismiss">Play anyway</button>
+</div>
+{{PARALOOP_BUILDINFO}}
+<script>
+  // Touch is the input channel for the phone shell (the engine's
+  // Module._psKeyDown/Up web exports, GLFW codes) — keep it in sync with
+  // the keymap in paraloop/input.nim. Not named `GL`: the emscripten glue
+  // declares its own global `var GL` (the WebGL library) and would clobber it.
+  var PARALOOP_KEYS = { enter: 257, c: 67, esc: 256, tab: 258, m: 77 };
+
+  var canvas = document.getElementById('canvas');
+  var DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+  function sizeCanvas() {
+    canvas.width  = Math.round(window.innerWidth  * DPR);
+    canvas.height = Math.round(window.innerHeight * DPR);
+    canvas.style.width  = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+  }
+  sizeCanvas();
+  window.addEventListener('resize', sizeCanvas);
+  window.addEventListener('orientationchange', function() { setTimeout(sizeCanvas, 100); });
+
+  // The game (paraloop/app) reads the CSS size of "#canvas" each frame and
+  // re-fits its framebuffer, so this shell only sizes the canvas. The glfw
+  // shim, though, creates its window (1920x1080) and resizes the canvas to it
+  // *after* the sizeCanvas() above, so until a resize or rotate the frame is
+  // stretched. Re-assert the size whenever the backing store is not what this
+  // shell asked for: one integer compare per frame, and it covers whenever
+  // the shim runs (and anything else that resizes the canvas behind us).
+  (function keepCanvasSized() {
+    if (canvas.width !== Math.round(window.innerWidth * DPR) ||
+        canvas.height !== Math.round(window.innerHeight * DPR)) sizeCanvas();
+    requestAnimationFrame(keepCanvasSized);
+  })();
+
+  var ARROWS = 'ArrowUp ArrowDown ArrowLeft ArrowRight';
+  [27, 32, 13].forEach(function(c) { // Esc, Space, Enter — stop scroll/zoom side effects at the window level too
+    window.addEventListener('keydown', function(e) { if (e.keyCode === c) e.preventDefault(); });
+  });
+  window.addEventListener('keydown', function(e) { if (ARROWS.split(' ').indexOf(e.code) >= 0) e.preventDefault(); });
+  window.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
+  window.addEventListener('gesturestart', function(e) { e.preventDefault(); });
+
+  var Module = { canvas: canvas,
+    print:      (t) => console.log(t),
+    printErr:   (t) => console.error(t),
+    onRuntimeInitialized: () => { console.log('module loaded'); },
+  };
+</script>
+{{PARALOOP_SCRIPT}}
+<script>
+  (() => {
+    // ---- touch controls (touch devices only): the labelled buttons hold
+    // Enter / C / Esc / Tab / M (data-key). Every key goes through
+    // press/release so `held` always says what the shell is holding down, and
+    // releaseAll() can let go of all of it.
+    let held = [];
+
+    function press(k) {
+      if (typeof Module._psKeyDown !== 'function') return; // wasm not up yet
+      if (held.indexOf(k) < 0) { held.push(k); Module._psKeyDown(k); }
+    }
+    function release(k) { if (held.indexOf(k) >= 0) { held.splice(held.indexOf(k), 1); Module._psKeyUp(k); } }
+
+    // ---- the pointer: the canvas is the playfield. The engine wants canvas
+    // pixels (CSS pixels times the backing store's ratio), from the top-left,
+    // and GLFW's button numbers (0 left, 1 right, 2 middle) where the DOM's
+    // are (0 left, 1 middle, 2 right). A tap on a touch screen is the same
+    // left press and release; the context menu is a right click's, so it goes.
+    const GLFW_BUTTON = [0, 2, 1];
+    const buttonsDown = new Map(); // pointerId -> GLFW button
+    function canvasPoint(e) {
+      const r = canvas.getBoundingClientRect();
+      return [Math.round((e.clientX - r.left) * canvas.width / r.width),
+              Math.round((e.clientY - r.top) * canvas.height / r.height)];
+    }
+    function pointTo(e) {
+      if (typeof Module._psPointer !== 'function') return; // wasm not up yet
+      const p = canvasPoint(e);
+      Module._psPointer(p[0], p[1]);
+    }
+    function pointerUp(e) {
+      if (!buttonsDown.has(e.pointerId)) return;
+      const b = buttonsDown.get(e.pointerId);
+      buttonsDown.delete(e.pointerId);
+      if (typeof Module._psButton === 'function') Module._psButton(b, 0);
+    }
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'mouse' || buttonsDown.has(e.pointerId)) pointTo(e);
+    });
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      if (typeof Module._psButton !== 'function') return;
+      const b = GLFW_BUTTON[e.button];
+      if (b === undefined) return;
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      pointTo(e); // the press lands where the finger or cursor is, not where it last was
+      buttonsDown.set(e.pointerId, b);
+      Module._psButton(b, 1);
+    });
+    canvas.addEventListener('pointerup', (e) => { pointTo(e); pointerUp(e); });
+    canvas.addEventListener('pointercancel', pointerUp);
+    canvas.addEventListener('lostpointercapture', pointerUp);
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // A button holds its key while any finger is on it. Pointer events carry
+    // one id per finger, so two fingers on one button, or a finger sliding off
+    // it, cannot leave the key stuck; the buttons are independent
+    // elements, so C can be tapped while another is held.
+    const buttons = Array.from(document.querySelectorAll('.tbtn[data-key]')).map((el) => {
+      const key = Number(el.dataset.key);
+      const fingers = new Set();
+      const set = (on) => { el.classList.toggle('down', on); if (on) press(key); else release(key); };
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        try { el.setPointerCapture(e.pointerId); } catch (_) {}
+        fingers.add(e.pointerId);
+        set(true);
+      });
+      const up = (e) => { if (fingers.delete(e.pointerId) && fingers.size === 0) set(false); };
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+      el.addEventListener('lostpointercapture', up);
+      el.addEventListener('contextmenu', (e) => e.preventDefault());
+      return { el, fingers };
+    });
+
+    // Let go of every key and mouse button the shell holds: the page was
+    // hidden or lost focus, so a release may never arrive and the player would
+    // keep moving. Only what it holds is released, so it never sends Esc (or
+    // anything else) the player did not press; pausing is the player's call.
+    function releaseAll() {
+      buttons.forEach((b) => { b.fingers.clear(); b.el.classList.remove('down'); });
+      held.slice().forEach(release);
+      Array.from(buttonsDown.keys()).forEach((id) => pointerUp({ pointerId: id }));
+    }
+    document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+    window.addEventListener('pagehide', releaseAll);
+    window.addEventListener('blur', releaseAll);
+
+    // ---- fullscreen toggle: shown only where the Fullscreen API exists (not
+    // iPhone Safari).
+    const fsBtn = document.getElementById('fullscreen');
+    const root = document.documentElement;
+    const fsEnter = root.requestFullscreen || root.webkitRequestFullscreen;
+    const fsExit = document.exitFullscreen || document.webkitExitFullscreen;
+    const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement;
+    const fsEnabled = document.fullscreenEnabled !== undefined ? document.fullscreenEnabled
+                    : document.webkitFullscreenEnabled;
+    if (fsEnter && fsExit && fsEnabled !== false) {
+      const label = () => { fsBtn.textContent = fsElement() ? 'Exit fullscreen' : 'Fullscreen'; };
+      fsBtn.classList.add('available');
+      fsBtn.addEventListener('click', () => {
+        try {
+          if (fsElement()) {
+            fsExit.call(document);
+          } else {
+            Promise.resolve(fsEnter.call(root)).catch(() => {});
+          }
+        } catch (_) {}
+      });
+      document.addEventListener('fullscreenchange', label);
+      document.addEventListener('webkitfullscreenchange', label);
+      label();
+    }
+
+    // ---- rotate notice: the CSS shows it in portrait on touch devices; this
+    // is its dismissal, forgotten once the phone is in landscape again.
+    const dismiss = document.getElementById('rotate-dismiss');
+    dismiss.addEventListener('click', () => document.documentElement.classList.add('rotate-dismissed'));
+    const portrait = window.matchMedia('(orientation: portrait)');
+    const onOrientation = () => { if (!portrait.matches) document.documentElement.classList.remove('rotate-dismissed'); };
+    if (portrait.addEventListener) portrait.addEventListener('change', onOrientation);
+    else if (portrait.addListener) portrait.addListener(onOrientation);
+  })();
+</script>
+</body>
+</html>

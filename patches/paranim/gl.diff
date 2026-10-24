@@ -1,0 +1,133 @@
+--- paranim/gl.nim (0.12.0)
++++ paranim/gl.nim (patched)
+@@ -1,3 +1,23 @@
++## paranim 0.12.0 `gl`, patched for paraloop (see gl.diff for the exact changes
++## against upstream). Upstream gives every texture its own never-reused GL
++## texture unit (`game.texCount`), so a game with more textures than the
++## device has combined texture units (WebGL2 guarantees only 32; one game
++## has 182) logs `INVALID_ENUM: activeTexture: texture unit out of range`,
++## `INVALID_VALUE: glUniform1i: Sampler uniform value out of range`, and draws
++## solid blocks and black squares. Draw-only change; nothing else moves:
++##
++## - Texture units are a small fixed pool (`texturePoolSize`: at most
++##   `defaultTexturePoolSize`, and never more than the device's
++##   `MAX_COMBINED_TEXTURE_IMAGE_UNITS`). The k-th texture uniform of a program
++##   is pinned to pool unit k at `compile`, so the sampler uniform is set once
++##   and every program reuses units 0..k.
++## - `render` binds each texture uniform's texture to its pool unit just before
++##   the draw, unconditionally (no bind cache), so a texture re-uploaded or
++##   deleted behind the engine's back still draws what is bound now.
++## - `game.texCount` still counts the textures created; it is no longer a unit.
++## - A program with more texture uniforms than the pool has units raises at
++##   `compile`, naming the device limit, not at draw time.
++##
+ import paranim/opengl
+ import paranim/gl/attributes, paranim/gl/uniforms
+ from paranim/gl/utils import nil
+@@ -34,8 +54,45 @@
+     ## Entity that renders using `glDrawElementsInstanced`.
+     instanceCount*: GLsizei
+ 
++const defaultTexturePoolSize* = 16
++  ## The most texture units paraloop will use, whatever the device offers. A
++  ## program needs one per texture uniform (the image entities have one), so
++  ## this is far above what any shader asks for and far below the 32 units
++  ## WebGL2 guarantees.
++
++proc texturePoolSizeFor*(deviceUnits: int, wanted = defaultTexturePoolSize): int =
++  ## The pool size for a device that offers `deviceUnits` combined texture
++  ## units: `wanted`, capped at the device's limit, and at least 1 (a
++  ## `glGetIntegerv` that reported nothing still leaves unit 0 to draw with).
++  max(1, min(wanted, deviceUnits))
++
++var
++  poolSizeCache = 0
++    ## 0 until `texturePoolSize` first asks the context.
++  compileSlot = 0
++    ## Texture uniforms the `compile` in flight has handed a pool unit to.
++
++proc texturePoolSize*(): int =
++  ## Number of texture units paraloop draws with on this device. Needs a
++  ## current GL context the first time it is called.
++  if poolSizeCache == 0:
++    var deviceUnits: GLint
++    glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, deviceUnits.addr)
++    poolSizeCache = texturePoolSizeFor(int(deviceUnits))
++  poolSizeCache
++
++proc nextPoolUnit(): GLint =
++  ## The pool unit for the next texture uniform of the program being compiled.
++  let pool = texturePoolSize()
++  if compileSlot >= pool:
++    raise newException(Exception, "a program has more texture uniforms than the " &
++      "texture unit pool holds (" & $pool & " units, capped by the device's " &
++      "MAX_COMBINED_TEXTURE_IMAGE_UNITS)")
++  result = GLint(compileSlot)
++  compileSlot += 1
++
+ proc createTexture[T](game: var RootGame, uniLoc: GLint, texture: Texture[T]): tuple[unit: GLint, textureNum: GLuint] =
+-  let unit = game.texCount
++  let unit = nextPoolUnit()
+   game.texCount += 1
+   var textureNum: GLuint
+   glGenTextures(1, textureNum.addr)
+@@ -59,7 +116,7 @@
+   )
+   for paramVal in texture.mipmapParams:
+     glGenerateMipmap(paramVal)
+-  (unit: GLint(unit), textureNum: textureNum)
++  (unit: unit, textureNum: textureNum)
+ 
+ proc getUniformLocation(program: GLuint, uniName: string): GLint =
+   result = glGetUniformLocation(program, uniName)
+@@ -68,8 +125,9 @@
+ 
+ proc callUniform[CompiledT, UniT, AttrT, TexT](game: var RootGame, entity: UncompiledEntity[CompiledT, UniT, AttrT], program: GLuint, uniName: string, uni: var UniForm[Texture[TexT]]) =
+   let loc = getUniformLocation(program, uniName)
+-  let (unit, _) = createTexture(game, loc, uni.data)
++  let (unit, textureNum) = createTexture(game, loc, uni.data)
+   uni.data.unit = unit
++  uni.data.textureNum = textureNum
+   uni.data.data = nil # we don't need to hold on to the texture anymore
+   glUniform1i(loc, uni.data.unit)
+   uni.disable = true
+@@ -83,6 +141,7 @@
+   let loc = getUniformLocation(program, uniName)
+   let (unit, textureNum) = createTexture(game, loc, uni.data)
+   uni.data.unit = unit
++  uni.data.textureNum = textureNum
+   glUniform1i(loc, uni.data.unit)
+   # create framebuffer
+   if uni.data.data != nil:
+@@ -332,12 +391,19 @@
+   for attr in result.attributes.fields:
+     attr.buffer = initBuffer()
+   setBuffers(result)
++  compileSlot = 0
+   for name, uni in result.uniforms.fieldPairs:
+     if not uni.disable:
+       callUniform(game, uncompiledEntity, result.program, name, uni)
+   glUseProgram(previousProgram)
+   glBindVertexArray(previousVao)
+ 
++proc bindTexture(unit: GLint, textureNum: GLuint) =
++  ## Put `textureNum` on pool unit `unit`, where the entity's sampler uniform
++  ## (set once at `compile`) already points.
++  glActiveTexture(GLenum(GL_TEXTURE0.ord + unit))
++  glBindTexture(GL_TEXTURE_2D, textureNum)
++
+ template render(game: untyped, entity: untyped, body: untyped) =
+   var
+     previousProgram: GLuint
+@@ -350,6 +416,11 @@
+   for name, uni in entity.uniforms.fieldPairs:
+     if not uni.disable:
+       callUniform(game, entity, entity.program, name, uni)
++  # after the uniform loop: a RenderToTexture's `render` callback runs inside
++  # it and may bind other textures to the pool
++  for uni in entity.uniforms.fields:
++    when uni.data is Texture[auto]:
++      bindTexture(uni.data.unit, uni.data.textureNum)
+   for attr in entity.attributes.fields:
+     when attr is TextureBuffer[auto]:
+       glActiveTexture(GLenum(GL_TEXTURE0.ord + attr.unit))

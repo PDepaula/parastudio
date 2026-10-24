@@ -1,0 +1,25 @@
+.nimcache/
+tmp/
+# Your games live here, each a git repository of its own; this repository never tracks them.
+games/*
+!games/.gitkeep
+nimble.paths
+nimble.develop
+# `nimble setup` appends this line itself when it is missing, which leaves a
+# tracked file modified (and a web build id `-dirty`) in a clean CI checkout.
+nimbledeps
+/tools/para/para
+tools/art/.venv/
+tools/art/__pycache__/
+tools/art/**/__pycache__/
+games/*/atlas/__pycache__/
+tools/art/.pytest_cache/
+tests/test_*
+!tests/test_*.nim
+!tests/test_*.nims
+games/*/tests/test_*
+!games/*/tests/test_*.nim
+!games/*/tests/test_*.nims
+examples/*/tests/test_*
+!examples/*/tests/test_*.nim
+!examples/*/tests/test_*.nims

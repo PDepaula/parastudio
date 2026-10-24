@@ -1,0 +1,5 @@
+# Synthetic stand-in for parasurvivors' parakeet.png (src/data.nim:159 SheetDef(cellW: 70, cellH: 100))
+cell_w = 70
+cell_h = 100
+profile = "hibit"
+pivot = "bottom"

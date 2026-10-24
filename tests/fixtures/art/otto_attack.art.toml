@@ -1,0 +1,5 @@
+# parasurvivors src/data.nim:161 SheetDef(file: "otto_attack.png", cellW: 192, cellH: 192)
+cell_w = 192
+cell_h = 192
+profile = "hibit"
+pivot = "bottom"

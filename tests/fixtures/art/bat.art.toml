@@ -1,0 +1,5 @@
+# parasurvivors src/data.nim:157 SheetDef(file: "bat.png", cellW: 32, cellH: 32)
+cell_w = 32
+cell_h = 32
+profile = "lowbit"
+pivot = "bottom"

@@ -1,0 +1,134 @@
+name: Platform check
+
+# automatic runs paused for development; run manually with workflow_dispatch; hosted-runner jobs resume 2026-11-01 if wanted
+
+# Does the first-playable path work on macOS and Windows? Every other job here
+# runs on Linux, so nobody has checked. This workflow runs the path a new
+# friend takes, on GitHub-hosted macos-latest and windows-latest (one job each),
+# and writes the measured prerequisites and per-step times to the job summary.
+# docs/platforms.md has the results. On Windows it also runs the dev tool's
+# tests (the control channel and `para live`). It cannot prove a window opens:
+# that needs a GPU, so it is reported as a fact, not a pass.
+#
+# PAUSED until 2026-11-01: the hosted jobs are switched off (see `if: false`
+# on the job) because GitHub-hosted runner minutes are used up for the month.
+#
+# Manual only: workflow_dispatch. Hosted minutes are spent sparingly: no
+# schedule, no push trigger, no matrix of versions, no cache.
+
+# Paused: the pull_request trigger (opened/reopened, scoped to this file,
+# .github/scripts/platform-check.sh and .github/scripts/glprobe.nim) is off.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-check-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  first-playable:
+    name: first playable (${{ matrix.label }})
+    # Paused: the hosted jobs are switched off. Delete this `if: false` line to re-enable.
+    if: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, label: macOS }
+          - { os: windows-latest, label: Windows }
+    env:
+      PLATFORM_LABEL: ${{ matrix.label }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the clock
+        run: .github/scripts/platform-check.sh mark "start"
+
+      # What the hosted image already has, before this job installs anything.
+      - name: Probe preinstalled tools
+        run: |
+          pc=.github/scripts/platform-check.sh
+          $pc probe "preinstalled: git" git --version
+          $pc probe "preinstalled: cc" bash -c 'set -o pipefail; cc --version | head -n 1'
+          $pc probe "preinstalled: gcc" bash -c 'set -o pipefail; gcc --version | head -n 1'
+          $pc probe "preinstalled: clang" bash -c 'set -o pipefail; clang --version | head -n 1'
+          $pc probe "preinstalled: nim" bash -c 'set -o pipefail; nim --version | head -n 1'
+          $pc probe "preinstalled: nimble" bash -c 'set -o pipefail; nimble --version | head -n 1'
+          $pc probe "uname" uname -a
+          $pc probe "display" bash -c 'set -o pipefail; echo "DISPLAY=${DISPLAY:-unset}"'
+
+      - name: Install Nim 2.2.10 (nimble included)
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.10"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Time the Nim install
+        run: |
+          pc=.github/scripts/platform-check.sh
+          $pc mark "install Nim (setup-nim-action)"
+          $pc run "nim --version" bash -c 'set -o pipefail; nim --version | head -n 1'
+          $pc run "nimble --version" bash -c 'set -o pipefail; nimble --version | head -n 1'
+
+      - name: Path steps (clone to a built, tested new game, a window)
+        run: |
+          pc=.github/scripts/platform-check.sh
+          $pc run "nimble install -d -y" nimble install -d -y
+          $pc run "nimble setup" nimble setup
+          $pc run "build para" nim c --hints:off --outdir:tmp tools/para/para.nim
+          $pc run "para new mygame" tmp/para new mygame
+          $pc run "para build --game mygame" tmp/para build --game mygame
+          $pc run "para test --filter games/mygame/" tmp/para test --filter games/mygame/
+          # The dev tool (Windows only: the macOS minutes cost 10x and the unix-socket
+          # route already runs on Linux CI). These are the control channel's own tests:
+          # a listener and a client in one process, no window. test_dev runs the
+          # listener against the client socket, test_para_dev_cli runs `para live`
+          # status/shot/passthrough against a fake game on a thread.
+          if [ "$RUNNER_OS" = Windows ]; then
+            $pc run "dev tool: para test --filter test_dev" tmp/para test --filter test_dev
+            $pc run "dev tool: para test --filter test_para_dev_cli" tmp/para test --filter test_para_dev_cli
+            $pc run "para bare view runs" tmp/para
+            # The studio page (`para studio`): start it without a browser, fetch the page and
+            # the state with the key from its link, check a call without the key is refused,
+            # ask for the chat's agent and (no `claude` on a hosted runner) send one message
+            # and check the turn ends with the plain not-installed answer; then press Play
+            # (builds the game with its dev channel and starts its window, which a runner with
+            # no GPU cannot open, so the answer is a plain sentence, not a pass/fail on the
+            # window) and stop it. The buttons, the browser opening, a real window with a
+            # screenshot and a real chat with the friend's own claude are the tester's
+            # checklist (docs/windows-first-game.md, step 7).
+            $pc run "para studio: start, fetch the page, chat without claude, Play, stop" bash .github/scripts/studio-smoke.sh
+            # The command a friend runs to open the window, minus `-r`: it compiles the
+            # game with the dev channel in, which is what used to fail on Windows.
+            $pc run "dev tool: nim c -d:dev games/mygame/mygame.nim" nim c -d:dev games/mygame/mygame.nim
+          fi
+          # Window check, a fact and not a pass/fail: opening a real window needs real
+          # hardware (a GPU driver), which a hosted runner does not have. This renders
+          # the hello title screen in a hidden GL window (`para shot` without
+          # --check/--update-golden only writes tmp/frames); here it is expected to fail
+          # (an error message or an abort), which the probe records as a fact.
+          $pc probe "window (needs real hardware): para shot --game hello --at title" tmp/para shot --game hello --at title
+          $pc probe "frame written" bash -c 'set -o pipefail; ls -l tmp/frames/hello_title.png'
+
+      # Why a window can or cannot open here: GLFW's own error text per attempt,
+      # plus what the OS says about displays/GPU.
+      - name: Window diagnostics
+        run: |
+          pc=.github/scripts/platform-check.sh
+          if [ "$RUNNER_OS" = macOS ]; then
+            $pc probe "session type" bash -c 'launchctl managername'
+            $pc probe "gpu" bash -c 'system_profiler SPDisplaysDataType | grep -E "Chipset|Metal|Resolution|Display Type" | head -n 4 | tr "\n" ";"'
+          fi
+          $pc probe "glprobe: GLFW window attempts" bash -c 'nim c --hints:off -r -o:tmp/glprobe .github/scripts/glprobe.nim 2>&1 | tr "\n" ";"'
+
+      - name: Summary
+        run: .github/scripts/platform-check.sh summary

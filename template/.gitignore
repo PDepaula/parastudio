@@ -1,0 +1,22 @@
+# Made by `para new`: this game is its own git repository, and these are the
+# files git leaves out of its save points.
+
+# paraloop's scratch space and Nim's build state
+tmp/
+.nimcache/
+nimcache/
+
+# the game and its tests, compiled next to their source
+/__GAME__
+/__GAME__.exe
+tests/test_*
+!tests/test_*.nim
+!tests/test_*.nims
+*.exe
+*.o
+*.obj
+
+# editors and operating systems
+.DS_Store
+Thumbs.db
+*.swp

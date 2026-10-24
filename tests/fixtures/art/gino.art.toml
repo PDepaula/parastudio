@@ -1,0 +1,5 @@
+# parasurvivors src/data.nim:165 SheetDef(file: "gino.png", cellW: 128, cellH: 128)
+cell_w = 128
+cell_h = 128
+profile = "hibit"
+pivot = "bottom"

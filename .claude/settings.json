@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tmp/para producer-context)",
+      "Bash(tmp/para check)",
+      "Bash(tmp/para check --game *)",
+      "Bash(tmp/para test --filter games/*)",
+      "Bash(tmp/para build --game *)",
+      "Bash(tmp/para sim --game *)",
+      "Bash(tmp/para new *)",
+      "Bash(tmp/para save -m *)",
+      "Bash(tmp/para save --game * -m *)",
+      "Bash(tmp/para save --list)",
+      "Bash(tmp/para save --game * --list)",
+      "Bash(tmp/para backup)",
+      "Bash(tmp/para art lint *)",
+      "Bash(nim c --hints:off --outdir:tmp tools/para/para.nim)",
+      "Bash(git --version)",
+      "Bash(nim -v)",
+      "Bash(cc --version)",
+      "Bash(git remote get-url origin)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" 2>/dev/null; tmp/para producer-context 2>/dev/null || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

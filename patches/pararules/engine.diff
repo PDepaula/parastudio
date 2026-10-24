@@ -1,0 +1,427 @@
+--- pararules/engine.nim (1.4.0)
++++ pararules/engine.nim (patched)
+@@ -1,4 +1,45 @@
+-import tables, algorithm, sets, sequtils
++## pararules 1.4.0 engine, patched for paraloop (see engine.diff for the exact
++## changes against upstream). paraloop/sim needs a session's behavior to be a
++## function of its facts alone, so a run replays identically in another process
++## and after snapshot/restore:
++##
++## - A fact's alpha nodes are collected in a seq (alpha-tree order), not a
++##   pointer-keyed HashSet.
++## - Joins walk parent matches and alpha facts sorted by (id, attr), not in
++##   Table layout order, which depends on insertion/deletion history. Only
++##   the parent matches that pass the id shortcut are sorted, and an alpha
++##   node drops an id's table once its last fact for that id is retracted.
++## - `fireRules` runs queued `then` blocks sorted by (rule add order, match
++##   (id, attr)s) and `thenFinally` blocks by rule add order, instead of
++##   iterating HashSets of node pointers. `findAll` and
++##   `queryAll(session, rule)` yield matches sorted by (id, attr) too, and
++##   `find` returns the lowest one.
++## - `JoinNode.oldIdAttrs` counts the matches each fact is in instead of being
++##   a set, so retracting one of several matches no longer marks the fact new.
++## - `idAttrsComparisons` counts the (id, attr) comparisons every one of those
++##   sorts makes, so a test can check a join's sort cost without a clock.
++## - A memory node indexes its matches by the id its child join compares, so
++##   a fact arriving at a join (a right activation) reads that id's parent
++##   matches instead of scanning every one: a position write at a 200-entity
++##   cap no longer walks 200 matches per join.
++## - `joinMatchesVisited` counts the parent matches those right activations
++##   examine, so a test can check that cost without a clock.
++## - `autoFire` is exported, and `pendingRules`/`resetPending` read and set
++##   a session's set triggers and queued `then`/`thenFinally` blocks, for
++##   snapshot/restore.
++## - `fireRules` copies a leaf node's match table once per node rather than
++##   once per queued `then` (O(N^2) per tick; carried over from parasurvivors).
++## - A session holds a `SessionContext` by reference: the entity id allocator
++##   and the seeded RNG. Every copy of the session shares it, including the one
++##   a `then` receives, so a rule can allocate an id or draw a number and a run
++##   still replays from its seed (`paraloop/sim` owns the accessors).
++## - `matchCount` reads a rule's number of enabled matches by rule name in
++##   O(1): a `then` cannot name another rule, so it asks by string, and
++##   `queryAll` would copy every match to count them.
++
++import tables, algorithm, sets, sequtils, random
++
++const paraloopEnginePatched* = true
+ 
+ type
+   # facts
+@@ -52,12 +93,20 @@
+     child: JoinNode[T, MatchT]
+     leafNode: MemoryNode[T, MatchT]
+     lastMatchId: int
++    ruleOrder: int
+     matches: Table[IdAttrs, Match[MatchT]]
++    matchesById: Table[int, seq[IdAttrs]]
++      ## `matches` keys grouped by the id the child join compares (its
++      ## `idName`), so a right activation reads one id's matches instead of
++      ## scanning all of them. Unused while the child join has no `idName`.
+     matchIds: Table[int, IdAttrs]
+     condition: Condition[T]
+     ruleName: string
+     case nodeType: MemoryNodeType
+       of Leaf:
++        enabledCount: int
++          ## Matches whose `condFn` held when they were last (re)computed:
++          ## what `queryAll(session, rule)` would return, kept incrementally.
+         condFn: CondFn[MatchT]
+         thenFn: WrappedThenFn[MatchT]
+         thenFinallyFn: WrappedThenFinallyFn
+@@ -70,11 +119,17 @@
+     alphaNode: AlphaNode[T, MatchT]
+     condition: Condition[T]
+     idName: string
+-    oldIdAttrs: HashSet[IdAttr]
++    oldIdAttrs: CountTable[IdAttr]
+     disableFastUpdates: bool
+     ruleName: string
+ 
+   # session
++  SessionContext* = ref object
++    ## State a `then` may use that is not a fact: the next entity id and the
++    ## seeded RNG. It lives on the session by reference, so a session copy
++    ## (the one `add` hands every `then`) reads and writes the same one.
++    lastId*: int
++    rng*: Rand
+   Condition[T] = object
+     nodes: seq[tuple[testField: Field, testValue: T]]
+     vars: seq[Var]
+@@ -94,8 +149,20 @@
+     thenQueue: ref HashSet[tuple[node: ptr MemoryNode[T, MatchT], idAttrs: IdAttrs]]
+     thenFinallyQueue: ref HashSet[ptr MemoryNode[T, MatchT]]
+     triggeredNodeIds: ref HashSet[ptr MemoryNode[T, MatchT]]
+-    autoFire: bool
++    autoFire*: bool
+     initMatch: InitMatchFn[MatchT]
++    context*: SessionContext
++
++var idAttrsComparisons*: int
++var joinMatchesVisited*: int
++
++proc cmpIdAttrs(a, b: IdAttrs): int =
++  inc idAttrsComparisons
++  for i in 0 ..< min(a.len, b.len):
++    result = cmp(a[i], b[i])
++    if result != 0:
++      return
++  result = cmp(a.len, b.len)
+ 
+ proc addNode(node: AlphaNode, newNode: AlphaNode): AlphaNode =
+   for child in node.children:
+@@ -165,7 +232,7 @@
+     # successors must be sorted by ancestry (descendents first) to avoid duplicate rule firings
+     leafAlphaNode.successors.sort(proc (x, y: JoinNode[T, MatchT]): int =
+       if isAncestor(x, y): 1 else: -1)
+-    var memNode = MemoryNode[T, MatchT](parent: joinNode, nodeType: if i == last: Leaf else: Partial, condition: condition, ruleName: production.name, lastMatchId: -1)
++    var memNode = MemoryNode[T, MatchT](parent: joinNode, nodeType: if i == last: Leaf else: Partial, condition: condition, ruleName: production.name, lastMatchId: -1, ruleOrder: session.leafNodes.len)
+     if memNode.nodeType == Leaf:
+       memNode.condFn = production.condFn
+       if production.thenFn != nil:
+@@ -237,8 +304,8 @@
+       for alphaFact in node.alphaNode.facts[id].values:
+         session.leftActivation(node, idAttrs, vars, token, alphaFact)
+   else:
+-    for factsForId in node.alphaNode.facts.values:
+-      for alphaFact in factsForId.values:
++    for id in toSeq(node.alphaNode.facts.keys).sorted:
++      for alphaFact in node.alphaNode.facts[id].values:
+         session.leftActivation(node, idAttrs, vars, token, alphaFact)
+ 
+ proc leftActivation[T, MatchT](session: var Session[T, MatchT], node: var MemoryNode[T, MatchT], idAttrs: IdAttrs, vars: MatchT, token: Token[T], isNew: bool) =
+@@ -251,14 +318,21 @@
+   # add or remove the match
+   case token.kind:
+   of Insert, Update:
++    var wasEnabled = false
+     var match =
+       if node.matches.hasKey(idAttrs):
++        wasEnabled = node.matches[idAttrs].enabled
+         node.matches[idAttrs]
+       else:
+         node.lastMatchId += 1
++        node.parent.oldIdAttrs.inc(idAttr)
++        if node.nodeType != Leaf and node.child.idName != "":
++          node.matchesById.mgetOrPut(vars[node.child.idName].slot0, @[]).add(idAttrs)
+         Match[MatchT](id: node.lastMatchId)
+     match.vars = vars
+     match.enabled = node.nodeType != Leaf or node.condFn == nil or node.condFn(vars)
++    if node.nodeType == Leaf:
++      node.enabledCount += int(match.enabled) - int(wasEnabled)
+     node.matchIds[match.id] = idAttrs
+     node.matches[idAttrs] = match
+     if node.nodeType == Leaf and node.trigger:
+@@ -266,11 +340,18 @@
+         session.thenQueue[].incl((node.addr, idAttrs))
+       if node.thenFinallyFn != nil:
+         session.thenFinallyQueue[].incl(node.addr)
+-    node.parent.oldIdAttrs.incl(idAttr)
+   of Retract:
++    if node.nodeType == Leaf and node.matches[idAttrs].enabled:
++      dec node.enabledCount
+     node.matchIds.del(node.matches[idAttrs].id)
++    if node.nodeType != Leaf and node.child.idName != "":
++      let id = node.matches[idAttrs].vars[node.child.idName].slot0
++      let at = node.matchesById[id].find(idAttrs)
++      node.matchesById[id].del(at)
++      if node.matchesById[id].len == 0:
++        node.matchesById.del(id)
+     node.matches.del(idAttrs)
+-    node.parent.oldIdAttrs.excl(idAttr)
++    node.parent.oldIdAttrs.inc(idAttr, -1)
+     if node.nodeType == Leaf:
+       if node.thenFinallyFn != nil:
+         session.thenFinallyQueue[].incl(node.addr)
+@@ -284,12 +365,18 @@
+     if getVarsFromFact(vars, node.condition, token.fact):
+       session.leftActivation(node.child, @[idAttr], vars, token, true)
+   else:
+-    for idAttrs, match in node.parent.matches.pairs:
+-      let vars = match.vars
+-      # SHORTCUT: if we know the id, compare it with the token right away
+-      if node.idName != "" and vars[node.idName].slot0 != token.fact.id.slot0:
+-        continue
+-      var newVars = vars # making a mutable copy here is far faster than making `vars` mutable above
++    var keys: seq[IdAttrs]
++    if node.idName != "":
++      # SHORTCUT: if we know the id, only the parent matches with that id
++      keys = node.parent.matchesById.getOrDefault(token.fact.id.slot0)
++      joinMatchesVisited += keys.len
++    else:
++      for idAttrs in node.parent.matches.keys:
++        keys.add(idAttrs)
++      joinMatchesVisited += keys.len
++    keys.sort(cmpIdAttrs)
++    for idAttrs in keys:
++      var newVars = node.parent.matches[idAttrs].vars
+       if getVarsFromFact(newVars, node.condition, token.fact):
+         var newIdAttrs = idAttrs
+         newIdAttrs.add(idAttr)
+@@ -308,6 +395,8 @@
+     assert not exists
+   of Retract:
+     node.facts[idAttr.id].del(idAttr.attr)
++    if node.facts[idAttr.id].len == 0:
++      node.facts.del(idAttr.id)
+     let missing = session.idAttrNodes[idAttr].missingOrExcl(node.addr)
+     assert not missing
+     if session.idAttrNodes[idAttr].len == 0:
+@@ -377,10 +466,15 @@
+         else:
+           raiseRecursionLimit(recursionLimit, executedNodes)
+       recurCount += 1
+-    let thenQueue = session.thenQueue[].toSeq
+-    let thenFinallyQueue = session.thenFinallyQueue[].toSeq
++    var thenQueue = session.thenQueue[].toSeq
++    var thenFinallyQueue = session.thenFinallyQueue[].toSeq
+     if thenQueue.len == 0 and thenFinallyQueue.len == 0:
+       return
++    thenQueue.sort(proc (a, b: tuple[node: ptr MemoryNode[T, MatchT], idAttrs: IdAttrs]): int =
++      result = cmp(a.node.ruleOrder, b.node.ruleOrder)
++      if result == 0:
++        result = cmpIdAttrs(a.idAttrs, b.idAttrs))
++    thenFinallyQueue.sort(proc (a, b: ptr MemoryNode[T, MatchT]): int = cmp(a.ruleOrder, b.ruleOrder))
+     # reset state
+     session.thenQueue[].clear
+     session.thenFinallyQueue[].clear
+@@ -404,9 +498,8 @@
+         nodeToMatches[node] = node.matches
+     # execute `then` blocks
+     for (node, idAttrs) in thenQueue:
+-      let matches = nodeToMatches[node]
+-      if matches.hasKey(idAttrs):
+-        let match = matches[idAttrs]
++      if nodeToMatches[node].hasKey(idAttrs):
++        let match = nodeToMatches[node][idAttrs]
+         if match.enabled:
+           when not defined(release):
+             session.triggeredNodeIds[].clear
+@@ -424,7 +517,7 @@
+       # save triggered node ids
+       executedNodes.add(nodeToTriggeredNodeIds)
+ 
+-proc getAlphaNodesForFact[T, MatchT](session: var Session[T, MatchT], node: var AlphaNode[T, MatchT], fact: Fact[T], root: bool, nodes: var HashSet[ptr AlphaNode[T, MatchT]]) =
++proc getAlphaNodesForFact[T, MatchT](session: var Session[T, MatchT], node: var AlphaNode[T, MatchT], fact: Fact[T], root: bool, nodes: var seq[ptr AlphaNode[T, MatchT]]) =
+   if root:
+     for child in node.children.mitems:
+       session.getAlphaNodesForFact(child, fact, false, nodes)
+@@ -435,14 +528,14 @@
+       of Field.Value: fact[2]
+     if val != node.testValue:
+       return
+-    nodes.incl(node.addr)
++    nodes.add(node.addr)
+     for child in node.children.mitems:
+       session.getAlphaNodesForFact(child, fact, false, nodes)
+ 
+-proc upsertFact[T, MatchT](session: var Session[T, MatchT], fact: Fact[T], nodes: HashSet[ptr AlphaNode[T, MatchT]]) =
++proc upsertFact[T, MatchT](session: var Session[T, MatchT], fact: Fact[T], nodes: seq[ptr AlphaNode[T, MatchT]]) =
+   let idAttr = fact.getIdAttr
+   if not session.idAttrNodes.hasKey(idAttr):
+-    for n in nodes.items:
++    for n in nodes:
+       session.rightActivation(n[], Token[T](fact: fact, kind: Insert))
+   else:
+     let existingNodes = session.idAttrNodes[idAttr]
+@@ -454,7 +547,7 @@
+         let oldFact = n.facts[fact.id.slot0][fact.attr.slot1.ord]
+         session.rightActivation(n[], Token[T](fact: oldFact, kind: Retract))
+     # update or insert facts, depending on whether the node already exists
+-    for n in nodes.items:
++    for n in nodes:
+       if existingNodes.contains(n):
+         let oldFact = n.facts[fact.id.slot0][fact.attr.slot1.ord]
+         session.rightActivation(n[], Token[T](fact: fact, kind: Update, oldFact: oldFact))
+@@ -462,7 +555,7 @@
+         session.rightActivation(n[], Token[T](fact: fact, kind: Insert))
+ 
+ proc insertFact*[T, MatchT](session: var Session[T, MatchT], fact: Fact[T]) =
+-  var nodes = initHashSet[ptr AlphaNode[T, MatchT]](initialSize = 4)
++  var nodes: seq[ptr AlphaNode[T, MatchT]]
+   getAlphaNodesForFact(session, session.alphaNode, fact, true, nodes)
+   session.upsertFact(fact, nodes)
+   if session.autoFire:
+@@ -505,6 +598,7 @@
+     result.triggeredNodeIds[] = initHashSet[ptr MemoryNode[T, MatchT]]()
+   result.autoFire = autoFire
+   result.initMatch = initMatch
++  result.context = SessionContext(rng: initRand(0))
+ 
+ proc initProduction*[T, U, MatchT](name: string, convertMatchFn: ConvertMatchFn[MatchT, U], condFn: CondFn[MatchT], thenFn: ThenFn[T, U, MatchT], thenFinallyFn: ThenFinallyFn[T, U, MatchT]): Production[T, U, MatchT] =
+   result.name = name
+@@ -513,6 +607,10 @@
+   result.thenFn = thenFn
+   result.thenFinallyFn = thenFinallyFn
+ 
++proc sortedMatches[T, MatchT](node: MemoryNode[T, MatchT], keys: seq[IdAttrs]): seq[Match[MatchT]] =
++  for idAttrs in keys.sorted(cmpIdAttrs):
++    result.add(node.matches[idAttrs])
++
+ proc matchesParams[I, T, MatchT](vars: MatchT, params: array[I, (string, T)]): bool =
+   for (varName, val) in params:
+     if vars[varname] != val:
+@@ -520,26 +618,38 @@
+   true
+ 
+ proc find*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): int =
+-  for match in session.leafNodes[prod.name].matches.values:
+-    if match.enabled and matchesParams(match.vars, params):
+-      return match.id
+-  -1
++  result = -1
++  var first: IdAttrs
++  for idAttrs, match in session.leafNodes[prod.name].matches.pairs:
++    if match.enabled and matchesParams(match.vars, params) and (result == -1 or cmpIdAttrs(idAttrs, first) < 0):
++      first = idAttrs
++      result = match.id
+ 
+ proc find*(session: Session, prod: Production): int =
+-  for match in session.leafNodes[prod.name].matches.values:
+-    if match.enabled:
+-      return match.id
+-  -1
++  result = -1
++  var first: IdAttrs
++  for idAttrs, match in session.leafNodes[prod.name].matches.pairs:
++    if match.enabled and (result == -1 or cmpIdAttrs(idAttrs, first) < 0):
++      first = idAttrs
++      result = match.id
+ 
+ proc findAll*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): seq[int] =
+-  for match in session.leafNodes[prod.name].matches.values:
++  let node = session.leafNodes[prod.name]
++  var keys: seq[IdAttrs]
++  for idAttrs, match in node.matches.pairs:
+     if match.enabled and matchesParams(match.vars, params):
+-      result.add(match.id)
++      keys.add(idAttrs)
++  for match in node.sortedMatches(keys):
++    result.add(match.id)
+ 
+ proc findAll*(session: Session, prod: Production): seq[int] =
+-  for match in session.leafNodes[prod.name].matches.values:
++  let node = session.leafNodes[prod.name]
++  var keys: seq[IdAttrs]
++  for idAttrs, match in node.matches.pairs:
+     if match.enabled:
+-      result.add(match.id)
++      keys.add(idAttrs)
++  for match in node.sortedMatches(keys):
++    result.add(match.id)
+ 
+ proc queryAll*[T, MatchT](session: Session[T, MatchT]): seq[tuple[id: int, attr: int, value: T]] =
+   for idAttr, nodes in session.idAttrNodes.pairs:
+@@ -550,9 +660,27 @@
+     result.add((idAttr.id, idAttr.attr, fact.value))
+ 
+ proc queryAll*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT]): seq[U] =
+-  for match in session.leafNodes[prod.name].matches.values:
++  let node = session.leafNodes[prod.name]
++  var keys: seq[IdAttrs]
++  for idAttrs, match in node.matches.pairs:
+     if match.enabled:
+-      result.add(prod.convertMatchFn(match.vars))
++      keys.add(idAttrs)
++  for match in node.sortedMatches(keys):
++    result.add(prod.convertMatchFn(match.vars))
++
++proc enabledMatchCount[T, MatchT](session: Session[T, MatchT], ruleName: string): int =
++  if not session.leafNodes.hasKey(ruleName):
++    raise newException(KeyError, "matchCount: no rule named \"" & ruleName & "\" in this session")
++  session.leafNodes[ruleName].enabledCount
++
++proc matchCount*[T, MatchT](session: Session[T, MatchT], ruleName: string): int =
++  ## How many matches the rule named `ruleName` has now (the length of
++  ## `queryAll(session, rule)`), without building them. Raises `KeyError`
++  ## naming the rule when the session has no such rule.
++  session.enabledMatchCount(ruleName)
++
++proc matchCount*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT]): int =
++  session.enabledMatchCount(prod.name)
+ 
+ proc get*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT], i: int): U =
+   let idAttrs = session.leafNodes[prod.name].matchIds[i]
+@@ -566,3 +694,43 @@
+ 
+ proc contains*[T, MatchT](session: Session[T, MatchT], id: int, attr: int): bool =
+   session.idAttrNodes.contains((id, attr))
++
++type
++  PendingRules* = object
++    ## A session's pending rule work, keyed by rule name and match (id, attr)s
++    ## and sorted, so it carries over to another session with the same rules.
++    triggers*: seq[string]
++    thens*: seq[tuple[rule: string, idAttrs: seq[tuple[id: int, attr: int]]]]
++    thenFinallys*: seq[string]
++
++proc pendingRules*[T, MatchT](session: Session[T, MatchT]): PendingRules =
++  ## The rules whose trigger is set and the `then`/`thenFinally` blocks
++  ## queued for the next `fireRules`. `fireRules` leaves a trigger set when
++  ## its rule triggered but had no match to run (the rule then runs on its
++  ## next match), and inserts or retracts made after `fireRules` queue
++  ## blocks, so all three are session state a snapshot must carry.
++  for name, node in session.leafNodes.pairs:
++    if node.trigger:
++      result.triggers.add(name)
++  for (node, idAttrs) in session.thenQueue[].items:
++    result.thens.add((node.ruleName, idAttrs))
++  for node in session.thenFinallyQueue[].items:
++    result.thenFinallys.add(node.ruleName)
++  result.triggers.sort()
++  result.thens.sort(proc (a, b: tuple[rule: string, idAttrs: IdAttrs]): int =
++    result = cmp(a.rule, b.rule)
++    if result == 0:
++      result = cmpIdAttrs(a.idAttrs, b.idAttrs))
++  result.thenFinallys.sort()
++
++proc resetPending*[T, MatchT](session: var Session[T, MatchT], pending: PendingRules) =
++  ## Replaces the session's set triggers and queued blocks with exactly
++  ## `pending`, as `pendingRules` returned it.
++  session.thenQueue[].clear
++  session.thenFinallyQueue[].clear
++  for name, node in session.leafNodes.pairs:
++    node.trigger = name in pending.triggers
++  for (rule, idAttrs) in pending.thens:
++    session.thenQueue[].incl((session.leafNodes[rule].parent.child.addr, idAttrs))
++  for rule in pending.thenFinallys:
++    session.thenFinallyQueue[].incl(session.leafNodes[rule].parent.child.addr)

@@ -1,0 +1,32 @@
+[
+  {
+    "file": "block5_clean.png",
+    "cell_w": 7,
+    "cell_h": 7,
+    "outline_offenders": 0
+  },
+  {
+    "file": "block5_one_dark.png",
+    "cell_w": 7,
+    "cell_h": 7,
+    "outline_offenders": 15
+  },
+  {
+    "file": "solid_light_ring.png",
+    "cell_w": 5,
+    "cell_h": 5,
+    "outline_offenders": 8
+  },
+  {
+    "file": "solid_tied.png",
+    "cell_w": 5,
+    "cell_h": 5,
+    "outline_offenders": 8
+  },
+  {
+    "file": "diamond.png",
+    "cell_w": 7,
+    "cell_h": 7,
+    "outline_offenders": 0
+  }
+]

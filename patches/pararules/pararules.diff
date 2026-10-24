@@ -1,0 +1,233 @@
+--- pararules.nim (1.4.0)
++++ pararules.nim (patched)
+@@ -1,5 +1,79 @@
++## pararules 1.4.0 `pararules.nim` (the macros), patched for paraloop (see
++## pararules.diff for the exact changes against upstream). Two changes, both
++## for the compile cost of a large ruleset:
++##
++## 1. `schema` (`createSessionProcs`) emits ONE generic `insert` and ONE
++##    generic `retract` (plus the id-and-attr `retract` and `contains`)
++##    instead of an `insert` and a `retract` overload per value type. Upstream
++##    gives every overload the parameter `session: var Session[Fact, auto]`,
++##    and for a parameter of that shape Nim instantiates the whole `Session`
++##    type afresh, uncached, for every candidate at every call
++##    (`compiler/sigmatch.nim`, the `tyGenericInvocation` branch that calls
++##    `prepareMetatypeForSigmatch`). With one game's 42 value types that
++##    was 43 candidates and 60-120 ms of compile time per
++##    `session.insert(...)`/`session.retract(...)` line: about 87 % of the
++##    semantic-analysis time of the game's closure, and the instantiated types
++##    are never freed (5.6 GB of compiler memory). The generic procs take a
++##    bare `Session`, which does not take that path, and overload resolution
++##    has one candidate to try.
++##
++## 2. `staticRuleset` (`createTypesForSession` and the three
++##    `createCaseOfKey*` procs) makes the match type `kind` plus ONE array of
++##    slots, `vals: array[N, tuple[fact: Fact, isSet: bool]]` with N the
++##    variable count of the widest rule, instead of an object variant with a
++##    branch per rule holding a named slot per variable. The generated `[]`,
++##    `[]=` and `hasKey` still switch on `kind` and then on the variable's
++##    name; they now reach slot i (the variable's position in its rule) where
++##    they reached the field of that name. With a branch per rule, every
++##    lifetime hook (`=copy`, `=destroy`, `=dup`, `=sink`) of every type that
++##    holds a match expanded every branch inline, and each slot is itself the
++##    whole `Fact` variant: 78 of the 92 MB of C generated for the closure of
++##    that game's 121 rules, and most of what the C compiler was given.
++##
++## Change 1 changes nothing at run time. The generic `insert`/`retract` wrap
++## the value with the same `init<Fact>` overload set the per-type procs called,
++## run the same debug-build type check (`check<Fact>`) and call the same
++## `insertFact`/`retractFact`; the generated C is the same apart from names and
++## source paths. Two things differ at compile time:
++##
++## - A value whose type is not in the schema fails inside the generic proc
++##   (no `init<Fact>` overload matches) instead of at the call.
++## - The bare `Session` parameter means two schemas in one program must not
++##   share an attribute enum, or their `insert`s are ambiguous. Every schema
++##   here declares its own.
++##
++## Change 2 changes the match type's layout and nothing a rule or a caller can
++## see: the engine reads a match only through `[]`, `[]=`, `hasKey` and the
++## `initMatch` constructor, and every query, `then` and hash gives what it
++## gave. The object is the same size (a variant is as big as its widest
++## branch). What differs:
++##
++## - A match's hooks walk all N slots where the variant's walked the active
++##   rule's own, so copying a match of a narrow rule does a little more work
++##   (an unset slot is a default `Fact`, with nothing to copy or free).
++##   Measured at that game's mob cap (`para sim`, seed 7, 21600 ticks, five
++##   runs a side): a debug build's tick went from 1.87 to 2.06 ms p50 and
++##   from 7.42 to 7.63 ms p99; a release build's did not slow (0.92 to 0.86
++##   ms p99). A rule far wider than the rest widens every match, as before.
++## - The match type has no field named after a rule any more. Nothing here
++##   read one; `match.vals` is the only field besides `kind`.
++## - The per-rule tuple types (`createTupleType`, `ruleNameToTupleType`) are
++##   still built and passed, unused, so the diff stays small.
++##
++## The procs upstream used to build the per-type overloads (`createUpdateProc`,
++## `createInsertProc`, `createRetractProc`, `createContainsProc`) are left in
++## place, unused, so the diff against upstream stays small.
++##
++## Bumping pararules: re-apply pararules.diff to the new version's
++## `pararules.nim`, keep `paraloopSchemaPatched`, and regenerate the diff
++## (`diff -u --label "pararules.nim (1.4.0)" --label "pararules.nim (patched)"
++## <upstream>/pararules.nim patches/pararules/pararules.nim`).
++## tests/test_schema_patch.nim fails if either change is missing.
++
+ import pararules/engine, tables, sets, macros, strutils
+ 
++const paraloopSchemaPatched* = true
++
+ const
+   initPrefix = "init"
+   checkPrefix = "check"
+@@ -630,17 +704,42 @@
+   )
+ 
+ proc createSessionProcs(dataType: NimNode, types: seq[NimNode]): NimNode =
+-  result = newStmtList()
+-  # create insert and retract procs for each value type
+-  for i in 0 ..< types.len:
+-    result.add(createUpdateProc(dataType, types[0], types[1], types[2], types[i], i, "insert"))
+-    result.add(createUpdateProc(dataType, types[0], types[1], types[2], types[i], i, "retract"))
+-  # create an insert proc whose value is wrapped in the object variant
+-  result.add(createInsertProc(dataType, types[0], types[1], types[2]))
+-  # create a retract proc that only requires the id and attr
+-  result.add(createRetractProc(dataType, types[0], types[1], types[2]))
+-  # create a contains proc that only requires the id and attr
+-  result.add(createContainsProc(dataType, types[0], types[1], types[2]))
++  # paraloop patch: ONE generic insert and ONE generic retract-with-value instead of an
++  # overload per value type. Same engine calls, same runtime type check.
++  let
++    intType = types[0]
++    attrType = types[1]
++    idType = types[2]
++    checkProcId = ident(checkPrefix & dataType.strVal)
++    initProc = ident(initPrefix & dataType.strVal)
++    insertFactSym = bindSym("insertFact")
++    retractFactSym = bindSym("retractFact")
++    containsSym = bindSym("contains")
++    session = ident("session")
++    id = ident("id")
++    attr = ident("attr")
++    value = ident("value")
++    V = ident("V")
++  result = quote do:
++    proc insert*[`V`](`session`: var Session, `id`: `idType` or `intType`, `attr`: `attrType`, `value`: `V`) =
++      when `V` is `dataType`:
++        when not defined(release):
++          `checkProcId`(`attr`, `value`.kind.ord)
++        `insertFactSym`(`session`, (`initProc`(`id`), `initProc`(`attr`), `value`))
++      else:
++        let wrapped = `initProc`(`value`)
++        when not defined(release):
++          `checkProcId`(`attr`, wrapped.kind.ord)
++        `insertFactSym`(`session`, (`initProc`(`id`), `initProc`(`attr`), wrapped))
++    proc retract*[`V`](`session`: var Session, `id`: `idType` or `intType`, `attr`: `attrType`, `value`: `V`) =
++      let wrapped = `initProc`(`value`)
++      when not defined(release):
++        `checkProcId`(`attr`, wrapped.kind.ord)
++      `retractFactSym`(`session`, (`initProc`(`id`), `initProc`(`attr`), wrapped))
++    proc retract*(`session`: var Session, `id`: `idType` or `intType`, `attr`: `attrType`) =
++      `retractFactSym`(`session`, `id`.ord, `attr`.ord)
++    proc contains*(`session`: var Session, `id`: `idType` or `intType`, `attr`: `attrType`): bool =
++      `containsSym`(`session`, `id`.ord, `attr`.ord)
+ 
+ proc createConstants(dataType: NimNode, types: seq[NimNode], attrs: Table[string, int]): NimNode =
+   let attrToTypeId = ident(attrToTypePrefix & dataType.strVal)
+@@ -717,25 +816,31 @@
+     enumSym: NimNode,
+     rules: NimNode,
+     ruleNameToTupleType: OrderedTable[string, NimNode],
+-    ruleNameToEnumItem: OrderedTable[string, NimNode]
++    ruleNameToEnumItem: OrderedTable[string, NimNode],
++    dataType: NimNode,
++    maxVars: int
+   ): NimNode =
++  # paraloop patch: the match type is `kind` plus ONE array of slots shared by every rule,
++  # instead of an object variant with a branch per rule; a rule's var is an index into it.
+   var enumItems: seq[NimNode]
+   for item in ruleNameToEnumItem.values:
+     enumItems.add(item)
+   let enumType = createVariantEnum(postfix(enumSym, "*"), enumItems)
+-  var cases = newNimNode(nnkRecCase)
+-  cases.add(newIdentDefs(postfix(ident("kind"), "*"), enumSym))
+-  for (ruleName, enumItem) in ruleNameToEnumItem.pairs:
+-    cases.add(createVariantBranch(enumItem, ident(ruleName), ruleNameToTupleType[ruleName]))
++  var maybeType = newNimNode(nnkTupleTy)
++  maybeType.add(newIdentDefs(ident("fact"), dataType))
++  maybeType.add(newIdentDefs(ident("isSet"), ident("bool")))
++  let arrType = newNimNode(nnkBracketExpr).add(ident("array"), newLit(max(maxVars, 1)), maybeType)
+   result = newNimNode(nnkTypeSection)
+   result.add(enumType)
+   result.add(newNimNode(nnkTypeDef).add(
+     postfix(rulesSym, "*"),
+-    newEmptyNode(), #newNimNode(nnkGenericParams),
++    newEmptyNode(),
+     newNimNode(nnkObjectTy).add(
+       newEmptyNode(),
+       newEmptyNode(),
+-      newNimNode(nnkRecList).add(cases)
++      newNimNode(nnkRecList).add(
++        newIdentDefs(postfix(ident("kind"), "*"), enumSym),
++        newIdentDefs(postfix(ident("vals"), "*"), arrType))
+     )
+   ))
+ 
+@@ -765,11 +870,11 @@
+ proc createCaseOfKeyGetters(ruleIdent: NimNode, objIdent: NimNode, keyIdent: NimNode, vars: seq[string]): NimNode =
+   result = newNimNode(nnkCaseStmt)
+   result.add(keyIdent)
+-  for varName in vars:
++  for i, varName in vars:
+     let
+-      varIdent = ident(varName)
++      idx = newLit(i)
+       branch = quote do:
+-        return `objIdent`.`ruleIdent`.`varIdent`.fact
++        return `objIdent`.vals[`idx`].fact
+     result.add(newNimNode(nnkOfBranch).add(varName.newLit, branch))
+   let notFound = quote do:
+     raise newException(Exception, "Key not found: " & `keyIdent`)
+@@ -778,11 +883,11 @@
+ proc createCaseOfKeySetters(ruleIdent: NimNode, objIdent: NimNode, keyIdent: NimNode, valIdent: NimNode, vars: seq[string]): NimNode =
+   result = newNimNode(nnkCaseStmt)
+   result.add(keyIdent)
+-  for varName in vars:
++  for i, varName in vars:
+     let
+-      varIdent = ident(varName)
++      idx = newLit(i)
+       branch = quote do:
+-        `objIdent`.`ruleIdent`.`varIdent` = (fact: `valIdent`, isSet: true)
++        `objIdent`.vals[`idx`] = (fact: `valIdent`, isSet: true)
+     result.add(newNimNode(nnkOfBranch).add(varName.newLit, branch))
+   let notFound = quote do:
+     raise newException(Exception, "Key not found: " & `keyIdent`)
+@@ -791,11 +896,11 @@
+ proc createCaseOfKeyCheckers(ruleIdent: NimNode, objIdent: NimNode, keyIdent: NimNode, vars: seq[string]): NimNode =
+   result = newNimNode(nnkCaseStmt)
+   result.add(keyIdent)
+-  for varName in vars:
++  for i, varName in vars:
+     let
+-      varIdent = ident(varName)
++      idx = newLit(i)
+       branch = quote do:
+-        return `objIdent`.`ruleIdent`.`varIdent`.isSet
++        return `objIdent`.vals[`idx`].isSet
+     result.add(newNimNode(nnkOfBranch).add(varName.newLit, branch))
+   result.add(newNimNode(nnkElse).add(quote do: return false))
+ 
+@@ -921,7 +1026,11 @@
+     let
+       enumName = matchName & enumSuffix
+       enumSym = genSym(nskType, enumName)
+-      typeNode = createTypesForSession(matchType, enumSym, flatRules, ruleNameToTupleType, ruleNameToEnumItem)
++      maxVars = block:
++        var m = 0
++        for vs in ruleNameToVars.values: m = max(m, vs.len)
++        m
++      typeNode = createTypesForSession(matchType, enumSym, flatRules, ruleNameToTupleType, ruleNameToEnumItem, dataType, maxVars)
+       getterProc = createGetterProc(dataType, matchType, ruleNameToVars, ruleNameToEnumItem)
+       setterProc = createSetterProc(dataType, matchType, ruleNameToVars, ruleNameToEnumItem)
+       checkerProc = createCheckerProc(dataType, matchType, ruleNameToVars, ruleNameToEnumItem)

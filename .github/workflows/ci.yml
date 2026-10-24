@@ -1,0 +1,522 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Two repository variables steer where and how much CI runs, both optional:
+#   CI_RUNNER      JSON runs-on value for every job, e.g.
+#                  ["self-hosted","linux","paraloop-ci"] (a self-hosted runner).
+#                  Unset -> ubuntu-latest (GitHub-hosted); nothing else needs
+#                  setting for a fork or a fresh clone to run CI.
+#   PR_FULL_TESTS  `off` skips the full-suite jobs (test, template-smoke) on
+#                  pull_request events; they still run on pushes to main, on
+#                  workflow_dispatch, and when this is unset or anything else.
+#                  A skipped job reports as skipped, so no check is left pending.
+
+# What a pull request runs is scoped to the area it touches (.github/scripts/
+# ci-scope.sh buckets the changed paths; tools/para/testplan.nim picks the test
+# files, `para test --area`): a game-only PR runs the game's tests and the `para`
+# tests that link the game, an art-only PR the art tests, a docs-only PR none.
+# Everything else -- engine, workflow, nimble and unknown paths, an unreadable
+# diff -- runs the whole suite, and so does every push to main, every
+# workflow_dispatch and every tag/release run.
+
+# The suite runs as four `test (shard i/4)` jobs in parallel, one per runner
+# (`para test --shard i/4`), under one aggregate check named `test`; the
+# `test-shard` job's comment has the layout (which shard carries the sim gate,
+# the pytest and the AXI check) and the nim build cache rule the
+# shards share (one cache dir per runner, disjoint program dirs per shard).
+# The shards run `--skip-balance`: CI has no job for the balance pins (the
+# numeric windows `paraloop/testkit`'s balanceTest and playtestRule tag).
+
+# A new push to a PR branch supersedes that branch's in-flight run. Pushes to
+# main are never cancelled (each merge keeps its own run, grouped by commit, so
+# a later push cannot replace a queued earlier one either).
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Which jobs below this change can affect. Job-level `if` on the outputs, not
+  # a workflow `paths:` filter: a skipped job still reports ("skipped"), so no
+  # check goes missing. Fails open -- if the changed-file list cannot be read,
+  # or comes back empty, everything runs. Outputs (.github/scripts/ci-scope.sh
+  # has the full definitions): `engine` gates web-smoke and template-smoke;
+  # `full`, `areas`, `docs_only` and `sim` scope the test job. Anything that is
+  # not a pull request (push to main, workflow_dispatch, a tag) runs it all.
+  changes:
+    name: changes (which jobs to run)
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      engine: ${{ steps.diff.outputs.engine }}
+      areas: ${{ steps.diff.outputs.areas }}
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+      sim: ${{ steps.diff.outputs.sim }}
+    steps:
+      # A full checkout, not a sparse one: the runner workspace is reused, and a
+      # later job's checkout did not restore the files this one left out.
+      - uses: actions/checkout@v4
+
+      - name: Diff against the base
+        id: diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          files=""
+          if [ "$EVENT" = pull_request ]; then
+            # Every file the PR touches, renames included (both paths).
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" \
+              --jq '.[] | .filename, (.previous_filename // empty)') || files=""
+          elif [ "$EVENT" = push ] && [ -n "$BEFORE" ] && [ "${BEFORE//0/}" != "" ]; then
+            # Push to main: what this push added on top of the previous tip.
+            files=$(gh api --paginate "repos/$REPO/compare/$BEFORE...$AFTER" \
+              --jq '.files[] | .filename, (.previous_filename // empty)') || files=""
+          fi
+          echo "changed files:"
+          sed 's/^/  /' <<<"$files"
+          if [ "$EVENT" = pull_request ]; then
+            out=$(.github/scripts/ci-scope.sh <<<"$files")
+          else
+            # Pushes to main, workflow_dispatch and tags run the whole suite
+            # (and the jobs the old `engine` flag gated, when the push touched
+            # them); only the test scoping is forced to `all`.
+            out=$(.github/scripts/ci-scope.sh <<<"$files" | sed -e 's/^areas=.*/areas=all/' \
+              -e 's/^docs_only=.*/docs_only=false/' -e 's/^sim=.*/sim=true/')
+          fi
+          echo "$out"
+          echo "$out" >> "$GITHUB_OUTPUT"
+
+  # The test suite, as four shards on four runners. `para test --shard i/4`
+  # (tools/para/testplan.nim) deals the selection -- after --area and
+  # --skip-balance -- into four slices by file, one class at a time: the heavy
+  # simulation tests (a `.nims` sidecar; 10-50 s to run), the files that link
+  # a whole game (8-13 s to compile cold) and the light ones (about 1 s) are
+  # each dealt round-robin, so the four shards together are exactly the
+  # unsharded run and each is about a quarter of it. The work that is not
+  # per-file runs once, each piece on one fixed shard (the `matrix.shard == N`
+  # steps): shard 1 the hello build, the AXI compliance check and pytest (`para
+  # test` puts pytest on shard 1 and skips its own final para build on every
+  # shard) and shard 2 the sim gate.
+  # An empty shard (a narrow --area selection with fewer files than shards)
+  # passes with nothing to run.
+  # The `test` job below is the aggregate -- the one check to require or
+  # watch -- and fails when any shard failed, was cancelled or did not run.
+  #
+  # Nim build cache, two parts. (1) config.nims gives every program (each test
+  # file, para, hello) its own .nimcache/native/<program>_d; Nim reuses a C
+  # object when the generated C and its compile command are unchanged. (2)
+  # The test binaries themselves, tmp/test_*: `nim c` (what the nimble
+  # test task runs, then runs the binary) skips the compile altogether -- frontend, C, link -- and
+  # just runs the binary when that program's .nimcache manifest says nothing
+  # changed: same cwd, command line and nim binary, every source and config
+  # file it depends on (nimble.paths and the .nims sidecars included) at the
+  # same hash, and the binary present with the mtime the manifest recorded
+  # (Nim 2.2 extccomp.changeDetectedViaJsonBuildInstructions). Measured on
+  # this suite: a test file nothing reaches costs 0.1 s that way against 2-12
+  # s of frontend when only the C objects are cached, so the self-hosted job
+  # keeps the binaries next to the nimcache (copied with their mtimes, under
+  # the lockfile's hash) and the hosted cache carries tmp/test_* too. checkout
+  # wipes tmp/ every job, which is why the single `test` job never saw this
+  # (its "warm" 416 s was all frontend). Sharing one cache per runner is safe:
+  # a runner runs one job at a time, two shards touch disjoint program dirs
+  # (different test files), and the program every shard builds (para) from
+  # the same commit generates the same C, so nothing invalidates across
+  # shards -- only a changed source does. A runner that has never run a shard
+  # is cold for that shard's files and warms up on its first run (every
+  # runner sees every file after a few runs, since shards land on whichever
+  # runner is free).
+  test-shard:
+    name: test (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: changes
+    # Skipped (and so reported as skipped): PR_FULL_TESTS=off on a pull request,
+    # and a docs-only pull request. A push to main always runs the suite.
+    if: >-
+      github.event_name != 'pull_request'
+      || (vars.PR_FULL_TESTS != 'off' && needs.changes.outputs.docs_only != 'true')
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    strategy:
+      # Every shard runs to the end when one fails, so one run names every
+      # failing file, not just the first shard's.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.10"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Every shard: tests/test_art_fix_*.nim run `uv run` themselves, and
+      # shard 1 runs pytest.
+      - name: Install uv (para art fix's Python side, tools/art/)
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.12.17"
+
+      # Hosted runners only: the self-hosted runner keeps ~/.nimble in a named
+      # Docker volume, so there is nothing to restore.
+      - name: Cache nimble packages
+        if: runner.environment != 'self-hosted'
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble/pkgs2
+          key: nimble-pkgs2-${{ runner.os }}-${{ hashFiles('nimble.lock') }}
+
+      # Nim build state (hosted runners; the self-hosted cache is the linked
+      # dir below). One cache per shard: a shard's cache holds exactly its own
+      # files' state, so four shards never race to save one key. Restored
+      # from the newest cache of the same shard, nim and lockfile
+      # (restore-keys) and saved only from main (end of job), so PRs read
+      # main's cache and never churn the repo's cache quota. Nim re-derives
+      # each module's C from source every build, so a hit cannot hide a
+      # failing test. Bump `v1` to drop the accumulated state. The key is
+      # computed once, here: hashing again at save time would see files the
+      # job added since and never match.
+      - name: Compute nim build cache key
+        id: nimkey
+        run: echo "key=nimcache-v1-test-s${{ matrix.shard }}-${{ runner.os }}-nim2.2.10-${{ hashFiles('nimble.lock') }}-${{ hashFiles('**/*.nim', '**/*.nims', 'paraloop.nimble') }}" >> "$GITHUB_OUTPUT"
+
+      # tmp/test_* ride along (the `-r` fast path, job comment): tar keeps
+      # their mtimes, and the restore-keys prefix carries the lockfile hash,
+      # so a dependency bump never restores a binary built against the old one.
+      - name: Restore nim build cache
+        id: nimcache
+        if: runner.environment != 'self-hosted'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .nimcache
+            tmp/test_*
+          key: ${{ steps.nimkey.outputs.key }}
+          restore-keys: |
+            nimcache-v1-test-s${{ matrix.shard }}-${{ runner.os }}-nim2.2.10-${{ hashFiles('nimble.lock') }}-
+
+      # Self-hosted: the nim build state lives in the runner's cache volume (one
+      # dir per job kind, since nim versions differ; every test shard on this
+      # runner shares this one -- see the job comment), not in actions/cache.
+      # checkout's `git clean -ffdx` removes only this symlink, never the cache
+      # behind it. The test binaries come back from the same volume, copied
+      # with their mtimes (`cp -a`; Nim's fast path compares the mtime), from a
+      # dir named by the lockfile's hash so a dependency bump starts clean.
+      - name: Link the persistent nim build cache and restore the test binaries
+        if: runner.environment == 'self-hosted'
+        run: |
+          mkdir -p "$PARALOOP_CI_CACHE/nimcache-test" "$PARALOOP_CI_CACHE/nimcache-test-bin/${{ hashFiles('nimble.lock') }}" tmp
+          ln -sfn "$PARALOOP_CI_CACHE/nimcache-test" .nimcache
+          cp -a "$PARALOOP_CI_CACHE/nimcache-test-bin/${{ hashFiles('nimble.lock') }}/." tmp/
+
+      - name: Restore dependencies from the lockfile
+        run: nimble install -d -y
+
+      - name: Wire up dependency paths
+        run: nimble setup
+
+      - name: Install X11/GL headers for GLFW
+        if: runner.environment != 'self-hosted'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+
+      - name: Build examples/hello (native, compile only)
+        if: matrix.shard == 1
+        run: nim c --hints:off --outdir:tmp examples/hello/hello.nim
+
+      # Every shard runs `para test` through this binary.
+      - name: Build the para CLI
+        run: nim c --hints:off --outdir:tmp tools/para/para.nim
+
+      # Every shard: tests/test_para_web_build.nim runs node (postbuild.mjs),
+      # and the AXI check below runs on shard 1.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # AXI compliance (task 1.8 acceptance): read-only probes of tmp/para,
+      # warnings fail too. Fetches the pinned axi-axi from npm. Once, shard 1.
+      - name: AXI compliance (axi-axi)
+        if: matrix.shard == 1
+        run: npx -y axi-axi@0.1.0 validate "$PWD/tmp/para" --dir . --strict
+
+      # The area the diff touches (changes job): `all` runs the whole suite
+      # (every push to main, every engine/workflow/nimble change), `game`,
+      # `art` or `game,art` only the test files that reach that area.
+      # --skip-balance leaves out the balance pins, which CI does not run.
+      # --shard: this job's quarter of that selection (see the job comment).
+      - name: Run tests (para test --area --skip-balance --shard, task 1.8)
+        env:
+          AREAS: ${{ needs.changes.outputs.areas }}
+        run: ./tmp/para test --area "${AREAS:-all}" --skip-balance --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+      # Keep this shard's test binaries for the next run on this runner (job
+      # comment), passing or not: an unchanged failing test reruns its binary
+      # and fails again; a test that did not compile has none to keep.
+      - name: Keep the test binaries
+        if: always() && runner.environment == 'self-hosted'
+        run: |
+          dir="$PARALOOP_CI_CACHE/nimcache-test-bin/${{ hashFiles('nimble.lock') }}"
+          find tmp -maxdepth 1 -type f -perm -u+x -name 'test_*' -exec cp -a -t "$dir" {} +
+          echo "test binaries kept: $(ls "$dir" | wc -l)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Sim gate: hello, the game linked into `para`, run headless for a minute of game time with
+      # the walk script held, failing only on a p99 tick time over the 16.667 ms frame budget. A
+      # game with a driver program (tools/<name>_driver.nim) gates itself the same way through
+      # `para sim --game NAME`; the public tool gates the one game it ships.
+      - name: Sim gate (para sim, hello)
+        if: matrix.shard == 2 && needs.changes.outputs.sim == 'true'
+        run: ./tmp/para sim --game hello --seed 1 --ticks 3600 --keys "10:right:600,700:down:600"
+
+      # Only a fully green main run refreshes the cache (see the restore step).
+      - name: Save nim build cache
+        if: >-
+          runner.environment != 'self-hosted' && github.ref == 'refs/heads/main'
+          && steps.nimcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .nimcache
+            tmp/test_*
+          key: ${{ steps.nimkey.outputs.key }}
+
+  # The one `test` check: green only when every shard passed. `always()` so it
+  # runs (and fails, loudly) when a shard failed or was cancelled instead of
+  # being skipped along with it; the same `if` as the shards otherwise, so it
+  # is skipped exactly when they are (PR_FULL_TESTS=off, a docs-only PR) and
+  # no check is left pending. No branch protection requires a check today
+  # (checked 2026-10-06: no rulesets, main unprotected); if one ever does,
+  # this is the name to require, not the shards.
+  test:
+    name: test
+    needs: [changes, test-shard]
+    if: >-
+      always()
+      && (github.event_name != 'pull_request'
+          || (vars.PR_FULL_TESTS != 'off' && needs.changes.outputs.docs_only != 'true'))
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - name: Every test shard passed
+        env:
+          RESULT: ${{ needs.test-shard.result }}
+        run: |
+          echo "test shards: $RESULT"
+          if [ "$RESULT" != success ]; then
+            echo "::error::a test shard failed, was cancelled or did not run (result: $RESULT)"
+            exit 1
+          fi
+
+  web-smoke:
+    name: web target (wasm) — headless Chromium smoke (task 1.7)
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          # The official 2.2.12 toolchain: its config carries the emscripten
+          # C-compiler wiring (some nimble-managed installs of the same version
+          # do not, which breaks wasm builds).
+          nim-version: "2.2.12"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pin the web build to that nim before `nimble install` can drop the
+      # lockfile's nim 2.2.10 (no emscripten wiring) into nimbinaries.
+      - name: Pin the web build's nim
+        run: echo "PARALOOP_WEB_NIM=$(command -v nim)" >> "$GITHUB_ENV"
+
+      - uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 6.0.9
+          actions-cache-folder: emsdk-cache
+
+      # Same pkgs2 cache as the test job, plus the nim 2.2.10 `nimble install`
+      # fetches into nimbinaries (the lockfile's nim; these jobs run 2.2.12).
+      - name: Cache nimble packages
+        if: runner.environment != 'self-hosted'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nimble/pkgs2
+            ~/.nimble/nimbinaries
+          key: nimble-web-${{ runner.os }}-${{ hashFiles('nimble.lock') }}
+
+      # Self-hosted: the nim build state lives in the runner's cache volume (one
+      # dir per job, since nim versions differ), not in actions/cache. checkout's
+      # `git clean -ffdx` removes only this symlink, never the cache behind it.
+      - name: Link the persistent nim build cache
+        if: runner.environment == 'self-hosted'
+        run: |
+          mkdir -p "$PARALOOP_CI_CACHE/nimcache-web"
+          ln -sfn "$PARALOOP_CI_CACHE/nimcache-web" .nimcache
+
+      - name: Restore dependencies from the lockfile
+        run: nimble install -d -y
+
+      - name: Wire up dependency paths
+        run: nimble setup
+
+      # `para` links examples/hello (for `sim`/`shot`), so its native build
+      # compiles GLFW like the test job's.
+      - name: Install X11/GL headers for GLFW
+        if: runner.environment != 'self-hosted'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+
+      - name: Build the para CLI
+        run: nim c --hints:off --outdir:tmp tools/para/para.nim
+
+      - name: Build, postbuild and smoke (para web smoke, task 1.8)
+        run: ./tmp/para web smoke --max-texture-units 2 --sound
+
+      - name: Upload the rendered frame
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-smoke-hello
+          path: tmp/web-smoke/hello.png
+
+  # What this job proves that `test` and `web-smoke` do not: a game `para new`
+  # writes from template/ compiles against the engine on the web toolchain's
+  # nim, `para test` discovers and passes the generated game's own tests/
+  # (games/<name>/tests/ sweep), and the generated game builds and runs as
+  # wasm (web-smoke only smokes examples/hello). It runs the generated game's
+  # test file alone (`--filter games/ci_smoke/`), not the whole suite: the
+  # engine's own suite is the `test` job's, and tests/test_para_new_cmd.nim
+  # (in it) already generates a game and compiles it and its test on the
+  # lockfile's nim. Measured on the self-hosted runners, the full suite made
+  # this job 8-12 minutes (420-650 s in `para test`, ~1 minute everything
+  # else); the generated game's test alone is seconds.
+  template-smoke:
+    name: para new (task 1.9) — a template game passes para test + web smoke, untouched
+    needs: changes
+    if: >-
+      needs.changes.outputs.engine == 'true'
+      && (github.event_name != 'pull_request' || vars.PR_FULL_TESTS != 'off')
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          # 2.2.12's toolchain carries the emscripten C-compiler wiring
+          # (web-smoke job's own note) -- this job runs both `para test` and
+          # `para web smoke` against the generated game.
+          nim-version: "2.2.12"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pin the web build's nim
+        run: echo "PARALOOP_WEB_NIM=$(command -v nim)" >> "$GITHUB_ENV"
+
+      - uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 6.0.9
+          actions-cache-folder: emsdk-cache
+
+      # Same pkgs2 cache as the test job, plus the nim 2.2.10 `nimble install`
+      # fetches into nimbinaries (the lockfile's nim; these jobs run 2.2.12).
+      - name: Cache nimble packages
+        if: runner.environment != 'self-hosted'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nimble/pkgs2
+            ~/.nimble/nimbinaries
+          key: nimble-web-${{ runner.os }}-${{ hashFiles('nimble.lock') }}
+
+      # Same nim build cache scheme as the test job (see there), on nim 2.2.12
+      # (its own dir: a different nim means different C). The key is computed
+      # once, here: hashing again at save time would see files the job added
+      # since (e.g. games/ci_smoke/) and never match.
+      - name: Compute nim build cache key
+        id: nimkey
+        run: echo "key=nimcache-v1-template-${{ runner.os }}-nim2.2.12-${{ hashFiles('nimble.lock') }}-${{ hashFiles('**/*.nim', '**/*.nims', 'paraloop.nimble') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore nim build cache
+        id: nimcache
+        if: runner.environment != 'self-hosted'
+        uses: actions/cache/restore@v4
+        with:
+          path: .nimcache
+          key: ${{ steps.nimkey.outputs.key }}
+          restore-keys: |
+            nimcache-v1-template-${{ runner.os }}-nim2.2.12-${{ hashFiles('nimble.lock') }}-
+
+      # Self-hosted: the nim build state lives in the runner's cache volume (one
+      # dir per job, since nim versions differ), not in actions/cache. checkout's
+      # `git clean -ffdx` removes only this symlink, never the cache behind it.
+      - name: Link the persistent nim build cache
+        if: runner.environment == 'self-hosted'
+        run: |
+          mkdir -p "$PARALOOP_CI_CACHE/nimcache-template"
+          ln -sfn "$PARALOOP_CI_CACHE/nimcache-template" .nimcache
+
+      - name: Restore dependencies from the lockfile
+        run: nimble install -d -y
+
+      - name: Wire up dependency paths
+        run: nimble setup
+
+      - name: Install X11/GL headers for GLFW
+        if: runner.environment != 'self-hosted'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+
+      - name: Build the para CLI
+        run: nim c --hints:off --outdir:tmp tools/para/para.nim
+
+      # Task 1.9 acceptance: `para new <game>` from the template passes
+      # `para test` and `para web smoke` untouched. This runner's workspace
+      # is thrown away at the end of the job, so games/ci_smoke/ never lands
+      # in the repo -- games/ stays empty apart from the tests/ discovery
+      # convention (AGENTS.md "Games").
+      - name: para new ci_smoke
+        run: ./tmp/para new ci_smoke
+
+      # Only the generated game's own test file (games/ci_smoke/tests/), through
+      # `para test`'s discovery and plan (tools/para/testplan.nim ->
+      # paraloop.nimble's test task), so a template whose test no longer
+      # compiles or passes against the engine fails here. The rest of the
+      # suite is the `test` job's (see the job comment above). --skip-balance,
+      # as in the shards: CI does not run balance pins.
+      - name: para test --filter games/ci_smoke/ (the generated game's tests, untouched)
+        run: ./tmp/para test --filter games/ci_smoke/ --skip-balance
+
+      - name: para web smoke --game ci_smoke
+        run: ./tmp/para web smoke --game ci_smoke
+
+      - name: Upload the rendered frame
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-smoke-ci_smoke
+          path: tmp/web-smoke/ci_smoke.png
+
+      - name: Save nim build cache
+        if: >-
+          runner.environment != 'self-hosted' && github.ref == 'refs/heads/main'
+          && steps.nimcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .nimcache
+          key: ${{ steps.nimkey.outputs.key }}
