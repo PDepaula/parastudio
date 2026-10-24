@@ -1,0 +1,132 @@
+/* The shared look of every board (`para board new` puts this file inside each board it makes, with
+   the fonts and Pip, so a board is one file that loads nothing from anywhere else). The tokens are
+   the Studio page's own (tools/para/studio/index.html, also used by the documentation site);
+   tests/test_para_board_cmd.nim checks that they still match. Do not restyle a board: change this
+   file, and every board after it gets the change. */
+
+:root {
+  color-scheme: light dark;
+  --sidebar: #F7F5FB; --bg: #FFFFFF; --surface: #F3F0F8; --surface-2: #EBE6F4; --line: #DCD5E8;
+  --ink: #1E1433; --mute: #5E5673;
+  --accent: #2A1B47; --accent-hover: #3D2A66; --on-accent: #FFE953; --link: #7A5C00; --focus: #9C7C00;
+  --selected: #FFF6C7; --ok: #17763F; --bad: #B3202E; --warn: #A84B00;
+  --scrim: rgba(30, 20, 51, .3); --pop: 0 10px 32px rgba(30, 20, 51, .16);
+  --purple: #2A1B47; --gold: #FFE953;
+  --gold-deep: #F3D400; --lilac: #E4DBF5; --ok-soft: #DDF3E5; --warn-soft: #FFE9D6; --bad-soft: #FBE1E4;
+  --font: "Nunito", ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --display: "Fredoka", "Nunito", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sidebar: #140D22; --bg: #1C1330; --surface: #2A1F45; --surface-2: #33284F; --line: #46396B;
+    --ink: #EFEAF7; --mute: #B1A6C9;
+    --accent: #FFE953; --accent-hover: #F3D400; --on-accent: #2A1B47; --link: #FFE953; --focus: #FFE953;
+    --selected: #2C2433; --ok: #5FD38D; --bad: #FF7A85; --warn: #FFA066;
+    --scrim: rgba(10, 6, 20, .6); --pop: 0 10px 32px rgba(0, 0, 0, .5);
+    --lilac: #33284F; --ok-soft: #1F3A2C; --warn-soft: #3D2A1E; --bad-soft: #3D1E26;
+  }
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --sidebar: #140D22; --bg: #1C1330; --surface: #2A1F45; --surface-2: #33284F; --line: #46396B;
+  --ink: #EFEAF7; --mute: #B1A6C9;
+  --accent: #FFE953; --accent-hover: #F3D400; --on-accent: #2A1B47; --link: #FFE953; --focus: #FFE953;
+  --selected: #2C2433; --ok: #5FD38D; --bad: #FF7A85; --warn: #FFA066;
+  --scrim: rgba(10, 6, 20, .6); --pop: 0 10px 32px rgba(0, 0, 0, .5);
+  --lilac: #33284F; --ok-soft: #1F3A2C; --warn-soft: #3D2A1E; --bad-soft: #3D1E26;
+}
+
+/* A game with its own palette (art/style.toml's `palette`, or one .hex file in art/): `para board
+   new` sets the five --game-* colours in the board's own palette block and data-palette="game" on
+   <html>; everything else follows from them here. Light uses the palette's paper, dark its ink. */
+:root[data-palette="game"] {
+  --bg: var(--game-paper); --sidebar: var(--game-paper); --ink: var(--game-ink);
+  --surface: color-mix(in srgb, var(--game-ink) 6%, var(--game-paper));
+  --surface-2: color-mix(in srgb, var(--game-ink) 11%, var(--game-paper));
+  --line: color-mix(in srgb, var(--game-ink) 22%, var(--game-paper));
+  --mute: color-mix(in srgb, var(--game-ink) 72%, var(--game-paper));
+  --accent: var(--game-accent); --accent-hover: color-mix(in srgb, var(--game-accent) 85%, var(--game-ink));
+  --on-accent: var(--game-on-accent); --link: var(--game-ink); --focus: var(--game-accent);
+  --selected: color-mix(in srgb, var(--game-highlight) 30%, var(--game-paper));
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="game"]:not([data-theme="light"]) {
+    --bg: var(--game-ink); --sidebar: var(--game-ink); --ink: var(--game-paper);
+    --surface: color-mix(in srgb, var(--game-paper) 8%, var(--game-ink));
+    --surface-2: color-mix(in srgb, var(--game-paper) 13%, var(--game-ink));
+    --line: color-mix(in srgb, var(--game-paper) 26%, var(--game-ink));
+    --mute: color-mix(in srgb, var(--game-paper) 72%, var(--game-ink));
+    --link: var(--game-paper); --selected: color-mix(in srgb, var(--game-highlight) 30%, var(--game-ink));
+  }
+}
+:root[data-palette="game"][data-theme="dark"] {
+  --bg: var(--game-ink); --sidebar: var(--game-ink); --ink: var(--game-paper);
+  --surface: color-mix(in srgb, var(--game-paper) 8%, var(--game-ink));
+  --surface-2: color-mix(in srgb, var(--game-paper) 13%, var(--game-ink));
+  --line: color-mix(in srgb, var(--game-paper) 26%, var(--game-ink));
+  --mute: color-mix(in srgb, var(--game-paper) 72%, var(--game-ink));
+  --link: var(--game-paper); --selected: color-mix(in srgb, var(--game-highlight) 30%, var(--game-ink));
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.15; margin: 0; }
+p { margin: 0; }
+a { color: var(--link); font-weight: 700; }
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 8px; }
+[hidden] { display: none !important; }
+
+/* Pip, the producer: always on a purple tile, so the gold reads the same in light and dark. */
+.pip-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.pip-tile { display: inline-grid; place-items: center; background: var(--purple); flex: none; width: 56px; height: 56px; border-radius: 18px;
+  border: 2px solid color-mix(in srgb, var(--gold) 35%, transparent); box-shadow: 0 3px 0 color-mix(in srgb, var(--purple) 50%, #000); }
+.pip-tile .pip { width: 94%; height: 94%; }
+.pip { display: block; overflow: visible; }
+.pip .mouth { transform: scaleY(.05); transform-box: fill-box; transform-origin: 50% 0%; }
+
+/* the page */
+.board { max-width: 980px; margin: 0 auto; padding: 24px 16px 120px; display: grid; gap: 20px; }
+.board-head { display: flex; gap: 16px; align-items: center; }
+.board-head > div { min-width: 0; }
+.kicker { color: var(--mute); font-size: 14px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.board-head h1 { font-size: clamp(26px, 5vw, 36px); }
+.lede { color: var(--mute); margin-top: 4px; }
+
+/* one question: a card with options to pick from */
+.question { background: var(--surface); border: 2px solid var(--line); border-radius: 24px; padding: 20px; display: grid; gap: 14px; min-width: 0; }
+.question h2 { font-size: 22px; }
+.hint { color: var(--mute); font-size: 15px; }
+.options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; }
+.options.wide { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.option { position: relative; display: grid; gap: 8px; align-content: start; justify-items: center; text-align: center; min-width: 0;
+  background: var(--bg); border: 2px solid var(--line); border-radius: 18px; padding: 14px; cursor: pointer; }
+.option:hover { border-color: var(--mute); }
+.option:has(input:checked) { border-color: var(--accent); background: var(--selected); box-shadow: 0 0 0 2px var(--accent); }
+.option input { position: absolute; top: 12px; left: 12px; width: 20px; height: 20px; accent-color: var(--accent); margin: 0; }
+.option .name { font-weight: 800; overflow-wrap: anywhere; }
+.option .what { color: var(--mute); font-size: 15px; overflow-wrap: anywhere; }
+.option .pick { position: absolute; top: 10px; right: 10px; background: var(--gold); color: var(--purple); font-size: 13px; font-weight: 800;
+  border-radius: 999px; padding: 2px 10px; }
+.option img { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+/* pixel art at game size (or a whole multiple of it), never smoothed */
+img.pixel { image-rendering: pixelated; image-rendering: crisp-edges; }
+.stage { display: grid; place-items: center; min-height: 96px; width: 100%; background: var(--surface-2); border-radius: 12px; padding: 12px; }
+
+/* a plan with steps, or anything else to read before picking */
+.steps { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.note { display: grid; gap: 6px; font-weight: 700; }
+.note textarea { width: 100%; min-height: 64px; resize: vertical; background: var(--bg); border: 2px solid var(--line); border-radius: 14px; padding: 10px 12px; font-weight: 400; }
+
+/* the one Send button, always in reach */
+.send-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 16px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent); border-top: 2px solid var(--line); margin: 0 -16px; }
+.btn { min-height: 48px; border: 0; border-radius: 999px; padding: 0 22px; font-weight: 800; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { background: var(--accent-hover); }
+#status { color: var(--mute); font-weight: 700; }
+#picks-line { flex-basis: 100%; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; background: var(--surface); border: 2px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

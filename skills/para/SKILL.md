@@ -15,7 +15,7 @@ whether a live `-d:dev` window is running. Output is TOON; exit codes are 0
 
 ```text
 para: build, test, see and drive paraloop games in this workspace; bare `para` is the home view
-commands[16]{command,summary}:
+commands[17]{command,summary}:
   art <lint|fix|sheet> [args],pixel-art lint/fix/sheet (`para art --help`)
   new <game>,"create games/<game>/ from template/ as a git repository of its own, where `para save` keeps its save points (`para new --help`)"
   test [--filter SUBSTR] [--area AREA] [--skip-balance | --only-balance] [--shard I/N] [--full],"wraps `nimble test`: counts and a failures table; --filter/--area run only the matching test files; --skip-balance/--only-balance skip or run just the balance pins; --shard I/N runs one of N slices (CI runs one per runner)"
@@ -32,6 +32,7 @@ commands[16]{command,summary}:
   setup hooks,print a SessionStart hook config (prints only)
   producer-context,"print the producer voice, the game's names and a short resume digest (next step, last save point, unsaved changes, open choices) for a session-start hook (what .claude/settings.json and .codex/hooks.json run); nothing at all outside a friend's game folder or on any error, exit 0"
   studio [--game NAME] [--port N] [--no-open] [--turn-timeout MINUTES] [--check],"open a page in your browser with the producer's chat (it runs the claude or codex program you installed and signed in to yourself, the page lets you pick per game; the studio never sees a login or key), a Play button that opens your game's own window and a screenshot button that puts a picture of it in the chat, Check, Save, your save points and the backup; served by `para` itself on 127.0.0.1 only, the link carries a key that changes every run; Check, Save and Backup run the same `para` commands with the same guards; a chat turn is stopped after --turn-timeout minutes (default 60); Ctrl+C stops it (and closes the game window); --check only prints the page's startup checks (installed, signed in, folder trusted) and exits"
+  board [status|install|new TOPIC|open BOARD|answers BOARD|reply BOARD|end BOARD|stop],"visual boards: a page in the friend's browser where they click choices and leave notes and the answers come back to the producer (`para board --help`); a live board needs Lavish (lavish-axi, optional, from npm; `board install` says what and from where and asks y/n first), run on 127.0.0.1 only with its usage counts and publishing off; without it a board is a page whose button copies the picks"
 flags[2]{flag,description}:
   --help,show help for any command
   --version,print the version
@@ -79,3 +80,19 @@ allow-list in `.claude/settings.json` does not cover is refused by `claude` and 
 in plain words (edits are allowed under `games/` only; see `docs/studio.md`). Agents are adapters (`tools/para/agent.nim`, `claudeagent.nim`,
 `agents.nim`); the other is Codex (`codexagent.nim`, `codex app-server`), picked per game on the page with Claude the default; see `docs/studio-maintainers.md`, "Claude or Codex". Tests: `para test --filter
 test_para_studio`.
+
+## Visual boards
+
+`tmp/para board` makes and runs visual boards: a page in the friend's browser where they click
+choices and leave notes, and the answers come back to the producer (`.agents/skills/producer/SKILL.md`,
+"Visual boards"). `board new TOPIC --game NAME` writes `games/<game>/review/<topic>.html` from the
+shared template in `.agents/skills/producer/board/` (`board.html` and `board.css`: the Studio Desk
+tokens, the fonts and Pip, all inside the one file; the game's own palette when `art/style.toml`
+names one); `board open BOARD [--picture FILE]...` opens it; `board answers BOARD [--wait SECONDS]`
+reads what the friend sent; `board reply`, `board end` and `board stop` finish. A live board runs
+on Lavish (`lavish-axi`, MIT, from npm, needs Node.js 22+), which is optional and only installed by
+the friend through `board install` (it says what and from where, then asks y/n). `para board` runs
+it with `LAVISH_AXI_HOST=127.0.0.1` (no Tailscale or LAN listener), its own port (4388) and state
+folder (`tmp/lavish/`), telemetry off and publishing pointed at a closed local port, and closes any
+board whose link is not a loopback address. Without Lavish the board is a page whose button copies
+the picks. Tests: `para test --filter test_para_board`.

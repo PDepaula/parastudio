@@ -29,6 +29,8 @@ Write `games/<game>/reports/<topic>.md` (see `games/<game>/reports/README.md`; c
 
 If the repo does not answer the question, say so and name what is missing. Do not guess.
 
+**A visual answer** (two looks, before and after screenshots, a layout, a plan with options) is easier to pick from a board than to read. Say so under "Open questions", listing the files to show (paths inside this folder, such as `games/<game>/art/raw/<name>.png`) and the options in a word each, so the producer can put them on a board (`tmp/para board new` and `tmp/para board open --picture`, producer playbook **Visual boards**) and read the friend's picks with `tmp/para board answers`. You never open a board, run Lavish (`lavish-axi`) or install anything yourself.
+
 ## Return
 
 Only this, at most four lines:

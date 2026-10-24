@@ -13,7 +13,10 @@
 # One more fact comes from the environment, not the files: when PARALOOP_UI is
 # exactly `studio` (the friend is in the studio page, with Play / Check / Save
 # buttons), one short line tells the producer to say "press Play" and not hand
-# out terminal commands. Absent or any other value, nothing is added.
+# out terminal commands. Absent or any other value, nothing is added. And one
+# line says whether Lavish (`lavish-axi`, the optional program behind live
+# visual boards, boardcmd.nim) is on this computer's PATH: it is only looked
+# up, never run, so the hook stays fast.
 #
 # The resume digest is what lets the producer pick up where the last session
 # stopped without the friend explaining: one plain line per fact, read from
@@ -42,6 +45,7 @@
 import std/[os, strutils, times]
 import art/clihelpers
 import savepoint
+import boardcmd
 
 type Run = clihelpers.Run
 
@@ -50,7 +54,8 @@ const
     "  prints the producer voice, the game's names and a short resume digest (next step, last save point,\n" &
     "  unsaved changes, open choices, last playtest note) for a session-start hook; nothing at all when this\n" &
     "  checkout is not a friend's game folder (games/ holds only the shipped sample) or on any error\n" &
-    "  PARALOOP_UI=studio (exactly) adds one line: the friend has Play / Check / Save buttons, so say \"press Play\"\n"
+    "  PARALOOP_UI=studio (exactly) adds one line: the friend has Play / Check / Save buttons, so say \"press Play\"\n" &
+    "  one line says whether Lavish (lavish-axi, optional, for live visual boards) is installed; it is only looked up, never run\n"
   voiceCoreFile* = ".agents/skills/producer/voice-core.md"
   playbookFile* = ".agents/skills/producer/SKILL.md"
   choicesFile* = "CHOICES.md"
@@ -68,6 +73,10 @@ const
     "Say \"press Play\" (and \"press Check\", \"press Save\") and do not give terminal commands, `nim c -r` lines or file paths to run. " &
     "\"Show me a screenshot\" puts a picture of the game in the chat."
   gitBudgetSeconds = 6.0 ## all of the digest's git questions together; the hook has 10 s
+  boardsLine* = "Visual boards: Lavish (lavish-axi) is installed. When a choice or review is visual (art options, a look, pictures to compare, a plan with options), " &
+    "make a board with `tmp/para board new` and open it with `tmp/para board open`, then read the picks with `tmp/para board answers` (producer playbook, Visual boards)."
+  noBoardsLine* = "Visual boards: Lavish (lavish-axi, optional) is not installed. When a choice is visual, make a board with `tmp/para board new` " &
+    "and open it with `tmp/para board open`: a page the friend picks on and copies the picks from (producer playbook, Visual boards); never install Lavish yourself."
 
 type
   PlanHeader* = object
@@ -283,9 +292,10 @@ proc resumeDigest*(root: string, plans: seq[string]): string =
       result.add "- ...and " & $(plans.len - maxGamesListed) & " more games\n"
   result = capDigest(result)
 
-proc producerContext*(root: string, ui = getEnv(uiEnvVar)): string =
+proc producerContext*(root: string, ui = getEnv(uiEnvVar), boards = lavishExe().len > 0): string =
   ## The hook text, or "" when there is nothing to say. Never raises. `ui` is
-  ## the PARALOOP_UI value; only exactly "studio" adds a line.
+  ## the PARALOOP_UI value; only exactly "studio" adds a line. `boards`: Lavish
+  ## is installed.
   try:
     if root.len == 0 or not isFriendCheckout(root): return ""
     let core = readFile(root / voiceCoreFile).strip()
@@ -307,6 +317,7 @@ proc producerContext*(root: string, ui = getEnv(uiEnvVar)): string =
       result.add "\nMore than one game has a PLAN.md (" & plans.join(", ") &
         "): ask which one, then read its PLAN.md header for Speed and the names.\n"
     if ui == studioUi: result.add "\n" & studioLine & "\n"
+    result.add "\n" & (if boards: boardsLine else: noBoardsLine) & "\n"
     try:
       result.add resumeDigest(root, plans)
     except CatchableError:

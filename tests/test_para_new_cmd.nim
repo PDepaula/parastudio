@@ -6,7 +6,7 @@
 # assert `Valid games: hello` verbatim, which a leftover directory could
 # break for the rest of this `nimble test` run.
 
-import std/[unittest, os, strutils]
+import std/[unittest, os, strutils, sequtils]
 import tools/para/nimutil
 import tools/para/art/clihelpers
 import tools/para/newcmd
@@ -146,6 +146,9 @@ suite "runNew: the game is a git repository of its own":
     discard runNew(@[scratchGame])
     check "__GAME__" notin readFile("games" / scratchGame / ".gitignore")
     writeFile("games" / scratchGame / "tmp.keep", "x")
+    createDir("games" / scratchGame / "review" / "pictures")
+    writeFile("games" / scratchGame / "review" / "look.html", "a board")
+    writeFile("games" / scratchGame / "review" / "pictures" / "a.png", "png")
     createDir("games" / scratchGame / "tmp")
     writeFile("games" / scratchGame / "tmp" / "scratch.txt", "x")
     createDir("games" / scratchGame / ".nimcache")
@@ -158,6 +161,7 @@ suite "runNew: the game is a git repository of its own":
     check "tests/test_" & scratchGame & ".nim" in listed
     check "reports/README.md" in listed
     check "tmp.keep" in listed
+    check listed.allIt(not it.startsWith("review/")) # visual boards are scratch; the answer is in CHOICES.md
     for hidden in ["tmp/scratch.txt", ".nimcache/a.c", scratchGame, "tests/test_" & scratchGame]:
       check hidden notin listed
 

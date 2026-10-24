@@ -496,6 +496,10 @@ dd { margin: 0; overflow-wrap: anywhere; }
         </ul>
         <p><b>4.</b> Come back here and press <b>Check again</b>.</p>
       </div>
+      <div id="optional-box" hidden>
+        <div class="sub">Optional</div>
+        <ul class="pfl" id="optional-list"></ul>
+      </div>
       <div id="chat-setup" class="result bad" role="status" hidden></div>
       <div class="sub">Good to know</div>
       <ul class="pfl">
@@ -1261,6 +1265,46 @@ function checkLine(c) {
   li.append(dot, words);
   return li;
 }
+// Optional programs (Lavish, for visual boards): listed under their own heading, never counted and
+// never a failure. The page installs nothing: a missing one shows the one command to run in a
+// terminal, with a Copy button, and what it would install from where.
+function renderOptional(p) {
+  const list = $("optional-list");
+  list.textContent = "";
+  const rows = p.optional || [];
+  $("optional-box").hidden = rows.length === 0;
+  for (const c of rows) {
+    const li = document.createElement("li");
+    const dot = textEl("span", "dot " + (c.state === "ok" ? "ok" : "absent"), c.state === "ok" ? "✓" : "–");
+    dot.setAttribute("aria-hidden", "true");
+    const words = textEl("span", "", "");
+    words.append(textEl("b", "", c.label));
+    if (c.state !== "ok") {
+      words.append(textEl("small", "", c.problem));
+      if (c.command) {
+        const cmd = textEl("pre", "cmd", c.command);
+        const copy = textEl("button", "btn ghost", "Copy");
+        copy.type = "button";
+        const said = textEl("span", "mute", "");
+        said.setAttribute("role", "status");
+        copy.addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(c.command); said.textContent = "Copied. Paste it into a terminal in this folder."; }
+          catch (e) {
+            const r = document.createRange(); r.selectNodeContents(cmd);
+            const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+            said.textContent = "Selected: press Ctrl+C (Cmd+C on a Mac) to copy.";
+          }
+        });
+        const row = textEl("div", "btns", "");
+        row.append(copy, said);
+        words.append(cmd, row);
+      }
+      if (c.about) words.append(textEl("small", "", c.about));
+    }
+    li.append(dot, words);
+    list.append(li);
+  }
+}
 // First run with Claude: what to type in a terminal, and what Claude will ask. Only text and the
 // command to copy (or, where the computer has one standard way, a button that opens a terminal here).
 function renderFirstRun(p) {
@@ -1290,6 +1334,7 @@ async function loadPreflight() {
   const failed = p.checks.filter((c) => c.state === "fail").length;
   const count = ok + "/" + p.checks.length;
   renderFirstRun(p);
+  renderOptional(p);
   if (ok === p.checks.length) {
     say(sum, "Ready: " + p.label + " can work here.", "ok");
     setReady("ok", "Ready " + count, count);

@@ -3,6 +3,8 @@
 
 # paraloop's scratch space and Nim's build state
 tmp/
+# visual boards (`para board new`): pages for picking; the answers are kept in CHOICES.md
+review/
 .nimcache/
 nimcache/
 

@@ -28,6 +28,7 @@ import tools/para/preflight
 import tools/para/studioapi
 import tools/para/studiocmd
 import tools/para/studiohttp
+import tools/para/boardcmd
 
 when isMainModule:
   # one program stands in for both agents: codex is started as `login ...` or `app-server ...`, claude otherwise
@@ -395,6 +396,20 @@ suite "preflight: GET /api/preflight":
     putEnv("FAKE_CLAUDE_AUTH", "in")
     check parseJson(running.request("GET", "/api/preflight").body)["ready"].getBool
 
+  test "the optional row (Lavish, for visual boards) is listed apart and never counted":
+    let savedPath = getEnv("PATH")
+    putEnv("PATH", s.root / "no-such-folder") # no lavish-axi on this computer
+    var d: JsonNode
+    try: d = parseJson(running.request("GET", "/api/preflight").body)
+    finally: putEnv("PATH", savedPath)
+    check d["ready"].getBool
+    check d["checks"].getElems.allIt(it["id"].getStr != "boards")
+    let opt = d["optional"].getElems
+    check opt.len == 1 and opt[0]["id"].getStr == "boards" and opt[0]["state"].getStr == "absent"
+    check opt[0]["command"].getStr == boardInstallCommand # the page shows it to copy; it installs nothing itself
+    check "board for reviewing things visually" in opt[0]["problem"].getStr
+    check lavishPage in opt[0]["about"].getStr and "MIT" in opt[0]["about"].getStr
+
   test "opening it starts no turn, and the answer holds no account detail":
     let body = running.request("GET", "/api/preflight").body
     check "friend@example.com" notin body and "USER-ID-MARKER" notin body
@@ -460,6 +475,20 @@ suite "preflight: para studio --check":
     check "friend@example.com" notin r.output and "USER-ID-MARKER" notin r.output
     check "/somewhere/else" notin r.output
     check not fileExists(s.log)
+
+  test "an optional program that is missing is listed, with how to add it, and never makes it not ready":
+    let s = scratch()
+    defer: s.done()
+    s.config.put(".claude.json", claudeConfig((s.root, true)))
+    let r = startupChecks(s.root, @[adapterNamed("claude", getAppFilename())], @[boardCheck("")])
+    check r.code == 0
+    check "Claude: ready" in r.output
+    check "Optional (Studio works without these):" in r.output
+    check "  --:  Lavish (visual boards). Optional, not installed." in r.output
+    check ("\n       To add it, run in a terminal in this folder: " & boardInstallCommand) in r.output
+    check "fix:" notin r.output # an optional program is never something to fix
+    let here = startupChecks(s.root, @[adapterNamed("claude", getAppFilename())], @[boardCheck(getAppFilename())])
+    check "  ok:  Lavish is installed (optional: visual boards)" in here.output and here.code == 0
 
   test "the flag starts no server and opens no browser":
     let s = scratch()

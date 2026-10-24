@@ -25,7 +25,7 @@
 #   POST /api/new               {name}: run `para new NAME` (a new game from template/, with its own git repository)
 #   GET  /api/agent?game=       the producer's tool for this game (installed? version?), who pays, the turn time
 #                               limit, and `agents`: every producer the page may pick, with `current` named
-#   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line; also this folder and whether the page may offer to open a terminal in it
+#   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line; the optional programs (Lavish, for visual boards: `ok` or `absent`, never in `ready`) with the command that adds one; also this folder and whether the page may offer to open a terminal in it
 #   POST /api/terminal          {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
 #   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation)
 #   GET  /api/chat?game=&since= the chat lines after number `since`, and whether a turn is running
@@ -50,7 +50,7 @@
 # Not here (on purpose, this update): going back to an earlier save point and setting work aside.
 # They are one more child process each and can follow the same way.
 
-import std/[json, os, strutils, locks, sequtils, base64]
+import std/[json, os, strutils, locks, sequtils]
 import nimutil
 import savepoint
 import producercmd
@@ -62,20 +62,10 @@ import agents
 import studiochat
 import studioplay
 import studioshot
-
-template fontFace(family: string, weight: int, file: static string): string =
-  ## One @font-face whose font is inside the page (the page loads nothing from anywhere else).
-  "@font-face { font-family: \"" & family & "\"; font-weight: " & $weight &
-    "; font-style: normal; font-display: swap; src: url(\"data:font/woff2;base64," &
-    encode(staticRead("studio" / "fonts" / file)) & "\") format(\"woff2\"); }\n"
+import studiofonts
+import boardcmd
 
 const
-  ## Nunito for text and Fredoka for headings, Latin only (SIL OFL 1.1; studio/fonts/ holds the
-  ## licences). About 65 KB of fonts, 87 KB once inlined.
-  fontFaces = fontFace("Nunito", 400, "nunito-latin-400-normal.woff2") &
-    fontFace("Nunito", 700, "nunito-latin-700-normal.woff2") &
-    fontFace("Nunito", 800, "nunito-latin-800-normal.woff2") &
-    fontFace("Fredoka", 600, "fredoka-latin-600-normal.woff2")
   indexHtml = staticRead("studio" / "index.html").replace("/*__FONTS__*/", fontFaces)
   nonceMarker = "__NONCE__"
   maxGameName = 40
@@ -387,8 +377,17 @@ proc preflightJson(st: ptr Studio, req: Request): Response =
       row["problem"] = %c.problem
       row["fix"] = %c.fix
     rows.add row
+  # optional programs: shown under their own heading, never in `ready` or the count
+  var optional = newJArray()
+  let boards = boardCheck()
+  var row = %*{"id": boards.id, "state": (if boards.state == csOk: "ok" else: "absent"), "label": boards.label}
+  if boards.state != csOk:
+    row["problem"] = %boards.problem
+    row["command"] = %boardInstallCommand
+    row["about"] = %(lavishProgram & " " & lavishTested & " from the npm registry (" & lavishPage & "), MIT licence, no account; needs Node.js " & $nodeNeeded & " or newer")
+  optional.add row
   jsonResponse(200, %*{"agent": current, "label": agentLabel(addr st.chat, current),
-                        "ready": allOk(checks), "checks": rows,
+                        "ready": allOk(checks), "checks": rows, "optional": optional,
                         "folder": st.root, "terminal": terminalCommand(st.root).len > 0})
 
 proc terminalRoute(st: ptr Studio): Response =

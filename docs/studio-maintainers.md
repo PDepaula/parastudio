@@ -36,8 +36,10 @@ The code is `tools/para/studiohttp.nim` (the server and its checks),
 `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
 raising), `agents.nim` (which adapters exist), `studioplay.nim` (the game window),
 `studioshot.nim` (the pictures) and `studio/index.html` (the page, compiled
-into the binary with the fonts in `studio/fonts/`; editing either needs a rebuild of
-`para`). Tests: `para test --filter test_para_studio`.
+into the binary with the fonts in `studio/fonts/`, which `studiofonts.nim` inlines; editing either
+needs a rebuild of `para`). Visual boards are `boardcmd.nim` (`para board`, below) and
+`browser.nim` (opening the browser, shared with `para studio`). Tests: `para test --filter
+test_para_studio` and `para test --filter test_para_board`.
 
 ## How the page is built
 
@@ -112,6 +114,63 @@ folder in those files. `GET /api/preflight?game=` returns the checks for the pro
 for the game (or the default one, with no game yet), asking again every time. Tests:
 `tmp/para test --filter test_para_studio_preflight`; Linux is where it was checked, the trust
 record's format on Windows has not been seen (a folder with no entry there is "could not check").
+
+**Optional programs.** `GET /api/preflight` also returns `optional`: one row per program Studio
+works without, today only Lavish (`boardCheck` in `boardcmd.nim`: `lavish-axi` looked up on the
+PATH, nothing run). A row is `ok` or `absent`, never part of `ready` or the count; an absent one
+carries `problem`, `about` (package, registry page, licence, Node.js needed) and `command`
+(`tmp/para board install`), which the page shows under **Optional** with a **Copy** button. The
+page installs nothing. `para studio --check` prints the same rows under "Optional", with no
+`fix:` line and no effect on the exit code.
+
+## Visual boards (`para board`)
+
+A board is one HTML file in `games/<game>/review/<topic>.html` where the friend clicks choices and
+leaves notes; the answer comes back to the producer (producer playbook, "Visual boards").
+
+- **The template** is `.agents/skills/producer/board/board.html` plus `board.css`. `para board new`
+  fills in the title, the stylesheet, the fonts (the Studio's own woff2 files as `data:` URIs,
+  through `studiofonts.nim`), Pip (`tools/docs/theme/pip.svg`) and, when the game has one, its
+  palette, so a board is one self-contained file: Lavish shows it in a sandboxed frame, and opened
+  on its own it needs nothing else. `board.css` repeats the Studio page's tokens, light and dark;
+  `tests/test_para_board_cmd.nim` fails if they drift from `studio/index.html` or the
+  documentation site's `site.css`. A game palette is `art/style.toml`'s `palette` (a Lospec `.hex`
+  file, as `para art lint` reads it), else the one `.hex` file in `art/`: `pickRoles` takes the
+  lightest colour as paper, the darkest as ink (at least 4.5:1), the most colourful one that reads
+  on the paper (3:1) as accent, and sets five `--game-*` variables; `board.css` derives the rest.
+  The builder never adds styling.
+- **Lavish** (`lavish-axi`, MIT, npm, needs Node.js 22+, checked with 0.1.92) runs a live board.
+  It is optional: `boardCheck` only looks it up. `para board install` is the launchers' offer
+  pattern: it checks Node.js (`engines: node >=22`) and that `npm prefix -g` is writable by this
+  user, prints what/from/into/needs/command, asks y/n on standard input (closed input is no) and
+  then runs exactly `npm install -g --no-fund --no-audit lavish-axi@0.1.92`. It never uses sudo.
+  The launchers are unchanged: an optional Node.js program does not fit their
+  required-tools-only flow.
+- **Local only.** Lavish binds `127.0.0.1` plus, when Tailscale is running and `LAVISH_AXI_HOST`
+  is unset, the machine's Tailscale IPv4 address, and its links then use the MagicDNS name (that is
+  why boards opened by hand can show a tailnet URL). It also sends anonymous usage telemetry
+  (command name, version, platform) to an Umami server at `a.kunchenguid.com` unless
+  `LAVISH_AXI_TELEMETRY=0`, and its browser menu and `share` command publish to the third-party
+  host ht-ml.app. Every command `para board` runs gets `localEnv`: `LAVISH_AXI_HOST=127.0.0.1`
+  (which turns the Tailscale listener off), `LAVISH_AXI_PORT=4388` and
+  `LAVISH_AXI_STATE_DIR=tmp/lavish` (its own server, never one started by hand with other
+  settings), `LAVISH_AXI_TELEMETRY=0`, `LAVISH_AXI_HTML_APP_API_URL=http://127.0.0.1:9` (publishing
+  fails, nothing is uploaded), `LAVISH_AXI_NO_OPEN=1`, and the link, allowed-host and token
+  variables removed. `para board open` checks the link is loopback (`isLocalUrl`) before it opens
+  the browser, and ends the session otherwise. `share`, `update`, `setup` and `export` are never
+  run. The server stops by itself after the last session ends with nothing connected or after 30
+  idle minutes; `para board stop` stops it at once.
+- **Answers.** `para board answers` runs `lavish-axi poll --timeout-ms` (2 s by default, `--wait`
+  up to 540 s), since a chat turn cannot hold an endless poll; Lavish keeps a sent answer queued
+  until it is read. The template's one button queues a single prompt, `board picks (<topic>):
+  key=answer; ...`, with the same answers as JSON. Lavish's own `next_step` (which names raw
+  `lavish-axi` commands) and page outline are replaced by para board's next step. Replies go
+  through a file (`--agent-reply-file`), so no shell sees the words.
+- **Pictures** are copied next to the board (`pictures/`), because Lavish serves only the board's
+  own folder: only image files from inside this folder, at most 10 MB each.
+- The producer may run `tmp/para board` and its `new`, `open`, `answers`, `reply`, `end` and `stop`
+  without a prompt (`.claude/settings.json`); never `install`. Not tried yet: Windows (npm's
+  `lavish-axi.cmd`) and Codex as the producer (its sandbox may not allow the local server).
 
 ## The chat
 
