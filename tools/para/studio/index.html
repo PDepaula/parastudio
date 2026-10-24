@@ -980,7 +980,12 @@ async function pickAgent(name) {
 async function loadPreflight() {
   const box = $("preflight"), sum = $("preflight-sum"), list = $("preflight-list");
   let p;
-  try { p = await api("GET", "/api/preflight" + gameQuery()); } catch (e) { return; }
+  try { p = await api("GET", "/api/preflight" + gameQuery()); } catch (e) {
+    box.hidden = false;
+    say(sum, "Could not run the checks. Press Check again.", "bad");
+    $("preflight-recheck").hidden = false;
+    return;
+  }
   list.textContent = "";
   const todo = p.checks.filter((c) => c.state !== "ok");
   const failed = todo.filter((c) => c.state === "fail").length;
@@ -1093,7 +1098,7 @@ $("chat-new").addEventListener("click", async () => {
   catch (e) { say($("chat-result"), e.message, "bad"); }
 });
 $("chat-recheck").addEventListener("click", () => { loadAgent().catch((e) => say($("chat-result"), e.message, "bad")); });
-$("preflight-recheck").addEventListener("click", () => { say($("preflight-sum"), "Checking…", "busy"); loadAgent().catch((e) => say($("chat-result"), e.message, "bad")); });
+$("preflight-recheck").addEventListener("click", () => { say($("preflight-sum"), "Checking…", "busy"); loadAgent().catch((e) => { say($("chat-result"), e.message, "bad"); say($("preflight-sum"), "Could not run the checks. Press Check again.", "bad"); }); });
 
 // --- the game window ----------------------------------------------------------------
 // The studio builds the game and opens its own window; this only shows how that is going.
