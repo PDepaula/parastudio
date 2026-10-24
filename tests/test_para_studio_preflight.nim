@@ -12,6 +12,9 @@
 # - nothing is started and nothing secret comes out: no chat turn, and none of the account details
 #   the programs print (an email address, a plan, other folders in the config) in the route's answer.
 #
+# - `para studio --check` (studiocmd.nim's `startupChecks`), which the double-click launchers run
+#   before they open the page: the same checks as plain lines, one fix line under each that fails.
+#
 # The real `claude` and `codex` are run by hand in the PR's checklist, not here.
 
 import std/[unittest, os, strutils, json, tempfiles, sequtils]
@@ -22,6 +25,8 @@ import tools/para/agent
 import tools/para/agents
 import tools/para/claudeagent
 import tools/para/preflight
+import tools/para/studiocmd
+import tools/para/studiohttp
 
 when isMainModule:
   # one program stands in for both agents: codex is started as `login ...` or `app-server ...`, claude otherwise
@@ -390,3 +395,79 @@ suite "preflight: GET /api/preflight":
     let body = running.request("GET", "/api/preflight").body
     check "friend@example.com" notin body and "USER-ID-MARKER" notin body
     check not fileExists(s.log)
+
+# --- `para studio --check` -------------------------------------------------------------------
+
+suite "preflight: para studio --check":
+  test "a ready producer: every check ok, exit 0; a program that is not installed is not listed":
+    let s = scratch()
+    defer: s.done()
+    s.config.put(".claude.json", claudeConfig((s.root, true)))
+    var r: tuple[output: string, code: int]
+    s.withoutProgram:
+      r = startupChecks(s.root, @[adapterNamed("claude", getAppFilename()), adapterNamed("codex", "")])
+    check r.code == 0
+    check "Startup checks" in r.output
+    check "Claude: ready" in r.output
+    for label in ["Claude is installed", "Claude is signed in", "Claude trusts this folder"]:
+      check ("ok:  " & label) in r.output
+    check "Codex" notin r.output
+    check "fix:" notin r.output
+    check "never stop Studio from opening" in r.output
+
+  test "signed out and not trusted: each failing check has its problem and one fix line, exit 1":
+    let s = scratch()
+    defer: s.done()
+    putEnv("FAKE_CLAUDE_AUTH", "out")
+    let r = startupChecks(s.root, @[adapterNamed("claude", getAppFilename())])
+    check r.code == 1
+    check "Claude: not ready yet" in r.output
+    check "no:  Claude is signed in. Claude is not signed in." in r.output
+    check ("fix: " & signedOutFix) in r.output
+    check "no:  Claude trusts this folder" in r.output
+    check ("fix: " & trustFix(s.root)) in r.output
+
+  test "both installed: both are checked; one ready is enough for exit 0":
+    let s = scratch()
+    defer: s.done()
+    s.config.put(".claude.json", claudeConfig((s.root, true)))
+    putEnv("FAKE_CODEX_LOGIN", "out")
+    let r = startupChecks(s.root, @[adapterNamed("claude", getAppFilename()), adapterNamed("codex", getAppFilename())])
+    check r.code == 0
+    check "Claude: ready" in r.output and "Codex: not ready yet" in r.output
+    check "run: codex" in r.output
+
+  test "neither installed: the first one's not-installed line and where to get it, exit 1":
+    let s = scratch()
+    defer: s.done()
+    var r: tuple[output: string, code: int]
+    s.withoutProgram:
+      r = startupChecks(s.root, @[adapterNamed("claude", ""), adapterNamed("codex", "")])
+    check r.code == 1
+    check "no:  Claude is installed" in r.output
+    check installUrl in r.output
+    check "Codex" notin r.output
+
+  test "nothing is started, and no account detail comes out":
+    let s = scratch()
+    defer: s.done()
+    s.config.put(".claude.json", claudeConfig((s.root, true), ("/somewhere/else", true)))
+    let r = startupChecks(s.root, @[adapterNamed("claude", getAppFilename())])
+    check "friend@example.com" notin r.output and "USER-ID-MARKER" notin r.output
+    check "/somewhere/else" notin r.output
+    check not fileExists(s.log)
+
+  test "the flag starts no server and opens no browser":
+    let s = scratch()
+    defer: s.done()
+    var opened = false
+    proc onOpen(url: string): bool = opened = true
+    proc onReady(srv: ptr HttpServer) = requestStop(srv)
+    var r: tuple[output: string, code: int]
+    s.withoutProgram:
+      r = runStudioWith(@["--check"], StudioHooks(announce: proc (line: string) = discard,
+                        openBrowser: onOpen, ready: onReady), root = s.root)
+    check "Startup checks" in r.output
+    check "para studio is running" notin r.output
+    check not opened
+    check "--check" in studioHelp

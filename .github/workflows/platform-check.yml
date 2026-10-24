@@ -134,9 +134,10 @@ jobs:
         run: .github/scripts/platform-check.sh summary
 
   # The double-click launcher (Paraloop-Studio.bat), dry run only: proves the script parses and
-  # that its checks and stop messages run on a hosted Windows runner. It cannot prove the
-  # SmartScreen prompt, the double-click itself, a real Nim install or a friend's PATH, and a
-  # hosted runner has no graphics card. Manual only, like the rest of this workflow.
+  # that its checks, its offers to install and its messages run on a hosted Windows runner. It
+  # cannot prove the SmartScreen prompt, the double-click itself, a real winget or Nim install, a
+  # yes/no typed by a person, or a friend's PATH, and a hosted runner has no graphics card. Manual
+  # only, like the rest of this workflow.
   windows-launcher:
     name: double-click launcher dry run (Windows)
     runs-on: windows-latest
@@ -150,7 +151,7 @@ jobs:
           nim-version: "2.2.10"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Everything the launcher looks for is on the runner: it must get through all six steps,
+      # Everything the launcher looks for is on the runner: it must get through all seven steps,
       # say what each would do, and exit 0 without building or opening anything.
       - name: Dry run with everything installed
         shell: cmd
@@ -159,28 +160,104 @@ jobs:
           set RC=%ERRORLEVEL%
           type "%RUNNER_TEMP%\launcher-ok.txt"
           if not "%RC%"=="0" exit /b 1
-          findstr /c:"[6/6]" "%RUNNER_TEMP%\launcher-ok.txt"
+          findstr /c:"[7/7]" "%RUNNER_TEMP%\launcher-ok.txt"
+          if errorlevel 1 exit /b 1
+          findstr /c:"tmp\para.exe studio --check" "%RUNNER_TEMP%\launcher-ok.txt"
           if errorlevel 1 exit /b 1
           findstr /c:"Dry run finished: nothing was installed, built or opened." "%RUNNER_TEMP%\launcher-ok.txt"
           if errorlevel 1 exit /b 1
           exit /b 0
 
-      # Pretend the C compiler, git and Nim are all missing: it must stop after step 3 with exit
-      # code 1, say what to install and from where, and never reach step 4.
+      # Pretend the C compiler, git and Nim are all missing (--check is the same dry run): it must
+      # say what it would offer for each, from where, ask nothing, install nothing, and still list
+      # the later steps. Its input is closed, so a question it should not ask would read no.
       - name: Dry run with everything pretended missing
         shell: cmd
         run: |
           set PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim
-          call Paraloop-Studio.bat --dry-run > "%RUNNER_TEMP%\launcher-missing.txt" 2>&1
+          call Paraloop-Studio.bat --check < NUL > "%RUNNER_TEMP%\launcher-missing.txt" 2>&1
           set RC=%ERRORLEVEL%
           type "%RUNNER_TEMP%\launcher-missing.txt"
-          if not "%RC%"=="1" exit /b 1
-          findstr /c:"winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e" "%RUNNER_TEMP%\launcher-missing.txt"
+          if not "%RC%"=="0" exit /b 1
+          findstr /c:"From:    https://nim-lang.org/download/nim-2.2.10_x64.zip" "%RUNNER_TEMP%\launcher-missing.txt"
           if errorlevel 1 exit /b 1
-          findstr /c:"https://git-scm.com/download/win" "%RUNNER_TEMP%\launcher-missing.txt"
+          findstr /c:"would: ask you: Download and install Nim 2.2.10 now? (y/n, Enter means no)" "%RUNNER_TEMP%\launcher-missing.txt"
           if errorlevel 1 exit /b 1
-          findstr /c:"https://nim-lang.org/download/nim-2.2.10_x64.zip" "%RUNNER_TEMP%\launcher-missing.txt"
+          findstr /c:"BrechtSanders.WinLibs.POSIX.UCRT" "%RUNNER_TEMP%\launcher-missing.txt"
           if errorlevel 1 exit /b 1
-          findstr /c:"[4/6]" "%RUNNER_TEMP%\launcher-missing.txt"
-          if not errorlevel 1 exit /b 1
+          findstr /c:"Git.Git" "%RUNNER_TEMP%\launcher-missing.txt"
+          if errorlevel 1 exit /b 1
+          findstr /c:"[7/7]" "%RUNNER_TEMP%\launcher-missing.txt"
+          if errorlevel 1 exit /b 1
+          if exist "%USERPROFILE%\.paraloop" exit /b 1
+          exit /b 0
+
+      # The same pretended-missing run, but with PARALOOP_LAUNCHER_DRY_ASK=1 (a dry-run-only hook):
+      # cmd.exe really runs the question and its yes/no default for each of the three offers, and
+      # the dry run says what it would do for the answer it got, with no winget, curl.exe or
+      # tar.exe. Enter and a closed input must be no; a typed y must be yes; the offer is printed
+      # before its question; nothing is created under %USERPROFILE%\.paraloop.
+      - name: Dry run asking the real yes/no question
+        shell: cmd
+        run: |
+          set PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim
+          set PARALOOP_LAUNCHER_DRY_ASK=1
+
+          echo.| call Paraloop-Studio.bat --check > "%RUNNER_TEMP%\ask-enter.txt" 2>&1
+          if errorlevel 1 exit /b 1
+          type "%RUNNER_TEMP%\ask-enter.txt"
+          call :offers_first "%RUNNER_TEMP%\ask-enter.txt" || exit /b 1
+          call :all_no "%RUNNER_TEMP%\ask-enter.txt" || exit /b 1
+
+          call Paraloop-Studio.bat --check < NUL > "%RUNNER_TEMP%\ask-closed.txt" 2>&1
+          if errorlevel 1 exit /b 1
+          type "%RUNNER_TEMP%\ask-closed.txt"
+          call :offers_first "%RUNNER_TEMP%\ask-closed.txt" || exit /b 1
+          call :all_no "%RUNNER_TEMP%\ask-closed.txt" || exit /b 1
+
+          (echo y& echo y& echo y) > "%RUNNER_TEMP%\answers-y.txt"
+          call Paraloop-Studio.bat --check < "%RUNNER_TEMP%\answers-y.txt" > "%RUNNER_TEMP%\ask-y.txt" 2>&1
+          if errorlevel 1 exit /b 1
+          type "%RUNNER_TEMP%\ask-y.txt"
+          call :offers_first "%RUNNER_TEMP%\ask-y.txt" || exit /b 1
+          call :all_yes "%RUNNER_TEMP%\ask-y.txt" || exit /b 1
+
+          if exist "%USERPROFILE%\.paraloop" exit /b 1
+          exit /b 0
+
+          :offers_first
+          findstr /c:"BrechtSanders.WinLibs.POSIX.UCRT" "%~1" >nul || exit /b 1
+          findstr /c:"Git.Git" "%~1" >nul || exit /b 1
+          findstr /c:"Size:    about 28 MB" "%~1" >nul || exit /b 1
+          findstr /c:"Where:   " "%~1" >nul || exit /b 1
+          call :before "%~1" "What:    WinLibs GCC" "Install the C compiler now?" || exit /b 1
+          call :before "%~1" "What:    Git for Windows" "Install git now?" || exit /b 1
+          call :before "%~1" "From:    https://nim-lang.org/download/nim-2.2.10_x64.zip" "Download and install Nim 2.2.10 now?" || exit /b 1
+          exit /b 0
+
+          :before
+          set "FIRST="
+          set "SECOND="
+          for /f "delims=:" %%N in ('findstr /n /c:%2 "%~1"') do if not defined FIRST set "FIRST=%%N"
+          for /f "delims=:" %%N in ('findstr /n /c:%3 "%~1"') do if not defined SECOND set "SECOND=%%N"
+          if not defined FIRST exit /b 1
+          if not defined SECOND exit /b 1
+          if %FIRST% geq %SECOND% exit /b 1
+          exit /b 0
+
+          :all_no
+          findstr /c:"would: install" "%~1" >nul && exit /b 1
+          set "COUNT=0"
+          for /f %%C in ('findstr /c:"Okay, nothing was installed." "%~1" ^| find /c /v ""') do set "COUNT=%%C"
+          if not "%COUNT%"=="3" exit /b 1
+          exit /b 0
+
+          :all_yes
+          findstr /c:"Okay, nothing was installed." "%~1" >nul && exit /b 1
+          set "COUNT=0"
+          for /f %%C in ('findstr /c:"would: install" "%~1" ^| find /c /v ""') do set "COUNT=%%C"
+          if not "%COUNT%"=="3" exit /b 1
+          findstr /c:"would: install the C compiler with: winget install --id BrechtSanders.WinLibs.POSIX.UCRT" "%~1" >nul || exit /b 1
+          findstr /c:"would: install git with: winget install --id Git.Git" "%~1" >nul || exit /b 1
+          findstr /c:"would: install Nim 2.2.10: download https://nim-lang.org/download/nim-2.2.10_x64.zip" "%~1" >nul || exit /b 1
           exit /b 0

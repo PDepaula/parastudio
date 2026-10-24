@@ -18,9 +18,19 @@ everything after it has **not** been re-run on Windows. Opening a window was
 never checked and needs real hardware. The "set up to run" wording below
 describes what the workflow does when it is switched back on.
 
-**Double-click launcher on Windows:** `Paraloop-Studio.bat` ([windows.md](windows.md)) is not
-covered by the table below; the `windows-launcher` job in the same workflow dry-runs it (by hand
-only, and not run yet), and nobody has run it on a real Windows PC.
+**Double-click launchers:** `Paraloop-Studio.command` (macOS, [mac.md](mac.md)),
+`paraloop-studio.sh` (Linux) and `Paraloop-Studio.bat` (Windows, [windows.md](windows.md)) are not
+covered by the table below. When Nim 2.2.10, a C compiler or git is missing, each says what it would
+install, from where (the nim-lang.org release archive with its published SHA-256 checked, Apple's
+`xcode-select --install`, the Linux package manager, winget on Windows), into which folder and how
+big, and installs it only after a typed `y`; before opening the page each prints `para studio
+--check`, the page's startup checks. What ran where: on Linux, the shell launcher's offers and
+installs against stand-ins (`tests/test_launcher.nim`: a fake `sudo`/`apt-get`, a fake
+`xcode-select`, a fake `curl` serving a Nim archive made by the test) and once by hand with the real
+Nim download from nim-lang.org into a scratch home folder; the macOS branch only under those
+stand-ins, never on a Mac; the Windows script only as text (`tests/test_launcher_bat.nim`), never
+under `cmd.exe` or Wine. The `windows-launcher` job in the same workflow dry-runs the Windows one (by
+hand only, and not run yet), and nobody has run it on a real Windows PC.
 
 **Trying it on a real Windows PC or VM?** Follow
 [windows-first-game.md](windows-first-game.md): the installs, the exact

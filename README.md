@@ -57,8 +57,13 @@ Before the first message to the producer, do this once: install [Claude Code](ht
 folder** (the highlighted choice is "No, exit", so move down first). The Studio page checks all of this
 when it opens, says "Ready" or what is missing in one line each, and never blocks Play.
 
-On a Mac, double-click `Paraloop-Studio.command` instead ([docs/mac.md](docs/mac.md)). On Windows
-double-click `Paraloop-Studio.bat` ([docs/windows.md](docs/windows.md), not yet tried on a real Windows PC) or follow [docs/windows-first-game.md](docs/windows-first-game.md). What was checked on each system is in
+On a Mac, double-click `Paraloop-Studio.command` instead ([docs/mac.md](docs/mac.md)); on Linux run
+`./paraloop-studio.sh`. On Windows double-click `Paraloop-Studio.bat` ([docs/windows.md](docs/windows.md),
+not yet tried on a real Windows PC) or follow [docs/windows-first-game.md](docs/windows-first-game.md).
+The launchers need nothing installed first: when Nim, a C compiler or git is missing they say exactly
+what they would install, from where and into which folder, and install it only after you type `y`
+(Enter means no). Before opening the page they print the same startup checks it shows
+(`tmp/para studio --check`). What was checked on each system is in
 [docs/platforms.md](docs/platforms.md).
 
 To talk to the producer from a terminal instead of the Studio, open the folder in Claude Code or Codex
