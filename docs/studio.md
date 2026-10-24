@@ -119,13 +119,15 @@ model call, so it costs nothing.
 
 **A message sent while the setup is broken is kept.** If a turn ends in an error before the
 producer said anything (not signed in, out of credit, not installed), the message goes back into
-the empty message box and the page says to fix the problem and press Send again; the startup checks
-are asked again at the same time.
+the message box (in front of anything typed since, with a blank line between) and the page says to
+fix the problem and press Send again; the startup checks are asked again at the same time.
 
 **Claude's first run.** When Claude is installed but not signed in, or does not trust this folder,
 the startup checks also show a card for the first run, which happens in a terminal the page cannot
 answer for you: the folder to open a terminal in, the command to paste (`cd "<this folder>"` and
-`claude`) with a **Copy** button, and what Claude asks the first time in plain words: how text
+`claude`, or just `claude` when the folder's path has a `"`, `$`, backtick, `%` or `\` in it or
+starts with a Windows drive letter, since the page cannot know which shell is used) with a **Copy**
+button, and what Claude asks the first time in plain words: how text
 should look (any choice is fine); how to sign in (an Anthropic Console API key, pay as you go and
 the way Claude Code documents, or a Claude Pro or Max subscription, your own choice, whose usage
 limits the chats count toward, or a company account); and what "Do you trust the files in this
