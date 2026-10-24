@@ -15,6 +15,7 @@ import tools/para/checkcmd
 import tools/para/savecmd
 import tools/para/backupcmd
 import tools/para/newcmd
+import tools/para/lanecmd
 
 when isMainModule:
   if getEnv("PARA_STUDIO_TEST_CHILD") == "1":
@@ -33,6 +34,7 @@ when isMainModule:
       of "save": run = runSaveWith(args[1 .. ^1])
       of "backup": run = runBackupWith(args[1 .. ^1], "", "/nonexistent/para-test-gh")
       of "new": run = runNew(args[1 .. ^1])
+      of "lane": run = runLane(args[1 .. ^1])
       else: discard
     stdout.write run.output
     quit run.code
@@ -581,3 +583,91 @@ suite "para studio api: a game that is a repository of its own":
     check gitOk(bare, "for-each-ref", "--format=%(refname)").splitLines.sorted ==
       @["refs/heads/main", "refs/tags/save-pong-1"]
     check jsonOf(running.request("GET", "/api/backup?game=nope")).hasKey("error")
+
+suite "para studio api: the helpers' lanes":
+  setup: beginOwnRepo()
+  teardown: finish()
+
+  test "a lane left from a closed session is listed after a restart, in facts, not folders":
+    check jsonOf(running.request("GET", "/api/state"))["lanes"].len == 0
+    check runLaneIn(root, @["start", "pong", "--for", "builder", "--ticket", "ship moves"]).code == 0
+    root.put("games/pong.builder/pong.nim", "echo 3\n")
+    root.put("games/pong.builder/systems.nim", "# systems\n")
+    # the studio closes (a crash, a closed window) and opens again: the lane is found as it was
+    running.stop()
+    running = startStudio(root, getAppFilename())
+    let state = jsonOf(running.request("GET", "/api/state"))
+    check state["games"].getElems.mapIt(it.getStr) == @["pong"] # the lane's copy is not a second game
+    let lanes = state["lanes"]
+    check lanes.len == 1
+    check lanes[0]["id"].getStr == "builder"
+    check lanes[0]["role"].getStr == "builder"
+    check lanes[0]["ticket"].getStr == "ship moves"
+    check lanes[0]["files"].getInt == 2
+    check not lanes[0]["live"].getBool # no turn is running, so it is left over
+    check "games/" notin $lanes and "lane/" notin $lanes
+    check jsonOf(running.request("GET", "/api/lanes?game=pong"))["lanes"] == lanes
+    check state["facts"]["unsaved"]["count"].getInt == 0 # nothing in the game itself yet
+
+  test "Land it runs `para lane land` as a step: the work is unsaved in the game, the lane is gone":
+    check runLaneIn(root, @["start", "pong", "--for", "builder"]).code == 0
+    root.put("games/pong.builder/pong.nim", "echo 3\n")
+    let done = running.runJob("/api/lane/land", %*{"game": "pong", "id": "builder"})
+    check done["code"].getInt == 0
+    check done["kind"].getStr == "land"
+    check "landed: builder" in done["output"].getStr
+    let state = jsonOf(running.request("GET", "/api/state"))
+    check state["lanes"].len == 0
+    check state["facts"]["unsaved"]["count"].getInt == 1
+    check not dirExists(root / "games" / "pong.builder")
+    # and the usual Check, then Save keeps it
+    check running.runJob("/api/check", %*{"game": "pong"})["code"].getInt == 0
+    check running.runJob("/api/save", %*{"game": "pong", "message": "ship moves"})["code"].getInt == 0
+
+  test "a land that would clash with an unsaved edit is refused by the step, and nothing changes":
+    check runLaneIn(root, @["start", "pong", "--for", "builder"]).code == 0
+    root.put("games/pong.builder/pong.nim", "echo 3\n")
+    root.put("games/pong/pong.nim", "echo 4\n")
+    let done = running.runJob("/api/lane/land", %*{"game": "pong", "id": "builder"})
+    check done["code"].getInt == 1
+    check done["output"].getStr.startsWith("These files have changes in the game that are not saved yet")
+    check readFile(root / "games" / "pong" / "pong.nim") == "echo 4\n"
+    check jsonOf(running.request("GET", "/api/state"))["lanes"].len == 1
+
+  test "an unknown lane or game is refused before anything runs":
+    check running.post("/api/lane/land", %*{"game": "pong", "id": "builder"}).status == 404
+    check running.post("/api/lane/land", %*{"game": "pong", "id": "../x"}).status == 404
+    check running.post("/api/lane/land", %*{"game": "nope", "id": "builder"}).status == 404
+    check jsonOf(running.request("GET", "/api/state"))["job"].kind == JNull
+
+  test "a land waits for a running step, like Check and Save":
+    check runLaneIn(root, @["start", "pong", "--for", "builder"]).code == 0
+    putEnv("FAKE_CHECK_SLEEP_MS", "1200")
+    let first = running.post("/api/check", %*{"game": "pong"})
+    check first.status == 200
+    let second = running.post("/api/lane/land", %*{"game": "pong", "id": "builder"})
+    checkpoint second.raw
+    check second.status == 409
+    discard running.waitJob(jsonOf(first)["job"]["id"].getInt)
+
+  test "the page says what the helpers do in words, and never a folder, branch or lane name":
+    let page = running.request("GET", "/?token=" & running.srv.token, withToken = false).body
+    let a = page.find("// --- lanes ---")
+    let b = page.find("// --- end lanes")
+    check a > 0 and b > a
+    let code = page[a ..< b]
+    for words in ["is working on your change", "Checking it", "Art helper is drawing", "Land it", "Keep it"]:
+      check words in code
+    var literals: seq[string]
+    var i = 0
+    while i < code.len:
+      if code[i] == '"':
+        let j = code.find('"', i + 1)
+        literals.add code[i + 1 ..< j]
+        i = j + 1
+      else: inc i
+    check literals.len > 10
+    for s in literals:
+      if s.startsWith("/api/"): continue
+      for word in ["games/", "lane/", "lane ", "branch", "worktree", "folder", ".builder", "git"]:
+        check word notin s.toLowerAscii

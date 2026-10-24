@@ -49,6 +49,16 @@ examples[9]:
   para web pack --game hello
 ```
 
+## Helpers' lanes
+
+`tmp/para lane start <game> --for builder|art [--ticket TEXT]` gives a helper its own copy of a game
+(`games/<game>.<id>/`, a `git worktree` of the game's own repository) so helpers work at once without
+touching the game; the helper runs `tmp/para test --filter games/<game>.<id>/ --skip-balance` and
+`tmp/para build --game <game> --lane <id>` there. `tmp/para lane land <game> <id>` puts the lane's
+work into `games/<game>/` as unsaved changes (then `para check`, then `para save`), and refuses,
+changing nothing, on a conflict or on an unsaved edit to a file the helper changed. `list`, `drop`
+(refuses while work is not landed, unless `--discard --yes`) and `clean` manage them.
+
 ## The studio page
 
 `tmp/para studio` opens a page in the friend's browser with the producer's chat,

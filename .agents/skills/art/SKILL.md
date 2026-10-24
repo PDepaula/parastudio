@@ -7,6 +7,8 @@ description: Art recipe the producer runs for a friend's game. Placeholder shape
 
 The producer runs this. Art is visible to the friend only as choices ("which look?"). Judge every asset at game size, never zoomed in.
 
+**As a helper beside a builder.** When the art work goes to a helper while a builder works, it gets its own copy of the game like any writer: the producer runs `tmp/para lane start <game> --for art --ticket "..."` and puts the printed folder (`games/<game>.art/`) in the prompt. Every `games/<game>/` path below then means that folder (`art/raw/`, `assets/`, `art/STYLE.md`, `art/LEDGER.md`, `review/`), the folder the friend plays is left alone, and the producer lands it (`tmp/para lane land <game> art`) before the builder wires the art in. Run by the producer itself, with no helper, it works in `games/<game>/` as written.
+
 ## Default: placeholder shapes
 
 Until the friend picks a generator, the game uses flat coloured shapes (the template's blue square is one). Placeholders are a finished answer for early tickets. Do not push art on a friend who is still deciding how the game plays. Offer real art once the first playable feels right.

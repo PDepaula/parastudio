@@ -35,6 +35,16 @@ Status: built ([site.md](site.md)).
 
 A site in the Studio's look, built from the files in `docs/`.
 
+## Helpers working at once
+
+Status: built ([studio.md](studio.md), "Helpers work in their own copy").
+
+Each helper that writes gets its own copy of the game (`para lane`, plain
+`git worktree`, nothing extra to install) and its work lands back through
+Check and Save. Treehouse, a worktree pool manager, was looked at and is not
+needed: lanes already reuse warm build caches and are locked while in use.
+Not yet verified on Windows or a Mac.
+
 ## Windows and Mac verification
 
 Status: planned.

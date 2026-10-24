@@ -204,6 +204,26 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
   were. **New conversation** forgets them for the game.
 - **Helpers** (builder, checker, scout) show as cards in the chat.
 
+### Helpers work in their own copy
+
+When the producer hands a step to the builder (or a picture to the art helper), that helper gets
+its own copy of your game and works only there. Your game stays exactly as it was, so **Play**
+always plays the last finished version while a helper is busy, and two helpers can work at the
+same time without getting in each other's way: say, the builder on a new rule while the art
+helper draws the ship. You never make or tidy these copies yourself; Studio and the producer do.
+
+Under Pip's card a short line says what each helper is doing: "Builder is working on your
+change", "Checking it", "Art helper is drawing". When a helper is done and its work passed the
+checks, the producer puts it into your game, and then Check and Save work as always.
+
+If Studio or the chat was closed while a helper was working (a crash, a closed window), nothing is
+lost: the helper's work waits in its copy. Next time, the line under Pip's card says "Builder's
+work from last time is waiting" with two buttons. **Land it** puts that work into your game as
+unsaved changes (then press Check, then Save); **Keep it** leaves it for the producer, who will
+mention it when you next talk. If the helper and your game both changed the same thing, or you
+have unsaved changes to a file the helper also changed, Land it says so in plain words and changes
+nothing in your game.
+
 ### What the producer can and cannot change
 
 The producer and its helpers can change files in your game folder (`games/`) and nothing else. The
@@ -287,8 +307,9 @@ makes); a game without one is saved in the repository that contains `games/`, as
 ## Two copies, two studios
 
 One studio runs one chat turn at a time (Check, Save and Backup wait for it), because the producer
-changes files in the folder. To work on two things at once, keep two copies of the folder and run a
-studio in each. They share nothing: each has its own files, `tmp/` and save points, so they cannot
+changes files in the folder. Inside that one turn the producer's helpers already work at the same
+time, each in its own copy (see "Helpers work in their own copy"). To hold two conversations at
+once, keep two copies of the folder and run a studio in each. They share nothing: each has its own files, `tmp/` and save points, so they cannot
 step on each other.
 
 ```

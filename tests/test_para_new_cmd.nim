@@ -6,13 +6,15 @@
 # assert `Valid games: hello` verbatim, which a leftover directory could
 # break for the rest of this `nimble test` run.
 
-import std/[unittest, os, strutils, sequtils]
+import std/[unittest, os, osproc, streams, strutils, sequtils]
 import tools/para/nimutil
 import tools/para/art/clihelpers
 import tools/para/newcmd
 import tools/para/savepoint
 import tools/para/checkcmd
 import tools/para/savecmd
+import tools/para/buildcmd
+import tools/para/lanecmd
 
 const scratchGame = "zzz_para_new_scratch"
 
@@ -20,6 +22,12 @@ proc cleanup() =
   if dirExists("games" / scratchGame):
     removeDir("games" / scratchGame)
   removeStamp("", scratchGame)
+  # a helper's lanes of the scratch game: their folders and records (their compile caches stay)
+  for kind, path in walkDir("games"):
+    if path.extractFilename.startsWith(scratchGame & "."): removeDir(path)
+  for kind, path in walkDir("tmp" / "lanes"):
+    if path.extractFilename.startsWith(scratchGame & "."):
+      if kind == pcDir: removeDir(path) else: removeFile(path)
 
 proc gameGit(args: varargs[string]): string =
   ## `git <args>` inside the scratch game, output trimmed.
@@ -202,3 +210,61 @@ suite "runNew: the game is a git repository of its own":
     check runCaptured("git", @["rev-parse", "HEAD"]).output == outerHead
     check runCaptured("git", @["tag", "--list"]).output == outerTags
     check runCaptured("git", @["ls-files", "--", "games/" & scratchGame]).output.strip.len == 0
+
+suite "runNew: two helpers' lanes at once on the new game":
+  setup: cleanup()
+  teardown: cleanup()
+
+  test "two lanes compile and test at the same time, each with its own cache and programs, then both land":
+    discard runNew(@[scratchGame])
+    discard gameGit("config", "user.name", "Scratch")
+    discard gameGit("config", "user.email", "scratch@example.com")
+    discard gameGit("config", "commit.gpgsign", "false")
+    check runLane(@["start", scratchGame, "--for", "builder", "--ticket", "faster"]).code == 0
+    check runLane(@["start", scratchGame, "--for", "builder", "--ticket", "a second test"]).code == 0
+    let a = laneName(scratchGame, "builder")
+    let b = laneName(scratchGame, "builder2")
+    # different files: one changes a number row, the other adds a test of its own
+    let dataA = "games" / a / "data.nim"
+    writeFile(dataA, readFile(dataA) & "\nconst laneMark* = 1\n")
+    writeFile("games" / b / "tests" / "test_lane_two.nim",
+      "import std/unittest\nsuite \"lane two\":\n  test \"runs\":\n    check 1 + 1 == 2\n")
+    # both lanes' tests at once, as `para test --filter games/<lane>/` compiles them (outdir tmp/lanes/<lane>)
+    let testA = "games" / a / "tests" / ("test_" & scratchGame & ".nim")
+    let testB = "games" / b / "tests" / "test_lane_two.nim"
+    var procs: seq[Process]
+    for (f, lane) in [(testA, a), (testB, b)]:
+      procs.add startProcess("nim", args = @["c", "-r", "--hints:off", "--outdir:" & ("tmp" / "lanes" / lane), f],
+                             options = {poStdErrToStdOut, poUsePath})
+    for p in procs:
+      let output = p.outputStream.readAll()
+      check p.waitForExit() == 0
+      check "[OK]" in output and "[FAILED]" notin output
+      p.close()
+    check fileExists("tmp" / "lanes" / a / ("test_" & scratchGame).addFileExt(ExeExt))
+    check fileExists("tmp" / "lanes" / b / "test_lane_two".addFileExt(ExeExt))
+    check dirExists(".nimcache" / "native" / "lanes" / a / ("test_" & scratchGame & "_d"))
+    check dirExists(".nimcache" / "native" / "lanes" / b / "test_lane_two_d")
+    # and both games build, through `para build --lane`, into their own folders
+    check runBuild(@["--game", scratchGame, "--lane", "builder"]).output.startsWith("build: ok, wrote " & ("tmp" / "lanes" / a / scratchGame))
+    check runBuild(@["--game", scratchGame, "--lane", "builder2"]).code == 0
+    check dirExists(".nimcache" / "native" / "lanes" / b / (scratchGame & "_d"))
+    # nothing touched the game itself while they worked
+    check gameGit("status", "--porcelain") == ""
+    # land one, then the other: both are now unsaved in the game; one check, one save
+    check runLane(@["land", scratchGame, "builder"]).code == 0
+    check runLane(@["land", scratchGame, "builder2"]).code == 0
+    check not dirExists("games" / a) and not dirExists("games" / b)
+    check "laneMark" in readFile("games" / scratchGame / "data.nim")
+    check fileExists("games" / scratchGame / "tests" / "test_lane_two.nim")
+    let steps: seq[CheckStep] = @[
+      ("tests", proc (g: string): Run =
+        let r = runCaptured("nim", @["c", "-r", "--hints:off", "--outdir:tmp",
+                                     "games" / g / "tests" / ("test_" & g & ".nim")])
+        (r.output, r.exitCode)),
+      ("build", proc (g: string): Run = runBuild(buildArgs(g)))]
+    let checked = runCheckWith(@["--game", scratchGame], steps)
+    checkpoint checked.output
+    check checked.code == 0
+    check runSaveWith(@["--game", scratchGame, "-m", "two helpers"]).output.startsWith("Saved as save point 1.")
+    check gameGit("log", "--format=%s").splitLines == @["two helpers", scratchGame & ": new game"]

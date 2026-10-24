@@ -15,7 +15,8 @@
 # thread so the server stays responsive; the page polls `GET /api/job?id=N&since=K`.
 #
 # Routes (all JSON; the page is `GET /`):
-#   GET  /api/state?game=NAME   games, the chosen game and the resume facts, the current job
+#   GET  /api/state?game=NAME   games, the chosen game and the resume facts, the helpers' lanes, the current job
+#   GET  /api/lanes?game=NAME   just the helpers' lanes (the page polls it while a turn runs)
 #   GET  /api/savepoints?game=  the save points, oldest first
 #   GET  /api/backup?game=      whether a private online backup is set up for the game's own repository, and where
 #   GET  /api/job?id=&since=    a job's progress: its output from byte `since`, and whether it ended
@@ -23,6 +24,7 @@
 #   POST /api/save              {game, message}: run `para save -m`
 #   POST /api/backup            {game, confirm: true, isPrivate?: bool}: run `para backup --game G --push --yes`
 #   POST /api/new               {name}: run `para new NAME` (a new game from template/, with its own git repository)
+#   POST /api/lane/land         {game, id}: run `para lane land GAME ID` (a helper's work goes into the game, unsaved)
 #   GET  /api/agent?game=       the producer's tool for this game (installed? version?), who pays, the turn time
 #                               limit, and `agents`: every producer the page may pick, with `current` named
 #   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line; the optional programs (Lavish, for visual boards: `ok` or `absent`, never in `ready`) with the command that adds one; also this folder and whether the page may offer to open a terminal in it
@@ -47,6 +49,12 @@
 # refused while a Check, Save or Backup step runs (a check builds the game too); it does not wait
 # for a chat turn, since the producer's helpers change files while the friend watches.
 #
+# A helper's lane (lanecmd.nim: its own copy of the game, next to it) is listed in plain facts: its
+# role, its ticket, how many files it changed, and `live` while a chat turn runs (the helpers are
+# part of a turn, so with no turn running every lane is left over from an earlier one). The page
+# says it in words and never shows a folder or branch name. Landing one is a job like Check, so it
+# is refused while a turn or another step runs.
+#
 # Not here (on purpose, this update): going back to an earlier save point and setting work aside.
 # They are one more child process each and can follow the same way.
 
@@ -54,6 +62,7 @@ import std/[json, os, strutils, locks, sequtils]
 import nimutil
 import savepoint
 import producercmd
+import lanecmd
 import backupcmd
 import studiohttp
 import preflight
@@ -177,6 +186,15 @@ proc gameFacts(root, game: string): JsonNode =
     result["unsaved"] = %*{"count": changed.len, "names": changed[0 ..< min(changed.len, 3)].mapIt(cleanValue(it))}
   result["checked"] = %(try: checksJustPassed(root, game) except CatchableError: false)
 
+proc lanesJson(st: ptr Studio, game: string): JsonNode =
+  ## The game's lanes, as the page needs them; a lane git could not read is still listed.
+  result = newJArray()
+  let live = isRunning(addr st.chat)
+  for l in lanesOf(st.root, game, quick = true):
+    result.add %*{"id": l.id, "role": l.role, "ticket": cleanValue(l.ticket, maxFact), "started": l.started,
+                  "files": changedFiles(l).len, "commits": l.steps, "live": live and not l.landed,
+                  "landed": l.landed, "known": l.known}
+
 proc jobSummary(st: ptr Studio): JsonNode =
   ## Lock must be held.
   if st.jobId == 0: return newJNull()
@@ -189,12 +207,13 @@ proc stateJson(st: ptr Studio, asked: string): Response =
   let picked = pickGame(st, asked, game)
   if picked.status == 404: return picked # a game that is not there; "which game?" is just a state
   var node = %*{"games": plans, "game": (if game.len > 0: %game else: newJNull()),
-                "friend": "", "producer": "", "facts": newJNull()}
+                "friend": "", "producer": "", "facts": newJNull(), "lanes": newJArray()}
   if game.len > 0:
     let header = parseHeader(readOrEmpty(gameDirOf(st.root, game) / planFile))
     node["friend"] = %header.friend
     node["producer"] = %header.producer
     node["facts"] = gameFacts(st.root, game)
+    node["lanes"] = lanesJson(st, game)
   acquire(st.lock)
   node["job"] = jobSummary(st)
   release(st.lock)
@@ -516,6 +535,11 @@ proc handle(st: ptr Studio, req: Request): Response =
     of "/api/preflight": return preflightJson(st, req)
     of "/api/chat": return chatJson(st, req)
     of "/api/play": return playJson(st)
+    of "/api/lanes":
+      var game: string
+      let picked = pickGame(st, req.queryValue("game"), game)
+      if picked.status != 0: return picked
+      return jsonResponse(200, %*{"game": game, "lanes": lanesJson(st, game)})
     of "/api/shot": return shotImage(st, req)
     else: return fail(404, "Not found.", "not-found")
   var body: JsonNode
@@ -537,6 +561,13 @@ proc handle(st: ptr Studio, req: Request): Response =
       return fail(400, "Keep the note to one short line (up to " & $maxMessage & " characters).", "bad-message")
     startJob(st, "save", game, @["save", "--game", game, "-m", message])
   of "/api/new": newGameRoute(st, body)
+  of "/api/lane/land":
+    let picked = pickGame(st, body.fieldString("game"), game)
+    if picked.status != 0: return picked
+    let id = body.fieldString("id")
+    if not validLaneId(id) or id notin lanesOf(st.root, game, quick = true).mapIt(it.id):
+      return fail(404, "That helper's work is not here any more.", "no-such-lane")
+    startJob(st, "land", game, @["lane", "land", game, id])
   of "/api/terminal": terminalRoute(st)
   of "/api/play/start": playStartJson(st, body)
   of "/api/play/stop":

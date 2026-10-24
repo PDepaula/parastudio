@@ -23,6 +23,7 @@ import tools/para/agents
 import tools/para/studiochat
 import tools/para/studiohttp
 import tools/para/studioapi
+import tools/para/lanecmd
 
 when isMainModule:
   # one program stands in for both agents: codex is started as `app-server ...`, claude as `-p ...`
@@ -441,6 +442,34 @@ suite "para studio chat: two agents, each with its own conversation":
 
 suite "para studio chat: one turn at a time, stopping, the time limit":
   teardown: finish()
+
+  test "while a turn runs a helper's lane is live and cannot be landed; after it, it is left over":
+    begin("hang")
+    # the game as `para new` makes it: a repository of its own, which the outer one ignores
+    discard gitOk(root, "rm", "-r", "-q", "--cached", "games")
+    root.put(".gitignore", "tmp/\ngames/*\n")
+    let g = root / "games" / "pong"
+    discard gitOk(g, "init", "-q")
+    discard gitOk(g, "config", "user.name", "Scratch")
+    discard gitOk(g, "config", "user.email", "scratch@example.com")
+    discard gitOk(g, "config", "commit.gpgsign", "false")
+    check runLaneIn(root, @["start", "pong", "--for", "builder", "--ticket", "ship moves"]).code == 0
+    let lanes = proc (): JsonNode = jsonOf(running.request("GET", "/api/lanes?game=pong"))["lanes"]
+    check not lanes()[0]["live"].getBool
+    let pidFile = root / "tmp" / "pids.txt"
+    putEnv("FAKE_CLAUDE_PIDFILE", pidFile)
+    check running.send("build the ship").status == 200
+    let until = epochTime() + 20
+    while not fileExists(pidFile) and epochTime() < until: sleep(50)
+    check lanes()[0]["live"].getBool
+    check jsonOf(running.request("GET", "/api/state?game=pong"))["lanes"][0]["live"].getBool
+    let land = running.post("/api/lane/land", %*{"game": "pong", "id": "builder"})
+    check land.status == 409 and jsonOf(land)["error"].getStr == "busy"
+    check running.post("/api/chat/stop", %*{}).status == 200
+    var c: Chat
+    running.waitFor(c, finished, 20)
+    check not lanes()[0]["live"].getBool
+    check dirExists(root / "games" / "pong.builder") # nothing removed it
 
   test "while a turn runs a second message, a Check and a fresh start are refused; Stop ends it":
     begin("hang")
