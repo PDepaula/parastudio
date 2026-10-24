@@ -158,13 +158,14 @@ proc runLavish(t: BoardTools, root: string, args: seq[string], timeoutMs: int): 
   let deadline = epochTime() + timeoutMs.float / 1000.0
   while p.running and epochTime() < deadline:
     sleep(20)
-  if p.running:
-    p.kill()
-    discard p.waitForExit()
-    return (lavishProgram & " did not answer within " & $(timeoutMs div 1000) & " seconds\n", 124)
+  let timedOut = p.running
+  if timedOut: p.kill()
   result.code = p.waitForExit()
   joinThread(reader)
-  result.output = drain.output
+  if timedOut:
+    result = (lavishProgram & " did not answer within " & $(timeoutMs div 1000) & " seconds\n", 124)
+  else:
+    result.output = drain.output
   drain.stream = nil
   freeShared(drain)
   p.close()
@@ -384,12 +385,15 @@ proc copyPictures(root: string, bf: BoardFile, files: seq[string], copied: var s
     var name = ""
     for c in src.extractFilename:
       name.add(if c in {'a'..'z', 'A'..'Z', '0'..'9', '.', '-', '_'}: c else: '-')
-    if name in taken:
-      return "\"" & taken[name] & "\" and \"" & f & "\" would both be " & picturesDir & "/" & name & "; give one of the files another name"
-    taken[name] = f
+    let key = name.toLowerAscii
+    if key in taken:
+      return "\"" & taken[key] & "\" and \"" & f & "\" would both be " & picturesDir & "/" & name & " (names are compared without capitals, as some computers do); give one of the files another name"
+    taken[key] = f
     try:
-      if fileExists(dest / name) and readFile(dest / name) != readFile(real):
-        return picturesDir & "/" & name & " is already on this board with other content, so \"" & f & "\" would replace it; give the file another name"
+      if dirExists(dest):
+        for kind, existing in walkDir(dest):
+          if kind == pcFile and existing.extractFilename.toLowerAscii == key and readFile(existing) != readFile(real):
+            return picturesDir & "/" & existing.extractFilename & " is already on this board with other content, so \"" & f & "\" would replace it; give the file another name"
     except IOError, OSError:
       return "could not read \"" & f & "\": " & getCurrentExceptionMsg()
     plan.add (real, name)

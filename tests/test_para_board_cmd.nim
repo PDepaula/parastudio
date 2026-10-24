@@ -326,12 +326,16 @@ suite "board: opening one and reading the answers":
     s.root.put("tmp/shots/before/frame.png", "\x89PNG\r\n\x1a\nbefore")
     s.root.put("tmp/shots/after/frame.png", "\x89PNG\r\n\x1a\nafter")
     s.root.put("tmp/shots/other.png", "\x89PNG\r\n\x1a\nother")
+    s.root.put("tmp/shots/cased/Frame.png", "\x89PNG\r\n\x1a\ncased")
     let r = s.board("open", "games/pong/review/look.html", "--picture", "tmp/shots/other.png",
                     "--picture", "tmp/shots/before/frame.png", "--picture", "tmp/shots/after/frame.png")
     check r.code == 1 and "nothing was opened" in r.output
     check "tmp/shots/before/frame.png" in r.output and "tmp/shots/after/frame.png" in r.output
     check not dirExists(s.root / "games/pong/review/pictures")
     check s.opened.len == 0 and not fileExists(s.log)
+    let c = s.board("open", "games/pong/review/look.html", "--picture", "tmp/shots/cased/Frame.png",
+                    "--picture", "tmp/shots/after/frame.png")
+    check c.code == 1 and "nothing was opened" in c.output and not dirExists(s.root / "games/pong/review/pictures")
 
   test "open: a later open may repeat a picture as it is, but not replace one with other content":
     let s = scratch("pong")
@@ -345,6 +349,8 @@ suite "board: opening one and reading the answers":
     let r = s.board("open", board, "--picture", "tmp/shots/frame.png")
     check r.code == 1 and "pictures/frame.png" in r.output and "other content" in r.output
     check readFile(s.root / "games/pong/review/pictures/frame.png").endsWith("first")
+    s.root.put("tmp/shots/Frame.png", "\x89PNG\r\n\x1a\nthird")
+    check s.board("open", board, "--picture", "tmp/shots/Frame.png").code == 1
     check s.opened.len == 2
 
   test "open without Lavish: the board opens as a page on its own, and the install is only mentioned":
