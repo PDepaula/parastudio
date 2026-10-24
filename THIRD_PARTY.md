@@ -49,7 +49,7 @@ The Roboto file names the Apache 2.0 licence in its own name table, which is why
 text is the one included.
 
 The Studio page (`tmp/para studio`) carries two more fonts, built into the `para` binary as
-`data:` addresses (see `docs/studio.md`, "The page"). Both are the Latin subset as packaged by
+`data:` addresses (see `docs/studio-maintainers.md`, "How the page is built"). Both are the Latin subset as packaged by
 [Fontsource](https://fontsource.org/), unmodified.
 
 | File | Licence | Licence text |

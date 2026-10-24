@@ -17,7 +17,7 @@ const done = (code) => { try { process.kill(-proc.pid); } catch {} try { fs.rmSy
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let port = 0;
-for (let i = 0; i < 80 && !port; i++) {
+for (let i = 0; i < 240 && !port; i++) {
   try { port = Number(fs.readFileSync(path.join(profile, "DevToolsActivePort"), "utf8").split("\n")[0]); } catch {}
   if (!port) await sleep(250);
 }
