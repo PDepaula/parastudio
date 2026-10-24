@@ -23,6 +23,11 @@ For whoever changes Studio. The guide for the friend using it is [studio.md](stu
   saved in the repository that contains `games/`, as before.
 - With more than one game in `games/` the page asks which one; `--game NAME`
   starts on one. With none, the page offers **Start a game**.
+- The server answers on several threads, so every program `para` starts goes through
+  `nimutil.startLocked` (one start at a time) and git runs with `-C <folder>`, never in a
+  working directory: osproc gives a child its pipes without close-on-exec and changes the whole
+  process's folder while it starts one, so two starts at once could leave a git question waiting
+  for a chat turn to end, or start a Check in the game's folder.
 - Going back to an earlier save point and setting work aside are not in the page
   yet (use `para save --back` / `--set-aside` in the terminal).
 
