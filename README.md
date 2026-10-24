@@ -129,7 +129,7 @@ Upload the zip's contents to [itch.io](https://itch.io) (an HTML5 project) or an
 Most people only need the Studio page. If you drive the engine with your own agent, start from
 [docs/para.md](docs/para.md), [AGENTS.md](AGENTS.md) and the skills below.
 
-- [docs/studio.md](docs/studio.md): the default interface, the Studio page, its chat, Claude or Codex, Play and screenshots, what to do when something goes wrong
+- [docs/studio.md](docs/studio.md): the guide to the Studio page: opening it, the startup checks, starting a game, what the producer can change, and what to do when something goes wrong (maintainer notes: [docs/studio-maintainers.md](docs/studio-maintainers.md))
 - [docs/para.md](docs/para.md): every `para` command
 - [docs/testing.md](docs/testing.md): running the tests, the local loop, what CI runs
 - [docs/web.md](docs/web.md): the wasm target, `para web smoke`, packing a build
