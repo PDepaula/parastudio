@@ -79,6 +79,7 @@ To talk to the producer from a terminal instead of the Studio, open the folder i
 - Headless tests: game logic never touches a window, so `para test` and `para check` run anywhere.
 - Pixel-art checks and cleanup (`para art lint`, `para art fix`).
 - The producer voice and its helpers (builder, checker, scout, art) for Claude Code and Codex.
+- What may come next is in the [roadmap](docs/roadmap.md).
 
 ## What is in the folder
 
@@ -135,6 +136,7 @@ Most people only need the Studio page. If you drive the engine with your own age
 - [docs/art.md](docs/art.md): `para art lint`, `fix` and `sheet`
 - [docs/engine.md](docs/engine.md): sound and the profile store
 - [docs/platforms.md](docs/platforms.md), [docs/mac.md](docs/mac.md), [docs/windows-first-game.md](docs/windows-first-game.md): macOS and Windows
+- [docs/roadmap.md](docs/roadmap.md): directions, not commitments
 - [skills/pararules/SKILL.md](skills/pararules/SKILL.md): writing rules, with worked examples
 - [AGENTS.md](AGENTS.md): the producer's instructions and the engine's rules of the road
 
