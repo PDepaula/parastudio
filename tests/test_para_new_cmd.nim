@@ -90,11 +90,22 @@ suite "runNew: generates a game that builds and tests clean":
     let plan = readFile("games" / scratchGame / "PLAN.md")
     check "\nIn progress:\n" in plan
 
-  test "next steps filter the tests to the game and point at its reports folder":
+  test "next steps are the game path and the one command to open Studio":
     let r = runNew(@[scratchGame])
+    check r.output.contains("new: wrote " & ("games" / scratchGame))
+    check r.output.contains("para studio --game " & scratchGame)
+    check "scout" notin r.output
+    check "web smoke" notin r.output
+
+  test "--verbose adds the test, scout, web smoke and build hints":
+    let r = runNew(@[scratchGame, "--verbose"])
+    check r.code == 0
+    check r.output.contains("para studio --game " & scratchGame)
     check r.output.contains("para test --filter games/" & scratchGame & "/")
     check "Run `para test` to" notin r.output
     check r.output.contains("games/" & scratchGame & "/reports/")
+    check r.output.contains("para web smoke --game " & scratchGame)
+    check r.output.contains("para build --game " & scratchGame)
 
   test "a second para new with the same name is a collision":
     discard runNew(@[scratchGame])

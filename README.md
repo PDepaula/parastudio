@@ -49,6 +49,9 @@ tmp/para new mygame         # games/mygame/, a git repository of its own
 tmp/para studio --game mygame   # the Studio page (or, in a terminal: `tmp/para check`, `tmp/para save -m "what changed"`)
 ```
 
+While `nimble install -d -y` runs it may print `No nim version matching 2.2.10. Download it now? -> [forced yes]`.
+That line is normal: nothing is wrong, and it usually downloads nothing.
+
 Before the first message to the producer, do this once: install [Claude Code](https://code.claude.com/docs/en/setup)
 (or Codex), open a terminal **in this folder**, run `claude`, sign in, and answer **Yes, I trust this
 folder** (the highlighted choice is "No, exit", so move down first). The Studio page checks all of this

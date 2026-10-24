@@ -89,6 +89,8 @@ nimble install -d -y
 nimble setup
 ```
 
+`nimble install -d -y` may print `No nim version matching 2.2.10. Download it now? -> [forced yes]`. That line is normal and usually downloads nothing.
+
 **2. Build the toolbox**
 
 ```
