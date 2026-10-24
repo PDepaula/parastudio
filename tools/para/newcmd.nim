@@ -23,11 +23,12 @@ const
   placeholder = "__GAME__"
   templateDir = "template"
 
-const newHelp = "para new <game>\n" &
+const newHelp = "para new <game> [--verbose]\n" &
   "  creates games/<game>/ from template/, ready for `para test --filter games/<game>/` and `para web smoke --game <game>`\n" &
   "  includes games/<game>/reports/, where read-only scouts write one <topic>.md each\n" &
   "  makes games/<game>/ a git repository of its own (with a .gitignore), where `para save` keeps its save points\n" &
-  "  <game>: lowercase letters, digits and \"_\", starting with a letter (a valid Nim module name)\n"
+  "  <game>: lowercase letters, digits and \"_\", starting with a letter (a valid Nim module name)\n" &
+  "  --verbose: also print the test, scout, web smoke and build hints\n"
 
 proc validGameName(name: string): bool =
   ## Lowercase ascii letters, digits and `_`, starting with a letter: a name
@@ -71,15 +72,18 @@ proc initRepo(dest: string): string =
 
 proc runNew*(args: seq[string]): Run =
   var name = ""
+  var verbose = false
   var i = 0
   while i < args.len:
     let a = args[i]
     case a
     of "--help", "-h":
       return (newHelp, 0)
+    of "--verbose", "-v":
+      verbose = true
     else:
       if a.startsWith("-"):
-        return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --help"])
+        return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --verbose, --help"])
       if name.len > 0:
         return errorOut("para new takes exactly one game name", @["Run `para new --help`"])
       name = a
@@ -105,11 +109,17 @@ proc runNew*(args: seq[string]): Run =
   result.output = "new: wrote " & dest & "\n"
   if repoProblem.len > 0:
     result.output.add "note: " & repoProblem & "\n"
-  result.output.add toonHelp(@[
-    (if repoProblem.len == 0: &"{dest}/ is a git repository of its own: `para save` keeps its save points there"
-     else: "Once git works, run `git init` inside " & dest & " so `para save` has somewhere to save to"),
-    &"Run `para test --filter games/{name}/` to run its tests",
-    &"Scouts write their reports to games/{name}/reports/<topic>.md (see its README.md)",
-    &"Run `para web smoke --game {name}` to check the wasm build",
-    &"Run `para build --game {name}` to compile it natively"])
+  let savePoints =
+    if repoProblem.len == 0: &"{dest}/ is a git repository of its own: `para save` keeps its save points there"
+    else: "Once git works, run `git init` inside " & dest & " so `para save` has somewhere to save to"
+  var hints = @[
+    savePoints,
+    &"Run `para studio --game {name}` to open Studio"]
+  if verbose:
+    hints.add [
+      &"Run `para test --filter games/{name}/` to run its tests",
+      &"Scouts write their reports to games/{name}/reports/<topic>.md (see its README.md)",
+      &"Run `para web smoke --game {name}` to check the wasm build",
+      &"Run `para build --game {name}` to compile it natively"]
+  result.output.add toonHelp(hints)
   result.code = 0
