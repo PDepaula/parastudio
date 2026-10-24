@@ -18,7 +18,8 @@
 #              and the art modules but not art/clihelpers.nim or art/toon.nim,
 #              which every `para` command imports), tests/fixtures/art,
 #              tests/test_art_*, games/*/art, games/*/assets, games/*/atlas
-#   docs_only  every path is documentation no test reads: no tests run
+#   docs_only  every path is documentation no test reads (or the docs site's
+#              builder, tools/docs/): no tests run
 #   areas      the `para test --area` value: `all` when full, else the
 #              comma-joined game/art that changed, empty when docs_only
 #   sim        the sim gate (6 minutes of game time) is needed: full or game
@@ -50,7 +51,9 @@ while IFS= read -r f; do
       full=true ;;
     # Documentation: no test reads it. (src/, template/ and
     # tools/para/ are matched above, so their .md files still count as engine.)
-    *.md|docs/*|skills/*|LICENSE*|.github/ISSUE_TEMPLATE/*)
+    # tools/docs/ builds the documentation site; ci.yml's `docs` job checks it
+    # on every run, so it needs no test job either.
+    *.md|docs/*|tools/docs/*|skills/*|LICENSE*|.github/ISSUE_TEMPLATE/*)
       ;;
     games/*/art/*|games/*/assets/*|games/*/atlas/*)
       art=true ;;
