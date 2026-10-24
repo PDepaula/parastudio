@@ -25,6 +25,8 @@ para build --target web --game mygame --title "My Game"
 para web pack --game mygame         # tmp/web/mygame-<build id>.zip
 ```
 
+Upload the zip's contents to [itch.io](https://itch.io) (an HTML5 project) or any static host.
+
 `para build --target web` is the shipping build: **release** (`-d:release`: on a large game 5.2 MB of
 wasm against 8.5 MB, and 60 fps at 6x CPU throttle against 15) unless
 `--debug`. `--define NAME[=VALUE]` (repeatable) is passed to nim as `-d:NAME[:VALUE]`

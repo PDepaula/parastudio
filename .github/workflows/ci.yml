@@ -98,6 +98,30 @@ jobs:
           echo "$out"
           echo "$out" >> "$GITHUB_OUTPUT"
 
+  # The documentation site (docs/site.md): builds it from docs/*.md and fails on
+  # a broken link or image, missing alt text, headings out of order, a page
+  # missing from the navigation, or a local path, tailnet address or email
+  # address. No `needs` and no `if`: it runs and reports on every pull request
+  # and push, docs-only ones included, so it can be a required check (a check
+  # that is skipped by a path filter never reports and blocks the merge).
+  # About half a minute; .github/workflows/pages.yml publishes the same build.
+  docs:
+    name: docs
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (runs tools/docs/build.py with its pinned dependency)
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.12.17"
+
+      - name: Build and check the site
+        run: uv run --locked tools/docs/build.py
+
   # The test suite, as four shards on four runners. `para test --shard i/4`
   # (tools/para/testplan.nim) deals the selection -- after --area and
   # --skip-balance -- into four slices by file, one class at a time: the heavy

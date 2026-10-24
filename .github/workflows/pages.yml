@@ -1,0 +1,54 @@
+name: Pages
+
+# Publishes the documentation site (docs/site.md) to GitHub Pages on every push
+# to main: the same `uv run tools/docs/build.py` the `docs` job in ci.yml runs on
+# pull requests, then the official upload and deploy actions. Pages must be set
+# to "GitHub Actions" as its source in the repository settings; this workflow
+# does not change any setting itself.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One deploy at a time; a newer push waits for the one in flight instead of
+# cancelling it, so a deploy is never cut off half way.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build the site
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv (runs tools/docs/build.py with its pinned dependency)
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.12.17"
+
+      - name: Build and check the site
+        run: uv run --locked tools/docs/build.py
+
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: tmp/site
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5.0.1

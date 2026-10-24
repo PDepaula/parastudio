@@ -31,7 +31,7 @@ would mean rewriting that data path and maintaining a fork.
 
 ## Documentation website
 
-Status: planned.
+Status: built ([site.md](site.md)).
 
 A site in the Studio's look, built from the files in `docs/`.
 

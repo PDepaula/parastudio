@@ -1,4 +1,28 @@
-# Engine notes: sound and the profile store
+# The engine: the folder, sound and the profile store
+
+## What is in the folder
+
+| Path | What it is |
+| --- | --- |
+| `src/paraloop/` | the engine: sim loop, rules glue, renderer, input, audio, save, the web shell |
+| `template/` | the skeleton `para new` copies into `games/<name>/` |
+| `games/` | your games, one folder and one git repository each |
+| `examples/hello/` | the small game the engine's own tests and the web smoke test use |
+| `tools/para/` | the `para` CLI; `tools/art/` the pixel-art cleanup; `tools/web/` the wasm build and smoke test; `tools/docs/` this documentation site |
+| `.agents/skills/` | the producer's playbook and its helpers (builder, checker, scout, art) |
+| `skills/` | `para` and `pararules` skills an agent can install |
+
+## Working on the engine
+
+```sh
+tmp/para test --filter test_audio   # only the test files whose path contains that text
+tmp/para test --area game           # the game tests, plus the `para` tests that link a game
+tmp/para build --game hello         # compile a game natively, with structured errors
+tmp/para sim --game hello --seed 7 --ticks 3600   # headless run: state, perf, state hash
+```
+
+A bare `tmp/para test` runs everything (about ten minutes from a cold cache); [testing.md](testing.md)
+says when to use which. Engine rules (pararules habits, what a game's `rules.nim` may import) are in [AGENTS.md](../AGENTS.md).
 
 ## Sound
 

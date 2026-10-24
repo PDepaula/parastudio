@@ -230,6 +230,8 @@ the window Studio opened belongs to a different game than the one picked on the 
 screenshot is refused and the page says which game is open. Play is refused while a Check, Save or
 Backup runs. The producer can ask you to press either.
 
+![The game's screenshot shown inline in the Studio chat](img/studio-3-play.png)
+
 ## Check, Save and Backup
 
 They do what the same commands do in a terminal (`para check`, `para save -m`,
@@ -237,6 +239,8 @@ They do what the same commands do in a terminal (`para check`, `para save -m`,
 backup only goes to the remote named `backup`, never to `origin`, and only after you click yes.
 Save and Backup work in the game's own git repository (`games/<game>/.git`, which `para new`
 makes); a game without one is saved in the repository that contains `games/`, as before.
+
+![Check passed, then Saved as save point 1](img/studio-4-check-save.png)
 
 ## Two copies, two studios
 

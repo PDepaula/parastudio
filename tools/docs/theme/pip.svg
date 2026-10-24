@@ -1,0 +1,23 @@
+<svg class="pip" data-state="idle" viewBox="-4 2 128 112" aria-hidden="true" focusable="false">
+<g class="bird">
+  <g class="crest">
+    <path d="M50 44 C40 36 34 26 40 14 C46 22 54 30 58 40Z" fill="url(#pipGold)" stroke="#7A5C00" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M70 44 C80 36 86 26 80 14 C74 22 66 30 62 40Z" fill="url(#pipGold)" stroke="#7A5C00" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M54 42 C48 28 52 14 60 6 C68 14 72 28 66 42Z" fill="url(#pipGold)" stroke="#7A5C00" stroke-width="3" stroke-linejoin="round"/>
+  </g>
+  <ellipse cx="60" cy="70" rx="42" ry="37" fill="url(#pipBody)" stroke="#7A5C00" stroke-width="3.2"/>
+  <path d="M30 56 C34 46 42 42 50 41" fill="none" stroke="#FFF6A8" stroke-width="4" stroke-linecap="round" opacity=".85"/>
+  <path d="M47 45 q4 -3 8 0 M59 42 q4 -3 8 0 M71 45 q4 -3 8 0" fill="none" stroke="#7A5C00" stroke-width="2.2" stroke-linecap="round" opacity=".55"/>
+  <ellipse cx="29" cy="84" rx="9" ry="6" fill="#7A5C00" opacity=".3"/><ellipse cx="91" cy="84" rx="9" ry="6" fill="#7A5C00" opacity=".3"/>
+  <g class="eyes">
+    <g class="eye"><ellipse cx="43" cy="65" rx="11.5" ry="12.5" fill="#FFFDEB" stroke="#7A5C00" stroke-width="2.6"/>
+      <g class="pupil"><circle cx="45" cy="67" r="6.8" fill="#2A1B47"/><circle cx="47.3" cy="64" r="2.4" fill="#fff"/></g></g>
+    <g class="eye"><ellipse cx="77" cy="65" rx="11.5" ry="12.5" fill="#FFFDEB" stroke="#7A5C00" stroke-width="2.6"/>
+      <g class="pupil"><circle cx="75" cy="67" r="6.8" fill="#2A1B47"/><circle cx="77.3" cy="64" r="2.4" fill="#fff"/></g></g>
+  </g>
+  <ellipse class="mouth" cx="60" cy="93" rx="6" ry="4.2" fill="#2A1B47"/>
+  <g class="lower"><path d="M53 92 Q60 104 67 92Z" fill="#5A4300" stroke="#7A5C00" stroke-width="2.4" stroke-linejoin="round"/></g>
+  <path d="M49 76 C49 67 71 67 71 76 C71 86 66 93 60 97 C54 93 49 86 49 76Z" fill="#7A5C00" stroke="#7A5C00" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M54 74 q6 -3.4 12 0" fill="none" stroke="#FFE953" stroke-width="2" stroke-linecap="round" opacity=".7"/>
+  <ellipse cx="55.5" cy="83" rx="1.8" ry="4.6" fill="#FFE953" opacity=".4" transform="rotate(8 55.5 83)"/>
+</g></svg>

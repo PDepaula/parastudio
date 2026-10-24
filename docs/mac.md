@@ -131,12 +131,7 @@ nothing secret (Studio's own output, which carries its private link, is not in i
 
 ## Linux and Windows
 
-- **Linux:** run `./paraloop-studio.sh` from the `parastudio` folder. Same steps and
-  messages; the C compiler is checked instead of Apple's tools. If the C compiler or git is
-  missing it shows the exact command for your package manager (for example
-  `sudo apt-get install build-essential`) and runs it only if you answer `y`; that command
-  asks for your password through `sudo`, and the package manager shows the size and asks
-  once more itself. Nim is offered the same way as on a Mac.
+- **Linux:** run `./paraloop-studio.sh` from the `parastudio` folder; see [linux.md](linux.md).
 - **Windows:** double-click `Paraloop-Studio.bat` instead; see [windows.md](windows.md).
   It offers the same way (winget for the C compiler and git, the nim-lang.org zip for Nim),
   and it is not verified on a real Windows PC. The command-by-command route is

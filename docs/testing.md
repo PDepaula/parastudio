@@ -65,10 +65,16 @@ imports (transitively) include that area's source roots
 | `games/<name>/` code, tests, goldens | `game` | every test under `games/*/tests/` plus the `tests/test_para_*` files that link the game (`sim_cli`, `shot_script`, `dev_cli`, `usage`) and the sim gate |
 | `games/*/assets`, `games/*/art`, `games/*/atlas`, `tools/art/`, `tools/para/artcmd.nim`, `tools/para/art/{fix,lint,profile,sheet,sidecar,toml}.nim`, `tests/fixtures/art/`, `tests/test_art_*` | `art` | `tests/test_art_*`, the `para` tests that import those modules, and pytest for `tools/art` |
 | `src/`, `template/`, `tools/para/` (the rest, incl. `art/clihelpers.nim`, `art/toon.nim`), `tools/web/`, `examples/`, `patches/`, `.github/`, `config.nims`, `paraloop.nimble`, `nimble.lock`, `tests/` (the rest), `skills/para/` (a test reads `SKILL.md`), any path not listed here | `all` | everything, same as a push to main |
-| `*.md`, `docs/`, `skills/` (except `skills/para/`), `LICENSE*`, `.github/ISSUE_TEMPLATE/` only | none | the `test` job is skipped (reports skipped) |
+| `*.md`, `docs/`, `tools/docs/`, `skills/` (except `skills/para/`), `LICENSE*`, `.github/ISSUE_TEMPLATE/` only | none | the `test` job is skipped (reports skipped) |
 
 Pushes to main, `workflow_dispatch` and any non-PR run always use `all`, and an
 unreadable or empty diff fails open to `all`.
+
+The `docs` job is not scoped: it runs on every pull request and push, docs-only ones included,
+builds the documentation site with `uv run tools/docs/build.py` (about half a minute) and fails
+on a broken link or image, missing alt text, headings out of order, or a local path, tailnet
+address or email address ([site.md](site.md) has the full list). Run the same command locally
+before pushing a docs change.
 `PR_FULL_TESTS=off` skips the full-suite jobs on pull requests.
 
 Heavy simulation tests (`test_sim_replay`, `test_para_shot_script`,
