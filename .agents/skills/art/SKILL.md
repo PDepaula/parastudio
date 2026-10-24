@@ -7,7 +7,7 @@ description: Art recipe the producer runs for a friend's game. Placeholder shape
 
 The producer runs this. Art is visible to the friend only as choices ("which look?"). Judge every asset at game size, never zoomed in.
 
-**As a helper beside a builder.** When the art work goes to a helper while a builder works, it gets its own copy of the game like any writer: the producer runs `tmp/para lane start <game> --for art --ticket "..."` and puts the printed folder (`games/<game>.art/`) in the prompt. Every `games/<game>/` path below then means that folder (`art/raw/`, `assets/`, `art/STYLE.md`, `art/LEDGER.md`, `review/`), the folder the friend plays is left alone, and the producer lands it (`tmp/para lane land <game> art`) before the builder wires the art in. Run by the producer itself, with no helper, it works in `games/<game>/` as written.
+**As a helper beside a builder.** When the art work goes to a helper while a builder works, it gets its own copy of the game like any writer: the producer runs `tmp/para lane start <game> --for art --ticket "..."` and puts the printed folder (`games/<game>.art/`) in the prompt. Every `games/<game>/` path below then means that folder (`art/raw/`, `assets/`, `art/STYLE.md`, `art/LEDGER.md`), the folder the friend plays is left alone, and the producer lands it (`tmp/para lane land <game> art`) before the builder wires the art in. A board for the friend's pick is the producer's, on the game itself: hand back the candidate files and let the producer open it. Run by the producer itself, with no helper, it works in `games/<game>/` as written.
 
 ## Default: placeholder shapes
 

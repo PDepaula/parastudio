@@ -15,7 +15,7 @@ whether a live `-d:dev` window is running. Output is TOON; exit codes are 0
 
 ```text
 para: build, test, see and drive paraloop games in this workspace; bare `para` is the home view
-commands[17]{command,summary}:
+commands[18]{command,summary}:
   art <lint|fix|sheet> [args],pixel-art lint/fix/sheet (`para art --help`)
   new <game>,"create games/<game>/ from template/ as a git repository of its own, where `para save` keeps its save points (`para new --help`)"
   test [--filter SUBSTR] [--area AREA] [--skip-balance | --only-balance] [--shard I/N] [--full],"wraps `nimble test`: counts and a failures table; --filter/--area run only the matching test files; --skip-balance/--only-balance skip or run just the balance pins; --shard I/N runs one of N slices (CI runs one per runner)"
