@@ -22,9 +22,11 @@
 #   POST /api/check             {game}: run `para check`
 #   POST /api/save              {game, message}: run `para save -m`
 #   POST /api/backup            {game, confirm: true, isPrivate?: bool}: run `para backup --game G --push --yes`
+#   POST /api/new               {name}: run `para new NAME` (a new game from template/, with its own git repository)
 #   GET  /api/agent?game=       the producer's tool for this game (installed? version?), who pays, the turn time
 #                               limit, and `agents`: every producer the page may pick, with `current` named
-#   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line
+#   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line; also this folder and whether the page may offer to open a terminal in it
+#   POST /api/terminal          {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
 #   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation)
 #   GET  /api/chat?game=&since= the chat lines after number `since`, and whether a turn is running
 #   POST /api/chat/send         {game, text}: one turn with the producer (one at a time)
@@ -48,7 +50,7 @@
 # Not here (on purpose, this update): going back to an earlier save point and setting work aside.
 # They are one more child process each and can follow the same way.
 
-import std/[json, os, strutils, locks, sequtils]
+import std/[json, os, strutils, locks, sequtils, base64]
 import nimutil
 import savepoint
 import producercmd
@@ -61,9 +63,22 @@ import studiochat
 import studioplay
 import studioshot
 
+template fontFace(family: string, weight: int, file: static string): string =
+  ## One @font-face whose font is inside the page (the page loads nothing from anywhere else).
+  "@font-face { font-family: \"" & family & "\"; font-weight: " & $weight &
+    "; font-style: normal; font-display: swap; src: url(\"data:font/woff2;base64," &
+    encode(staticRead("studio" / "fonts" / file)) & "\") format(\"woff2\"); }\n"
+
 const
-  indexHtml = staticRead("studio" / "index.html")
+  ## Nunito for text and Fredoka for headings, Latin only (SIL OFL 1.1; studio/fonts/ holds the
+  ## licences). About 65 KB of fonts, 87 KB once inlined.
+  fontFaces = fontFace("Nunito", 400, "nunito-latin-400-normal.woff2") &
+    fontFace("Nunito", 700, "nunito-latin-700-normal.woff2") &
+    fontFace("Nunito", 800, "nunito-latin-800-normal.woff2") &
+    fontFace("Fredoka", 600, "fredoka-latin-600-normal.woff2")
+  indexHtml = staticRead("studio" / "index.html").replace("/*__FONTS__*/", fontFaces)
   nonceMarker = "__NONCE__"
+  maxGameName = 40
   maxMessage = 200
   maxJobOutput = 200_000 ## bytes of a job's output kept; the oldest go first
 
@@ -351,6 +366,13 @@ proc agentJson(st: ptr Studio, req: Request): Response =
   node["agents"] = rows
   jsonResponse(200, node)
 
+proc terminalCommand*(root: string): seq[string] =
+  ## The argument list that opens a terminal window in `root`, or nothing where the system has no
+  ## one standard way to. Only macOS does (`open -a Terminal`); Linux has no standard terminal and
+  ## Windows has several, so there the page only offers the command to copy.
+  when defined(macosx): @["open", "-a", "Terminal", root]
+  else: @[]
+
 proc preflightJson(st: ptr Studio, req: Request): Response =
   ## Read-only and free: nothing here calls a model, writes a file or returns anything the agent
   ## program keeps secret (see preflight.nim). Works with no game picked yet, for the default producer.
@@ -366,7 +388,31 @@ proc preflightJson(st: ptr Studio, req: Request): Response =
       row["fix"] = %c.fix
     rows.add row
   jsonResponse(200, %*{"agent": current, "label": agentLabel(addr st.chat, current),
-                        "ready": allOk(checks), "checks": rows})
+                        "ready": allOk(checks), "checks": rows,
+                        "folder": st.root, "terminal": terminalCommand(st.root).len > 0})
+
+proc terminalRoute(st: ptr Studio): Response =
+  ## Opens a terminal in this folder and nothing else: a fixed program, a fixed folder, no shell,
+  ## nothing from the request. The friend types `claude` there themself.
+  let cmd = terminalCommand(st.root)
+  if cmd.len == 0:
+    return fail(501, "This computer has no standard terminal the studio can open. Copy the command and paste it into a terminal you open yourself.", "no-terminal")
+  let r = runCaptured(cmd[0], cmd[1 .. ^1], timeoutMs = 10000)
+  if r.exitCode != 0:
+    return fail(500, "The terminal did not open. Copy the command and paste it into a terminal you open yourself.", "terminal")
+  jsonResponse(200, %*{"ok": true})
+
+proc newGameRoute(st: ptr Studio, body: JsonNode): Response =
+  ## `para new NAME` as a job, with the name checked first so a mistake is told in plain words.
+  let name = body.fieldString("name").strip()
+  if name.len == 0:
+    return fail(400, "Give the game a name first, for example: space_frogs", "needs-name")
+  if name.len > maxGameName or not validGameName(name):
+    return fail(400, "A game's name uses only small letters (a to z), digits and _, starts with a letter, and is at most " &
+      $maxGameName & " characters. For example: space_frogs", "bad-name")
+  if dirExists(gameDirOf(st.root, name)):
+    return fail(409, "There is already a game called " & name & ". Pick another name.", "exists")
+  startJob(st, "new", name, @["new", name])
 
 proc agentPickJson(st: ptr Studio, body: JsonNode): Response =
   var game: string
@@ -457,7 +503,7 @@ proc pageResponse(): Response =
            body: indexHtml.replace(nonceMarker, nonce),
            headers: @[("Content-Security-Policy",
              "default-src 'none'; script-src 'nonce-" & nonce & "'; style-src 'nonce-" & nonce &
-             "'; connect-src 'self'; img-src data: blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")])
+             "'; connect-src 'self'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")])
 
 proc handle(st: ptr Studio, req: Request): Response =
   if req.meth == "GET":
@@ -491,6 +537,8 @@ proc handle(st: ptr Studio, req: Request): Response =
     if message.len > maxMessage or message.anyIt(it < ' ' or it == '\x7f'):
       return fail(400, "Keep the note to one short line (up to " & $maxMessage & " characters).", "bad-message")
     startJob(st, "save", game, @["save", "--game", game, "-m", message])
+  of "/api/new": newGameRoute(st, body)
+  of "/api/terminal": terminalRoute(st)
   of "/api/play/start": playStartJson(st, body)
   of "/api/play/stop":
     jsonResponse(200, %*{"stopped": stopPlay(addr st.play)})

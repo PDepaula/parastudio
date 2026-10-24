@@ -4,7 +4,8 @@
 your browser: the producer's chat, a Play button that opens your game's own window
 (and a button that puts a screenshot of it in the chat), a "where we left off" panel
 (the same digest `para producer-context` prints), a Check button, a Save box, the
-save points, and the backup (with a confirmation that says what goes online and where).
+save points, a button that starts a new game, and the backup (with a confirmation that
+says what goes online and where).
 Nothing to install (no Node, no Python), no account of ours and no telemetry; the
 only thing that leaves the computer is what the `claude` or `codex` program you installed
 sends to Anthropic or OpenAI when you chat (see "The chat" below).
@@ -25,7 +26,7 @@ sends to Anthropic or OpenAI when you chat (see "The chat" below).
   repository (`games/<game>/.git`, which `para new` makes); a game without one is
   saved in the repository that contains `games/`, as before.
 - With more than one game in `games/` the page asks which one; `--game NAME`
-  starts on one.
+  starts on one. With none, the page offers **Start a game** (below).
 - Going back to an earlier save point and setting work aside are not in the page
   yet (use `para save --back` / `--set-aside` in the terminal).
 - The code is `tools/para/studiohttp.nim` (the server and its checks),
@@ -36,16 +37,107 @@ sends to Anthropic or OpenAI when you chat (see "The chat" below).
   `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
   raising), `agents.nim` (which adapters exist), `studioplay.nim` (the game window),
   `studioshot.nim` (the pictures) and `studio/index.html` (the page, compiled
-  into the binary; editing it needs a rebuild of `para`). Tests: `para test
-  --filter test_para_studio`.
+  into the binary with the fonts in `studio/fonts/`; editing either needs a rebuild of
+  `para`). Tests: `para test --filter test_para_studio`.
+
+### The page
+
+The page is a desk in three columns, big and round on purpose (18px messages, a message
+box at least 64px tall, Pip the parakeet three times the size it used to be):
+
+- **On the left**, Pip's card: the producer's face (it bobs while idle, thinks while a turn
+  runs and talks when an answer arrives) and, when this computer knows more than one, the
+  **Claude** / **Codex** pick for the game. Under it **New conversation**, the games in this
+  folder (click one to switch), **Start a new game**, the save points, and at the bottom
+  your name, **Back up online** (the cloud) and the light / dark / follow-the-computer switch.
+  The name on the card is Pip unless the game's `PLAN.md` says `Call the producer:` something
+  other than "producer". On a phone this column is a drawer behind the menu button.
+- **In the middle**, the conversation and the message box. Under the box's text are the
+  **+** menu (Show me a screenshot, Check the game, Save…) and two quick replies, "Where did
+  we leave off?" and "What should we work on next?". Nothing is written under the box: the
+  notes that used to sit there moved to the startup checks and the help (below). The top bar
+  has the game's name (a menu when there are several), a **Running** pill while the game
+  window is open, the **startup checks** pill, **?** for help, and the button that shows or
+  hides the game panel.
+- **On the right**, the game panel: **Play** (or **Play again**), **Show me a screenshot**
+  and **Stop game**, the newest picture of the game window, **Check & save** (Check the game,
+  then a note and Save; the badge says what is next: unsaved changes, ready to save, or
+  everything saved), and **Where we left off**. On a window narrower than 1100px the panel
+  slides in over the chat from that button instead.
+
+![The Studio desk in the light look: Pip's card, the conversation, and the game panel](img/studio-1-front-door.png)
+
+![The dark look with the startup checks open](img/studio-dark-checks.png)
+
+![On a phone: the conversation, and the help (?) in the dark look](img/studio-phone.png)
+
+**Help (?)** holds what used to be the fine print: Enter sends and Shift+Enter starts a new
+line; nothing is sent until you press a suggestion or Send, and the studio never sees your
+login; who pays (your own Claude plan or API credit, or your ChatGPT plan for Codex); what
+Play does; that a save needs a passing check; and, with more than one producer, one line on
+each (Claude is the default; only Codex, on a ChatGPT Plus plan or better, can make pictures).
+
+![The help (?) popover](img/studio-help.png)
+
+**Fonts.** The page uses Nunito for text and Fredoka for headings, Latin letters only, SIL Open
+Font License 1.1 (`tools/para/studio/fonts/`, with their licences; listed in
+`THIRD_PARTY.md`). They are put inside the page as `data:` addresses when `para` is built
+(`studioapi.nim`, about 65 KB of fonts, 87 KB inlined; the `para` binary grows by about
+110 KB), so the page still loads nothing from the network: its Content-Security-Policy adds
+`font-src data:` and nothing else. Without them the page falls back to the system's own
+rounded or plain sans-serif font.
+
+**Not built: a list of past conversations.** The design this page follows had a "Producer
+sessions" list in the sidebar. The studio keeps one conversation per game and producer (see
+"Conversations" below), so there is nothing to list yet and the page leaves it out; keeping
+several would need `studiochat.nim` to store more than one session id per game.
+
+### Start a game
+
+With no game in `games/` the greeting says so and offers **Start a game**; **Start a new
+game** in the sidebar does the same at any time. You type a name (spaces and dashes become
+`_`, capitals become small letters, so "Space Frogs" is `space_frogs`), and the studio runs
+`para new <name>` as a step, like Check and Save (`POST /api/new`, refused while another step
+or a chat turn runs), then opens the new game. The name is checked first and a problem is said
+in plain words: it has to be small letters, digits and `_`, start with a letter, be at most 40
+characters, and not be taken. What `para new` makes is the same as in a terminal: a copy of
+`template/` in `games/<name>/` that is a git repository of its own.
+
+![Start a game: a name, then the studio makes it](img/studio-start-game.png)
 
 ### Startup checks
 
-The first thing the page does, before any chat, is ask the studio to look at the setup. When
-everything is fine it shows one word, **Ready**. When something is not, it says what, with one plain
-line on how to fix it, and a **Check again** button to press afterwards. It is only information: it
-never blocks Play, Check, Save or the chat (a chat you send anyway still gets the same plain
-messages as before), and it makes no model call, so it costs nothing.
+The first thing the page does, before any chat, is ask the studio to look at the setup. The
+answer is the pill in the top bar: green **Ready 4/4** when everything is fine, red **Setup needed**
+(or amber when something could not be checked) when it is not. The pill opens the startup checks:
+every check with a tick, or what is wrong with one plain line on how to fix it, the setup note when
+the producer's program is missing, the two notes that used to sit under the message box (nothing is
+sent until you press Send; who pays), and a **Check again** button. When something is not ready the
+checks open by themselves the first time. It is only information: it never blocks Play, Check, Save
+or the chat (a chat you send anyway still gets the same plain messages as before), and it makes no
+model call, so it costs nothing.
+
+**A message sent while the setup is broken is kept.** If a turn ends in an error before the
+producer said anything (not signed in, out of credit, not installed), the message goes back into
+the empty message box and the page says to fix the problem and press Send again; the startup checks
+are asked again at the same time.
+
+**Claude's first run.** When Claude is installed but not signed in, or does not trust this folder,
+the startup checks also show a card for the first run, which happens in a terminal the page cannot
+answer for you: the folder to open a terminal in, the command to paste (`cd "<this folder>"` and
+`claude`) with a **Copy** button, and what Claude asks the first time in plain words: how text
+should look (any choice is fine); how to sign in (an Anthropic Console API key, pay as you go and
+the way Claude Code documents, or a Claude Pro or Max subscription, your own choice, whose usage
+limits the chats count toward, or a company account); and what "Do you trust the files in this
+folder?" means and which answer to pick. On macOS the card also has **Open a terminal here**
+(`POST /api/terminal`, which runs `open -a Terminal <this folder>`: a fixed program and folder,
+nothing from the page). Linux has no one standard terminal and Windows has several, so there the
+card only offers the command to copy (the route answers 501). The card only shows text and copies
+it: the studio never reads, keeps or touches a login, and never types into the terminal.
+`GET /api/preflight` also returns `folder` (this folder) and `terminal` (whether that button is
+offered) for it.
+
+![The startup checks with Claude not signed in and the folder not trusted: the first-run card](img/studio-first-run.png)
 
 | Check | What the studio looks at | Shown when it fails |
 | --- | --- | --- |
@@ -120,7 +212,7 @@ in an untrusted folder `claude` ignores the whole allow-list, edits included.
   unmodified `claude`. If `claude` is missing, not signed in, or out of credit the
   chat says so and what to do. Using Claude costs your own plan or API credit; the
   studio sends nothing until you press one of the suggestions ("Where did we leave off?" or
-  "What should we work on next?") or send a message; the page says so under the message box.
+  "What should we work on next?") or send a message; the startup checks and the help (?) say so.
 - **One turn at a time.** Check, Save and Backup wait while the producer is working,
   and the other way round. **Stop** ends the turn and everything it started (the
   whole process tree: its process group and descendants on macOS and Linux, `taskkill /T` on Windows).
@@ -128,7 +220,7 @@ in an untrusted folder `claude` ignores the whole allow-list, edits included.
   normal). Closing the studio (Ctrl+C) ends a running turn too.
 - **Conversations.** One per game and agent. The session id is kept in
   `tmp/studio/session-<game>-<agent>.id` (the id and nothing else) so a restart or a
-  reopened page resumes it; "Start a fresh conversation" forgets every agent's id for
+  reopened page resumes it; "New conversation" forgets every agent's id for
   the game. The lines on the page live in memory while the studio runs. The one file
   Claude used before there was a second agent, `session-<game>.id`, is still read for
   Claude and replaced by the new name the next time Claude answers.
@@ -149,7 +241,7 @@ in an untrusted folder `claude` ignores the whole allow-list, edits included.
 
 ### Claude or Codex
 
-The page lists the producers this computer can use and lets you pick one per game
+Pip's card lists the producers this computer can use and lets you pick one per game
 (`tmp/studio/agent-<game>.txt` remembers the pick, a name and nothing else).
 **Claude is the default** until you pick Codex for a game. A pick takes effect from the next message and is
 refused while a turn is running. Each agent has its own conversation, so switching back
@@ -276,8 +368,9 @@ How it works, for whoever changes it:
   it from https://developers.openai.com/codex/cli, run `codex` once in a terminal and sign
   in, then press "Check again". A turn that ends with "no usage left" is Codex's plan
   talking; wait for it to reset (the message says when, if Codex told us) or pick Claude.
-- **"claude" is not installed, or not signed in.** The startup check at the top of the chat
-  says so, and so does the chat if you send a message anyway. Install Claude Code
+- **"claude" is not installed, or not signed in.** The startup checks pill turns red and the
+  checks open with the fix (and, for signing in, the first-run card), and so does the chat if you
+  send a message anyway; your message stays in the box to send again. Install Claude Code
   from Anthropic's setup page (https://code.claude.com/docs/en/setup), open a terminal,
   run `claude` once and sign in, then press "Check again" on the page. The studio never
   asks for a login or key itself.

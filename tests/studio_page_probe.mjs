@@ -69,9 +69,21 @@ async function visit(width, { scheme = "light", reduce = false, keepCookies = fa
 const layout = (() => `(() => {
   const shown = ${shown};
   const text = (id) => document.getElementById(id).textContent;
-  const out = { calmText: text("chat-calm"), calmShown: shown(document.getElementById("chat-calm")),
-                costText: text("chat-cost"), costShown: shown(document.getElementById("chat-cost")),
-                chipsShown: shown(document.getElementById("chat-hello")) };
+  const el = (id) => document.getElementById(id);
+  closeMenus(); // the startup checks open by themselves when something is not ready
+  const out = { calmText: text("chat-calm"), calmShown: shown(el("chat-calm")),
+                costText: text("chat-cost"), costShown: shown(el("chat-cost")),
+                chipsShown: shown(el("chat-hello")),
+                // anything on show under the message box, past the box itself and the empty status lines
+                underBox: [...document.querySelector(".cwrap").children].filter((c) => c.id !== "chat-form" && shown(c)).map((c) => c.id || c.className),
+                sideBox: document.querySelector(".pipcard .face").getBoundingClientRect().width,
+                helloBox: document.querySelector(".hello .pip-tile").getBoundingClientRect().width };
+  showPop("ready-pop", "ready-btn");
+  out.calmInReady = shown(el("chat-calm")); out.costInReady = shown(el("chat-cost"));
+  el("help-btn").click();
+  out.costInHelp = shown(el("help-cost")) && text("help-cost") === out.costText;
+  out.aboutInHelp = el("agent-about").children.length;
+  closeMenus();
   const log = document.getElementById("chat-log");
   document.getElementById("app").classList.remove("is-empty");
   renderEvent({ kind: "you", text: "make it faster" });
@@ -133,6 +145,12 @@ const drawerProbe = (step) => `(async () => {
            canFocusInside: sb.contains(document.activeElement), active: document.activeElement.id };
 })()`;
 
+const fontProbe = `(async () => {
+  await document.fonts.ready;
+  const text = await document.fonts.load("17px Nunito"), headings = await document.fonts.load("600 20px Fredoka");
+  return { text: text.length > 0, headings: headings.length > 0 };
+})()`;
+
 const results = {};
 try {
   await send("Page.enable"); await send("Network.enable"); await send("Log.enable"); await send("Runtime.enable");
@@ -149,6 +167,7 @@ try {
   results.pip = {};
   for (const s of ["idle", "thinking", "talking"]) results.pip[s] = await evaluate(pipProbe(s));
   results.favicon = await evaluate(faviconProbe);
+  results.fonts = await evaluate(fontProbe);
   results.warnDark = await evaluate(warnProbe);
   await visit(1280, { scheme: "dark", reduce: true });
   results.pipReduced = {};
@@ -170,7 +189,7 @@ try {
                                   || e.method === "Runtime.exceptionThrown"
                                   || (e.method === "Runtime.consoleAPICalled" && e.params.type === "error"))
     .map((e) => JSON.stringify(e.params).slice(0, 300));
-  results.requests = urls;
+  results.requests = urls.map((u) => u.slice(0, 200)); // a data: font is tens of KB; the start says what it is
   results.problems = bad;
   console.log(JSON.stringify(results));
   done(0);
