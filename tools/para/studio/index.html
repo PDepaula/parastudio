@@ -1139,13 +1139,15 @@ function renderShot(ev) {
 }
 
 // A message sent while the setup is broken is not lost: when the turn ends in an error before the
-// producer said anything, the words go back into the empty message box to send again.
+// producer said anything, the words go back into the message box to send again, in front of
+// anything typed meanwhile.
 function giveBackMessage() {
   const text = unanswered;
   unanswered = "";
-  if (!text || $("chat-input").value.trim()) return;
+  if (!text) return;
   gaveBack = true;
-  $("chat-input").value = text; growInput(); syncButtons();
+  const typed = $("chat-input").value.trim();
+  $("chat-input").value = typed ? text + "\n\n" + typed : text; growInput(); syncButtons();
   say($("chat-result"), "Your message is back in the box. Once the problem above is fixed (Startup checks says what to do), press Send again.", "busy");
   loadPreflight();
 }
@@ -1165,7 +1167,7 @@ function renderEvent(ev) {
       break;
     }
     case "shot": renderShot(ev); break;
-    case "activity": append(textEl("div", "line", ev.text)); break;
+    case "activity": unanswered = ""; append(textEl("div", "line", ev.text)); break;
     case "refused": append(textEl("div", "line refused", ev.text)); break;
     case "notice": append(textEl("div", "line notice", ev.text)); break;
     case "error": {
@@ -1181,6 +1183,7 @@ function renderEvent(ev) {
       break;
     }
     case "helper": {
+      unanswered = "";
       let c = cards.get(ev.id);
       if (!c) {
         c = { box: textEl("div", "card", ""), ti: textEl("span", "ti", ""), head: textEl("div", "head", ""), what: textEl("div", "what", "") };
@@ -1268,7 +1271,7 @@ function renderFirstRun(p) {
   if (!show) return;
   firstrunFolder = p.folder || "";
   $("firstrun-folder").textContent = firstrunFolder;
-  $("firstrun-cmd").textContent = (firstrunFolder && !firstrunFolder.includes('"') ? 'cd "' + firstrunFolder + '"\n' : "") + "claude";
+  $("firstrun-cmd").textContent = (firstrunFolder && !/["$`%\\]|^[A-Za-z]:/.test(firstrunFolder) ? 'cd "' + firstrunFolder + '"\n' : "") + "claude";
   $("firstrun-term-row").hidden = !p.terminal;
   $("firstrun-login").hidden = !need("signed-in");
   $("firstrun-trust").hidden = !need("trusted");
