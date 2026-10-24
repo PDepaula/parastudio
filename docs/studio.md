@@ -244,8 +244,8 @@ a plan with options), the producer can put it on a **board**: a page in your bro
 click your picks, leave a note if you like, and press one button, and it comes back to the
 producer. The answer is written down in your game's `CHOICES.md` like any other choice.
 
-- **With Lavish** (optional) the board is live: the button sends your picks straight back, and the
-  producer can answer on the board. Lavish is `lavish-axi`, a free program (MIT licence) by Kun
+- **With Lavish** (optional) the board is live: the button sends your picks straight back to the
+  producer. Lavish is `lavish-axi`, a free program (MIT licence) by Kun
   Chen from the npm registry (<https://www.npmjs.com/package/lavish-axi>); it needs no account but
   needs Node.js 22 or newer, which Studio itself does not. It is never installed for you. To add
   it, run this in a terminal in the Studio folder:
