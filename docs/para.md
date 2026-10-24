@@ -9,7 +9,7 @@ builds it as part of the test gate).
 ```sh
 tmp/para                      # bare view: games with test/golden/web status, live status (cheap -- see `setup hooks`)
 tmp/para test [--filter S] [--area A] [--skip-balance|--only-balance] [--shard I/N] [--full]   # wraps `nimble test`; --filter/--area run only matching test files; the balance flags skip or isolate the pins; --shard I/N one of N slices (CI)
-tmp/para build [--game hello] [--target native|web] [--release|--debug] [--define NAME]... [--title T] [--feedback-url URL]   # web: a release build rendered to tmp/web/<game>/ (--define, --title and --feedback-url are web-only)
+tmp/para build [--game hello] [--lane ID] [--target native|web] [--release|--debug] [--define NAME]... [--title T] [--feedback-url URL]   # web: a release build rendered to tmp/web/<game>/ (--define, --title and --feedback-url are web-only)
 tmp/para sim --game hello --seed 7 --ticks 3600   # headless run: state, entities, perf vs budget, state and facts hash
 tmp/para sim --from tmp/bugs/<stamp>              # replay an F9 bug capture, report the state hash
 tmp/para shot --game hello --at title,t600 --check  # render frames at ticks, diff against goldens
@@ -21,6 +21,8 @@ tmp/para web smoke [--game G] [--define NAME] [--enter] [--click X,Y]   # build 
 tmp/para web pack [--game G]                      # zip tmp/web/<game>/ into what a static host needs
 tmp/para setup hooks                              # print a SessionStart hook config (prints only)
 tmp/para producer-context                         # the producer voice plus a resume digest (next step, last save, unsaved changes) for a friend's session-start hook (silent for engine work); `PARALOOP_UI=studio` adds one line telling the producer to say "press Play" (and that a screenshot button exists)
+tmp/para lane start <game> --for builder|art [--ticket T]   # a helper's own copy of the game: games/<game>.<id>/, a git worktree of the game's repository (`para lane --help`)
+tmp/para lane land <game> <id>                    # its work into games/<game> as unsaved changes, for `para check` and `para save`; `list`, `drop`, `clean` too
 tmp/para backup [--game G] [--push --yes [--is-private]]  # a friend's own private online backup of the game's own repository: status, or upload to the "backup" remote only (never origin; `--help`)
 tmp/para studio [--game G] [--port N] [--no-open] [--turn-timeout MIN]  # a page in your browser: the producer's chat (Claude or Codex, your pick per game), Play (the game's own window) and screenshots, Check, Save, save points, backup (127.0.0.1 only; see [studio.md](studio.md))
 ```
@@ -47,3 +49,13 @@ that file): start a `-d:dev` game first (e.g.
 `tmp/status/<game>/`, which the bare view reads. `para setup hooks` prints the
 SessionStart hook snippet that shows the bare view at the start of every
 agent session; it never edits a config file itself.
+
+`para lane` gives each helper that writes its own copy of a game (a lane, `games/<game>.<id>/`, a
+`git worktree` of the game's own repository on the branch `lane/<id>`), with its own compile cache
+(`.nimcache/<target>/lanes/<game>.<id>/`) and programs (`tmp/lanes/<game>.<id>/`, `para build
+--lane ID`). `para lane land` merges the game's line into the lane, then squashes the lane into the
+game's files without a commit, so `para check` and `para save` stay the only commits there; it
+refuses, changing nothing in the game, on a conflict or on unsaved edits to a file the helper
+changed. `drop` and `clean` never remove a lane holding work that is not landed (`drop --discard
+--yes` does, on purpose). `para check --lane ID` checks a lane without writing the stamp `para save`
+needs. The details are in [studio-maintainers.md](studio-maintainers.md), "Helpers' lanes".

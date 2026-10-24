@@ -80,6 +80,14 @@ suite "runBuild: flag validation and a real native build":
     check r.output.startsWith("error:")
     check r.output.contains("--debug")
 
+  test "--lane: an unknown lane, a web or release build are usage errors":
+    check runBuild(@["--game", "hello", "--lane", "builder"]).code == 2
+    check runBuild(@["--game", "nope", "--lane", "builder"]).code == 2
+    check runBuild(@["--game", "hello", "--lane"]).code == 2
+    check runBuild(@["--game", "hello", "--lane", "builder", "--target", "web"]).code == 2
+    check runBuild(@["--game", "hello", "--lane", "builder", "--release"]).code == 2
+    check runBuild(@["--game", "hello", "--lane", "builder"]).output.contains("no lane called \"builder\"")
+
   test "an unknown flag is a usage error":
     let r = runBuild(@["--bogus"])
     check r.code == 2

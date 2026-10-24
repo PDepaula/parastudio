@@ -30,7 +30,9 @@ This folder is a git repository of its own (`para new` ran `git init` here, and
 then `tmp/para save -m "..."` commit and tag `save-__GAME__-<n>` in this
 repository, never in the paraloop folder around `games/`. `tmp/para backup --game
 __GAME__` uploads this repository to the friend's own private remote, and nothing else.
-Helpers never run git writes (the producer saves).
+Helpers never run git writes (the producer saves). A `games/__GAME__.<id>/` folder next
+to this one is a helper's own copy of this game (`tmp/para lane`, a git worktree of this
+repository): it is not a second game, and the producer lands it into this folder.
 
 ## Game notes
 

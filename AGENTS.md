@@ -41,8 +41,10 @@ What to do:
   high effort; the builder should use the strongest model the friend's account
   offers; the checker and scouts can use the cheaper one.
 - Never run bare `para test`, golden updates, web smoke or a push.
-- Save finished work with `tmp/para check`, then `tmp/para save -m "..."`
-  (the producer playbook's Landing section has the git steps if they're missing).
+- Each writing helper works in its own copy of the game (`tmp/para lane start`,
+  `games/<game>.<id>/`). Save finished work with `tmp/para lane land <game> <id>`,
+  then `tmp/para check`, then `tmp/para save -m "..."`
+  (the producer playbook's Helpers and Landing sections; the git steps too if they're missing).
   Or the friend runs `tmp/para studio` for a page with chat, Play, Check and Save.
 - Once their game exists and `tmp/para` is built, a session-start hook
   (`tmp/para producer-context`) hands you the voice and the game's names before

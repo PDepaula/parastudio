@@ -422,7 +422,7 @@ proc attemptTurn(exe: string, req: TurnRequest, session: string, ctl: ptr TurnCo
     return Attempt(exitCode: 1)
   var p: Process
   try:
-    p = startProcess(exe, workingDir = req.workDir, args = args, env = childEnv(),
+    p = startLocked(exe, workingDir = req.workDir, args = args, env = childEnv(),
                      options = {poUsePath, poStdErrToStdOut, poDaemon})
   except OSError as e:
     emit UiEvent(kind: ukError, code: "cannot-start",

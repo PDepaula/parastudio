@@ -77,14 +77,39 @@ proc gameTag*(game: string, n: int): string =
   &"save-{game}-{n}"
 
 proc gamesWithPlan*(root: string): seq[string] =
-  ## The games a producer is working on: `games/<name>/PLAN.md` exists.
+  ## The games a producer is working on: `games/<name>/PLAN.md` exists. A helper's lane
+  ## (`games/<game>.<id>/`, a copy of the game with its PLAN.md) is not a game: its name has a dot,
+  ## which no game name has.
   let base = root / gamesDir
   if not dirExists(base): return
   for kind, path in walkDir(base):
     let name = path.extractFilename
-    if kind == pcDir and fileExists(path / planFile):
+    if kind == pcDir and validGameName(name) and fileExists(path / planFile):
       result.add name
   result.sort()
+
+# --- lanes -------------------------------------------------------------------
+#
+# A lane is a helper's own copy of a game: a git worktree of the game's repository on the branch
+# `lane/<id>`, checked out next to the game as `games/<game>.<id>/` (the same depth, so the game's
+# `../../src` paths still compile). tools/para/lanecmd.nim makes, lands and removes them.
+
+proc validLaneId*(id: string): bool =
+  ## A lane id: a role (`builder`, `art`) and an optional number, lowercase letters and digits.
+  id.len > 0 and id.len <= 20 and id[0] in {'a'..'z'} and id.allCharsInSet({'a'..'z', '0'..'9'})
+
+proc laneName*(game, id: string): string =
+  game & "." & id
+
+proc laneDir*(root, game, id: string): string =
+  root / gamesDir / laneName(game, id)
+
+proc lanePrefix*(game, id: string): string =
+  ## How the paraloop checkout spells every path of the lane, on every platform.
+  gamesDir & "/" & laneName(game, id) & "/"
+
+proc laneBranch*(id: string): string =
+  "lane/" & id
 
 proc pickGame*(root, requested: string, game: var string): Run =
   ## `--game NAME` when given, else the only game with a PLAN.md. Code 0 and
@@ -109,10 +134,17 @@ proc pickGame*(root, requested: string, game: var string): Run =
 
 # --- git ---------------------------------------------------------------------
 
+proc inDir(root: string): seq[string] =
+  ## `git -C <root>`, never a working directory for the child: starting a process in another
+  ## folder makes osproc change this whole process's current folder for a moment (posix_spawn has
+  ## no chdir), which a thread starting another program at the same time (the studio's Check, a
+  ## chat turn) would inherit.
+  if root.len > 0: @["-C", root] else: @[]
+
 proc gitArgs*(root: string, args: seq[string]): ProcResult =
   ## `git <args>` in `root`: stdout and stderr together, the real exit code,
   ## 127 when git cannot be started.
-  runCaptured("git", args, root)
+  runCaptured("git", inDir(root) & args)
 
 proc git*(root: string, args: varargs[string]): ProcResult =
   gitArgs(root, @args)
@@ -126,7 +158,7 @@ proc gitQuick*(root: string, args: varargs[string]): ProcResult =
   ## `git <args>` for a question asked at session start: it takes no optional
   ## lock (so it never gets in the way of another git) and is stopped after
   ## `quickGitMs` (the exit code is then `timedOutCode`).
-  runCaptured("git", @["--no-optional-locks"] & @args, root, timeoutMs = quickGitMs)
+  runCaptured("git", inDir(root) & @["--no-optional-locks"] & @args, timeoutMs = quickGitMs)
 
 proc isDetached*(root: string): bool =
   ## HEAD is not on a named line of work (`symbolic-ref` fails).

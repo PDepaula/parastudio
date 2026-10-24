@@ -5,7 +5,7 @@
 # turning Nim's `file(line, col) Severity: message` diagnostic lines into rows
 # a TOON table can print.
 
-import std/[osproc, streams, strutils, os, times]
+import std/[osproc, streams, strutils, strtabs, os, times, locks]
 
 type
   ProcResult* = object
@@ -19,6 +19,21 @@ type
 
 const timedOutCode* = 124 ## the exit code `runCaptured` reports for a run it had to stop
 
+var spawnLock: Lock
+initLock(spawnLock)
+
+proc startLocked*(cmd: string, workingDir = "", args: openArray[string] = [], env: StringTableRef = nil,
+                  options: set[ProcessOption] = {poStdErrToStdOut}): Process =
+  ## `startProcess`, one at a time across threads. osproc makes the child's pipes without
+  ## close-on-exec and, for a `workingDir`, changes this whole process's current folder while it
+  ## starts the child (posix_spawn has no chdir). Two starts at once from two threads (the studio
+  ## asking git a question while a Check or a chat turn starts) would hand one child the other's
+  ## pipe, so the question's answer waits for that other program to end, or start it in the wrong
+  ## folder. Every program `para` starts from a thread goes through here.
+  acquire(spawnLock)
+  defer: release(spawnLock)
+  startProcess(cmd, workingDir = workingDir, args = args, env = env, options = options)
+
 proc runCaptured*(cmd: string, args: seq[string], workDir = "", timeoutMs = 0): ProcResult =
   ## Runs `cmd args...`, merging stderr into stdout, and returns the whole
   ## output plus the process's real exit code -- or exit code 127 and the
@@ -29,8 +44,8 @@ proc runCaptured*(cmd: string, args: seq[string], workDir = "", timeoutMs = 0): 
   var p: Process
   let cwd = try: getCurrentDir() except OSError: ""
   try:
-    p = startProcess(cmd, workingDir = workDir, args = args,
-                     options = {poStdErrToStdOut, poUsePath})
+    p = startLocked(cmd, workingDir = workDir, args = args,
+                    options = {poStdErrToStdOut, poUsePath})
   except OSError as e:
     # a start that fails (cmd not on the PATH) can leave this process in `workDir`
     if cwd.len > 0:
@@ -56,8 +71,8 @@ proc runStreamed*(cmd: string, args: seq[string], onLine: proc (line: string),
   ## still going. `output` is the same whole output `runCaptured` returns.
   var p: Process
   try:
-    p = startProcess(cmd, workingDir = workDir, args = args,
-                     options = {poStdErrToStdOut, poUsePath})
+    p = startLocked(cmd, workingDir = workDir, args = args,
+                    options = {poStdErrToStdOut, poUsePath})
   except OSError as e:
     return ProcResult(output: "cannot run " & cmd & ": " & e.msg & "\n", exitCode: 127)
   defer: p.close()

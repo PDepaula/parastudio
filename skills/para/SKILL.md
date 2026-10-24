@@ -15,14 +15,15 @@ whether a live `-d:dev` window is running. Output is TOON; exit codes are 0
 
 ```text
 para: build, test, see and drive paraloop games in this workspace; bare `para` is the home view
-commands[17]{command,summary}:
+commands[18]{command,summary}:
   art <lint|fix|sheet> [args],pixel-art lint/fix/sheet (`para art --help`)
   new <game>,"create games/<game>/ from template/ as a git repository of its own, where `para save` keeps its save points (`para new --help`)"
   test [--filter SUBSTR] [--area AREA] [--skip-balance | --only-balance] [--shard I/N] [--full],"wraps `nimble test`: counts and a failures table; --filter/--area run only the matching test files; --skip-balance/--only-balance skip or run just the balance pins; --shard I/N runs one of N slices (CI runs one per runner)"
-  check [--game NAME],"run the game's own tests (balance pins skipped) and build it, one pass/fail line per step and a verdict (exit 1 on a fail); a pass is what lets `para save` save the game as it is now"
+  check [--game NAME] [--lane ID],"run the game's own tests (balance pins skipped) and build it, one pass/fail line per step and a verdict (exit 1 on a fail); a pass is what lets `para save` save the game as it is now; --lane ID checks a helper's lane instead (a rehearsal: it lets nothing be saved)"
   save [--game NAME] -m TEXT | --list | --back N --yes | --set-aside,"keep games/<game> as the next numbered save point (a git commit in the game's own repository, games/<game>/.git, tagged save-<game>-<n>) after a passing `para check`; refuses on a detached git, on changes outside the game (a game that has no repository of its own), or on a stale check; --back N adds a new save point that undoes the later ones; --set-aside keeps unfinished work as an unchecked save point and goes back to the one before; never pushes or resets"
+  lane <start|list|land|drop|clean> [args],"a helper's own copy of a game (games/<game>.<id>/, a git worktree of the game's repository) so helpers work at once without touching the game; land puts its work into the game as unsaved changes for `para check` and `para save`; never commits on the game's line, and never removes work that is not landed (`para lane --help`)"
   backup [--game NAME] [--push --yes [--is-private]],"say whether the friend's own private online backup (the git remote \"backup\" of the game's own repository) is set up, or with --push --yes upload the current branch and its save points there; refuses a public or unconfirmed-private repository, any remote that is not \"backup\", and anything that points at origin or the paraloop project; never forces; nothing runs it by itself"
-  build [--game NAME] [--target native|web] [--release | --debug] [--define NAME[=VALUE]] [--title TEXT] [--feedback-url URL] [--full],"compile a game; structured compiler errors; --target web is a release build (--debug for the other) rendered to tmp/web/<game>/index.html with a build id, --define NAME[=VALUE] (web only) passes a define to the compile"
+  build [--game NAME] [--lane ID] [--target native|web] [--release | --debug] [--define NAME[=VALUE]] [--title TEXT] [--feedback-url URL] [--full],"compile a game; structured compiler errors; --target web is a release build (--debug for the other) rendered to tmp/web/<game>/index.html with a build id, --define NAME[=VALUE] (web only) passes a define to the compile; --lane ID builds a helper's lane natively into tmp/lanes/<game>.<id>/"
   sim [--game NAME] --seed N --ticks N [--script FILE | --keys S] [--budget-ms X] [--trace N] [game flags] | --from DIR,"headless run, optionally replaying an input script or gating on p99 (state/entities/perf/hash/facts-hash; --trace N adds the facts hash every N ticks), or F9 bug replay; a game's own flags (a starting treasure, a gate on smashes or peak mobs, a room) come from its driver, `para sim --game NAME --help`"
   shot [--game NAME] [--at FRAMES] [--check] [--script FILE | --keys S] [--seed N] [game flags] [--fixtures DIR] [--size WxH] [--tolerance N] [--max-diff-px N] | --update-golden FRAMES,"render frames at ticks or phases from a scripted, seeded run, or from state fixtures (--fixtures), and diff them against goldens"
   driver GAME [COMMAND ARGS...],run a command only that game has through its driver program (games/GAME/tools/GAME_driver.nim; `sim` and `shot` use the same program for a game that is not linked into para)
@@ -47,6 +48,16 @@ examples[9]:
   para build --target web --game hello --title Hello
   para web pack --game hello
 ```
+
+## Helpers' lanes
+
+`tmp/para lane start <game> --for builder|art [--ticket TEXT]` gives a helper its own copy of a game
+(`games/<game>.<id>/`, a `git worktree` of the game's own repository) so helpers work at once without
+touching the game; the helper runs `tmp/para test --filter games/<game>.<id>/ --skip-balance` and
+`tmp/para build --game <game> --lane <id>` there. `tmp/para lane land <game> <id>` puts the lane's
+work into `games/<game>/` as unsaved changes (then `para check`, then `para save`), and refuses,
+changing nothing, on a conflict or on an unsaved edit to a file the helper changed. `list`, `drop`
+(refuses while work is not landed, unless `--discard --yes`) and `clean` manage them.
 
 ## The studio page
 

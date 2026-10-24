@@ -197,7 +197,7 @@ proc runChild(play: ptr Play, exe: string, args: seq[string], ctl: ptr TurnContr
   ## waits for it. `onStarted`: the window phase, so the clock for "not answering" starts.
   var p: Process
   try:
-    p = startProcess(exe, workingDir = play.root, args = args, options = {poUsePath, poStdErrToStdOut, poDaemon})
+    p = startLocked(exe, workingDir = play.root, args = args, options = {poUsePath, poStdErrToStdOut, poDaemon})
   except OSError as e:
     play.addLine "cannot run " & exe & ": " & e.msg
     return Child(started: false, code: 127)

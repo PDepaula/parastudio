@@ -172,6 +172,18 @@ suite "selectTests on the sample repository":
     check selectTests(all, {}, "TEST_WALK") == @["games/lab/tests/test_walk.nim"]
     check selectTests(all, {}, "no-such-file").len == 0
 
+  test "a helper's lane (games/<game>.<id>/) runs only for a filter that names it":
+    let lane = "games/lab.builder/tests/test_walk.nim"
+    check laneFolder(lane) == "lab.builder"
+    check laneFolder("games/lab/tests/test_walk.nim") == ""
+    check laneFolder("tests/test_x.nim") == ""
+    let withLane = all & @[lane]
+    check lane notin selectTests(withLane, {})
+    check lane notin selectTests(withLane, {arGame})
+    check selectTests(withLane, {}, "test_walk") == @["games/lab/tests/test_walk.nim"]
+    check selectTests(withLane, {}, "games/lab.builder/") == @[lane]
+    check selectTests(withLane, {}, "games/lab/") == selectTests(all, {}, "games/lab/")
+
   test "--filter inside an area intersects":
     check selectTests(all, {arArt}, "test_walk").len == 0
     check selectTests(all, {arGame}, "test_walk").len == 1

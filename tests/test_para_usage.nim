@@ -15,7 +15,7 @@ suite "para dispatch: help and errors":
     let r = dispatch(@["--help"])
     check r.code == 0
     check r.output == paraHelp
-    check r.output.contains("commands[17]{command,summary}:")
+    check r.output.contains("commands[18]{command,summary}:")
     check r.output.contains("examples[")
     for c in paraCommands:
       check r.output.contains("\n  " & c & " ") or r.output.contains("\n  " & c & ",")
@@ -40,13 +40,13 @@ suite "para dispatch: help and errors":
     check flag.output.contains("Valid flags: --help, --version")
     let cmd = dispatch(@["bogus"])
     check cmd.code == 2
-    check cmd.output.contains("Valid commands: art, new, test, check, save, backup, build, sim, shot, driver, live, web, setup, producer-context, studio")
+    check cmd.output.contains("Valid commands: art, new, test, check, save, lane, backup, build, sim, shot, driver, live, web, setup, producer-context, studio, board")
     let group = dispatch(@["web", "touch"])
     check group.code == 2
     check group.output.contains("Valid commands: web smoke, web pack")
 
   test "every command rejects an unknown flag with exit 2":
-    for c in ["new", "test", "check", "save", "backup", "build", "sim", "shot", "driver", "live", "producer-context", "studio"]:
+    for c in ["new", "test", "check", "save", "lane", "backup", "build", "sim", "shot", "driver", "live", "producer-context", "studio"]:
       check dispatch(@[c, "--axi-probe-unknown-flag"]).code == 2
     check dispatch(@["setup", "hooks", "--bogus"]).code == 2
 

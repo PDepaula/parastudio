@@ -23,6 +23,11 @@ For whoever changes Studio. The guide for the friend using it is [studio.md](stu
   saved in the repository that contains `games/`, as before.
 - With more than one game in `games/` the page asks which one; `--game NAME`
   starts on one. With none, the page offers **Start a game**.
+- The server answers on several threads, so every program `para` starts goes through
+  `nimutil.startLocked` (one start at a time) and git runs with `-C <folder>`, never in a
+  working directory: osproc gives a child its pipes without close-on-exec and changes the whole
+  process's folder while it starts one, so two starts at once could leave a git question waiting
+  for a chat turn to end, or start a Check in the game's folder.
 - Going back to an earlier save point and setting work aside are not in the page
   yet (use `para save --back` / `--set-aside` in the terminal).
 
@@ -322,3 +327,75 @@ The friend-facing description is in [studio.md](studio.md), "Play and screenshot
   a picture back to the page (`GET /api/shot?name=`, with the page's key like every other
   call) only looks in that folder and only for a name of exactly that shape, and answers
   `image/png`; it cannot name any other file.
+
+## Helpers' lanes (how it works)
+
+The friend-facing description is in [studio.md](studio.md), "Helpers work in their own copy". The
+code is `tools/para/lanecmd.nim` (`para lane`); its header has the whole design.
+
+- **Layout.** A lane is a `git worktree` of the game's own repository (`games/<game>/.git`) on the
+  branch `lane/<id>`, at `games/<game>.<id>/`, next to the game: the game reads the engine by
+  `../../src/...`, so any other depth does not compile. `games/*` is ignored by the paraloop
+  checkout, so lanes are invisible to it; a lane's name has a dot, which `validGameName` refuses, so
+  `gamesWithPlan`, `pickGame` and the session-start hook never take it for a game. Ids are the role,
+  then a number (`builder`, `builder2`, `art`). The record (role, ticket, start, landed) is
+  `tmp/lanes/<game>.<id>.json`. A game with no commit yet first gets one ("`<game>`: new game", not
+  a save point), or git would make an empty orphan lane.
+- **Build state.** `config.nims` puts a lane's compile cache in
+  `.nimcache/<target>/lanes/<game>.<id>/`, and `para build --lane ID` and the nimble test task put
+  its programs in `tmp/lanes/<game>.<id>/`, so two copies of one game never share or thrash a cache
+  and never overwrite each other's binary. The cache is kept when the lane goes, so the next lane
+  with the same id starts warm. A lane's tests run only for a `--filter` that names its folder
+  (`para test --filter games/<game>.<id>/ --skip-balance`); a bare or `--area` run skips them.
+  `para check --lane ID` runs the same two steps on the lane and writes no stamp.
+- **Landing** (`para lane land <game> <id>`): commit everything in the lane; merge the game's line
+  into the lane (a conflict is aborted there, so the lane is as it was, and the files are named);
+  `git merge --squash lane/<id>` in the game, which only stages the lane's net change (no commit);
+  then unlock, `git worktree remove` and `git branch -D`. `para check` and `para save` stay the only
+  commits on the game's line. A failed squash has no `merge --abort`, which is why the conflict is
+  found in the lane first. The two refusals, word for word:
+  - "The helper and the game both changed `<files>` since the helper started, in ways git cannot
+    put together." (the game's line moved in the same lines)
+  - "These files have changes in the game that are not saved yet, and the helper changed them too:
+    `<files>`." (git's own "would be overwritten" refusal, before it touches anything)
+- **Never losing work.** `git worktree remove` alone removes a clean lane whose commits are not
+  landed, so `drop` and `clean` check the branch against the game's line first and refuse while a
+  lane holds edits or kept steps the game does not have; `drop --discard --yes` is the only way to
+  throw that away. A lane is `git worktree lock`ed from `start` until it lands or is dropped. A lane
+  folder deleted by hand is forgotten by `clean` (unlocked first: git never prunes a locked one);
+  its branch keeps any kept steps, and `land` checks it out again.
+- **Studio.** `GET /api/state` has `lanes` (`id`, `role`, `ticket`, `started`, `files`,
+  `commits`, `live`, `landed`, `known`), `GET /api/lanes` the same alone (the page polls it every
+  3 s while a turn runs), and `POST /api/lane/land {game, id}` runs `para lane land` as a job, like
+  Check (409 while a turn or another step runs). `live` is "a chat turn is running": the helpers are
+  part of a turn, so with none running every lane is left over. The strip under Pip's card says it
+  in words from the role and the chat's helper cards ("Checking it" while a checker card is
+  working) and never shows a folder, branch or lane name; a test reads the page's strings to keep
+  it that way. Play always builds the game's own folder, so it plays the last landed version.
+- **Session start.** `para producer-context` adds "Left over from last time, in a helper's own
+  copy" with each lane's role, ticket and file count; the producer playbook's "Picking up after a
+  stop" says what to offer.
+- **Permissions.** `.claude/settings.json` allows `tmp/para lane start *`, `lane list` and
+  `lane land *` without a prompt; `drop` (it can throw work away) and `clean` still ask. The
+  existing `test --filter games/*`, `build --game *` and `check --game *` rules cover the lane forms.
+- **Limits.** Memory, not disk: one compile of a large game holds 3 to 4 GB, so the playbook keeps
+  it to two helpers compiling at once. A lane costs about 64 KB of files plus about 6 MB of cache per
+  compiled program. Measured on Linux (32 cores): two lanes testing and building the template game
+  at once took 7.5 s wall; a real Studio turn in which the producer ran two builders and two
+  checkers in parallel, landed both, checked and saved took 79 s.
+- **Windows and macOS (not verified, reasoned from git's documentation).** `git worktree` is in Git
+  for Windows since 2.5 and needs no symlinks or developer mode (a linked worktree's `.git` is a
+  plain text file). Every path is passed to git as an argument list, never through a shell, and
+  folder names use only letters, digits, `_` and one dot. A lane adds about 8 characters to the
+  game's path and about 25 to its cache path, so the 260-character limit only matters for an
+  already deep folder (`git config core.longpaths true` is the known way round). `git worktree
+  remove` fails while any program holds a file open in the lane (an editor, a running game on
+  Windows); the lane is then marked landed and `para lane clean` removes it later.
+- **Tests.** `tests/test_para_lane_cmd.nim` (scratch repositories: start, two lanes at once, land,
+  the conflict and the unsaved-edit refusals, abort with `drop --discard --yes`, refusals to remove
+  work, a crash and a hand-deleted folder), the compiled two-lanes-at-once run on a game `para new`
+  made in `tests/test_para_new_cmd.nim`, `--lane` in `test_para_check_cmd.nim` and
+  `test_para_build_cmd.nim`, lane test selection in `test_para_testplan.nim`, the digest line and
+  allow-list in `test_para_producer_cmd.nim`, and the Studio's lanes (after a restart, the land
+  job, 409s, a live lane during a turn, the page's words) in `test_para_studio_api.nim` and
+  `test_para_studio_chat.nim`.

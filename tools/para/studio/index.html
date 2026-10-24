@@ -264,6 +264,12 @@ pre { margin: 8px 0 0; padding: 10px; background: var(--bg); border: 2px solid v
 .card .state { font-weight: 600; color: var(--mute); }
 .card .what { color: var(--mute); overflow-wrap: anywhere; white-space: pre-wrap; font-size: 15px; }
 .card .what:empty { display: none; }
+/* the helpers' own copies of the game, on Pip's card's side: the same card, smaller */
+.lanes { display: grid; gap: 8px; }
+.lanes .card { padding: 8px 10px; gap: 10px; }
+.lanes .card .ti { width: 30px; height: 30px; border-radius: 10px; }
+.lanes .btns { margin-top: 6px; }
+.lanes .btn { min-height: 36px; padding: 0 12px; font-size: 14px; }
 .card.shot { display: block; overflow: hidden; }
 .card.shot img { display: block; max-width: 100%; height: auto; margin-top: 8px; border: 2px solid var(--line); border-radius: 12px; background: var(--bg); }
 .spin { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--focus); flex: none; animation: rot .8s linear infinite; }
@@ -443,6 +449,8 @@ dd { margin: 0; overflow-wrap: anywhere; }
         <span class="agent-one" id="agent-one" hidden></span>
       </div>
     </div>
+    <div class="lanes" id="lanes" aria-label="What the helpers are doing" aria-live="polite" hidden></div>
+    <p class="result" id="lanes-result" role="status"></p>
     <button type="button" class="newchat" id="chat-new"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New conversation</span></button>
     <div>
       <div class="label" id="games-label" hidden>Games</div>
@@ -919,6 +927,7 @@ async function loadState() {
   $("backup-open").hidden = none;
   renderPill(s.facts);
   renderResume(s);
+  renderLanes(s.lanes || []);
   syncEmpty();
   return s;
 }
@@ -981,6 +990,7 @@ function syncButtons() {
   $("shot-btn").disabled = shotBusy;
   $("plus-shot").disabled = shotBusy;
   $("stop-game-btn").disabled = !playOn;
+  for (const b of $("lanes").querySelectorAll("button")) b.disabled = busy || chatRunning;
 }
 
 // Waits for the one running step and keeps `out` current; resolves with the final job.
@@ -1095,6 +1105,7 @@ let chatTimer = null;
 let unanswered = ""; // the last message sent, until the producer answers it
 let gaveBack = false; // that message went back into the box this turn
 const cards = new Map();
+const helperNow = new Map(); // each helper card's role and status this conversation, for the lanes' words
 const roleLabels = { builder: "Builder", checker: "Checker", scout: "Scout", art: "Art helper", helper: "Helper" };
 const statusWords = { started: "started", working: "working", done: "done", failed: "hit a problem", stopped: "stopped" };
 
@@ -1171,8 +1182,8 @@ function renderEvent(ev) {
       break;
     }
     case "shot": renderShot(ev); break;
-    case "activity": unanswered = ""; append(textEl("div", "line", ev.text)); break;
-    case "refused": append(textEl("div", "line refused", ev.text)); break;
+    case "activity": unanswered = ""; append(textEl("div", "line", plainLaneText(ev.text))); break;
+    case "refused": append(textEl("div", "line refused", plainLaneText(ev.text))); break;
     case "notice": append(textEl("div", "line notice", ev.text)); break;
     case "error": {
       const d = textEl("div", "line error", ev.text);
@@ -1204,12 +1215,101 @@ function renderEvent(ev) {
       c.head.textContent = "";
       c.head.append(document.createTextNode((roleLabels[ev.role] || "Helper") + " "),
         textEl("span", "state", "· " + (statusWords[ev.status] || ev.status) + (ev.tools > 0 ? " · " + ev.tools + (ev.tools === 1 ? " step" : " steps") : "")));
-      c.what.textContent = ev.text || "";
+      c.what.textContent = plainLaneText(ev.text || "");
+      helperNow.set(ev.id, { role: ev.role, status: ev.status });
+      renderLanes(lanesNow);
       break;
     }
     default: break; // "done" is handled by the poller; anything unknown is ignored
   }
 }
+
+// --- lanes --------------------------------------------------------------------------------
+// Each helper that writes works in its own copy of the game (a "lane", `para lane`), so the game
+// the director plays stays whole until the work is put in. The page says what each one is doing
+// in words, and never shows a folder, branch or lane name. With no turn running, a copy that is
+// still there is left over from last time: Land it puts its work into the game (unsaved, then
+// Check and Save as always); Keep it leaves it for the producer and stops offering it here.
+let lanesNow = [];
+let lanesPolled = 0;
+const lanesKept = new Set();
+function helperBusy(role) {
+  for (const h of helperNow.values()) if (h.role === role && (h.status === "started" || h.status === "working")) return true;
+  return false;
+}
+function laneHead(l) {
+  const who = roleLabels[l.role] || "Helper";
+  if (!l.live) return who + "'s work from last time is waiting";
+  if (l.role === "art") return "Art helper is drawing";
+  if (helperBusy("checker") && !helperBusy(l.role)) return "Checking it";
+  return who + " is working on your change";
+}
+function laneWhat(l) {
+  const bits = [];
+  if (l.ticket) bits.push(l.ticket);
+  if (!l.live) bits.push(l.files === 0 ? "nothing changed in it" : plural(l.files, "file", "files") + " changed, not in your game yet");
+  return bits.join(" · ");
+}
+function landWords(code, text) {
+  const first = (text || "").trim().split("\n")[0] || "";
+  if (code === 0) return first.startsWith("landed:") ? "The helper's work is in your game now, not saved yet. Press Check, then Save." : "There was nothing in it, so it is tidied away.";
+  let m = first.match(/^The helper and the game both changed (.+) since the helper started/);
+  if (m) return "The helper and your game both changed " + m[1] + " since the helper started, so it cannot go in by itself. Nothing in your game changed, and the helper's work is kept. Ask the producer to sort it out.";
+  m = first.match(/^These files have changes in the game that are not saved yet, and the helper changed them too: (.+)\.$/);
+  if (m) return "You changed " + m[1] + " since the last save, and so did the helper. Press Check, then Save, then Land it again.";
+  return "That did not work, and nothing in your game changed. Ask the producer to look at it.";
+}
+async function landLane(l) {
+  const out = $("lanes-result");
+  say(out, "Putting the helper's work into your game…", "busy");
+  setBusy(true);
+  try {
+    const r = await api("POST", "/api/lane/land", { game, id: l.id });
+    const { job, text } = await follow(r.job, () => {});
+    say(out, landWords(job.code, text), job.code === 0 ? "ok" : "bad");
+  } catch (e) { say(out, e.message, "bad"); }
+  finally { setBusy(false); }
+  refresh();
+}
+function renderLanes(lanes) {
+  lanesNow = lanes;
+  const box = $("lanes");
+  box.textContent = "";
+  for (const l of lanes) {
+    if (l.landed || lanesKept.has(game + "/" + l.id + "/" + l.started)) continue;
+    const card = textEl("div", "card lane", ""), ti = textEl("span", "ti", ""), tb = textEl("div", "tb", "");
+    ti.append(l.live ? textEl("span", "spin", "") : svgIcon("M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z"));
+    tb.append(textEl("div", "head", laneHead(l)), textEl("div", "what", laneWhat(l)));
+    if (!l.live) {
+      const acts = textEl("div", "btns", "");
+      const land = textEl("button", "btn primary", "Land it"), keep = textEl("button", "btn ghost", "Keep it");
+      land.type = keep.type = "button";
+      land.disabled = keep.disabled = busy || chatRunning;
+      land.addEventListener("click", () => landLane(l));
+      keep.addEventListener("click", () => { lanesKept.add(game + "/" + l.id + "/" + l.started); say($("lanes-result"), "Kept as it is. The producer will see it next time you talk.", ""); renderLanes(lanesNow); });
+      acts.append(land, keep);
+      tb.append(acts);
+    }
+    card.append(ti, tb);
+    box.append(card);
+  }
+  box.hidden = box.childElementCount === 0;
+}
+async function loadLanes() {
+  if (!game) return;
+  try { renderLanes((await api("GET", "/api/lanes" + gameQuery())).lanes); } catch (e) { /* the next poll tries again */ }
+}
+// The chat's lines and helper cards repeat what the producer and helpers ran and wrote, which names
+// the helpers' copies by folder and the `para lane` commands: say those in words instead.
+function plainLaneText(t) {
+  if (/tmp\/para lane start\b/.test(t)) return "Giving a helper its own copy of the game";
+  if (/tmp\/para lane land\b/.test(t)) return "Putting a helper's work into your game";
+  if (/tmp\/para lane\b/.test(t)) return "Looking at the helpers' copies of the game";
+  return t.replace(/games\/[a-z][a-z0-9_]*\.[a-z0-9]+\/?([^\s,;)`'\x22]*)/g, (m, rest) => rest ? rest + " (in the helper's copy)" : "the helper's copy of the game")
+          .replace(/--filter the helper's copy of the game/g, "in the helper's copy")
+          .replace(/--lane [a-z][a-z0-9]*/g, "in the helper's copy");
+}
+// --- end lanes ------------------------------------------------------------------------------
 
 // The producer picker, on Pip's card: one pill per agent the studio knows, the current one checked.
 // Each agent keeps its own conversation; the studio refuses a pick while a turn runs (the pills are
@@ -1385,6 +1485,7 @@ async function loadAgent() {
 function resetChatView() {
   logEl().textContent = "";
   cards.clear();
+  helperNow.clear();
   while (blobUrls.length) URL.revokeObjectURL(blobUrls.pop());
   $("panel-shot").hidden = true; $("panel-shot").removeAttribute("src"); $("panel-empty").hidden = false;
   chatSince = 0;
@@ -1409,7 +1510,10 @@ async function pollChat() {
       syncEmpty();
       updatePip();
       syncButtons();
-      if (chatRunning) wait = 600;
+      if (chatRunning) {
+        wait = 600;
+        if (Date.now() - lanesPolled > 3000) { lanesPolled = Date.now(); loadLanes(); }
+      }
       if ((was && !chatRunning) || turnEnded) {
         if (!gaveBack) say($("chat-result"), "", "");
         gaveBack = false;
@@ -1553,9 +1657,9 @@ async function refresh() {
     const s = await api("GET", "/api/state" + gameQuery());
     if (s.job && s.job.running) {
       const kind = s.job.kind;
-      const el = { save: "save-result", backup: "backup-result", new: "new-result" }[kind] || "check-result";
+      const el = { save: "save-result", backup: "backup-result", new: "new-result", land: "lanes-result" }[kind] || "check-result";
       setBusy(true);
-      say($(el), "A " + (kind === "new" ? "new game" : kind) + " is still running…", "busy");
+      say($(el), kind === "land" ? "Still putting a helper's work into your game…" : "A " + (kind === "new" ? "new game" : kind) + " is still running…", "busy");
       await follow(s.job, () => {}); setBusy(false); say($(el), "That step finished.", "ok"); refresh();
     }
   } catch (e) { setBusy(false); }

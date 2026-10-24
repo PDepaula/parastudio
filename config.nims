@@ -1,3 +1,5 @@
+import std/[os, strutils]
+
 switch("mm", "orc")
 
 # Repo-local nimcache split per target, program and build mode: every worktree
@@ -7,8 +9,20 @@ switch("mm", "orc")
 const
   nimcacheTarget = when defined(emscripten): "web" else: "native"
   nimcacheMode = when defined(dev): "dev" elif defined(release): "r" else: "d"
+
+proc laneOf(): string =
+  ## "<game>.<id>" when the program being compiled sits in a helper's lane (`games/<game>.<id>/`,
+  ## tools/para/lanecmd.nim), else "". A lane compiles the same module names as its game, so it
+  ## gets a cache folder of its own: sharing one would make every switch between them a cold build.
+  let games = (thisDir() / "games").replace('\\', '/') & "/"
+  let dir = projectDir().replace('\\', '/') & "/"
+  if dir.startsWith(games):
+    let leaf = dir[games.len .. ^1].split('/')[0]
+    if '.' in leaf: return leaf
+
+let lane = laneOf()
 switch("nimcache", thisDir() & "/.nimcache/" & nimcacheTarget & "/" &
-  projectName() & "_" & nimcacheMode)
+  (if lane.len > 0: "lanes/" & lane & "/" else: "") & projectName() & "_" & nimcacheMode)
 
 # At most two C compiles at once. Nim starts one gcc per C file, up to the host's core count, and a
 # container's `--cpus 3` is a quota, so it still reports all 32 cores; the nim process itself sits
