@@ -19,7 +19,7 @@
 # `para studio --check` starts no server: it prints the page's startup checks (preflight.nim) as
 # plain lines and exits, so the double-click launchers can show them before they open the page.
 
-import std/[os, osproc, strutils, sequtils]
+import std/[os, strutils, sequtils]
 import art/clihelpers
 import savepoint
 import producercmd
@@ -29,8 +29,8 @@ import studiochat
 import agent
 import agents
 import preflight
-when defined(windows):
-  import std/browsers
+import browser
+import boardcmd
 
 type
   Run = clihelpers.Run
@@ -47,7 +47,7 @@ const studioHelp* = "para studio [--game NAME] [--port N] [--no-open] [--turn-ti
   "  --port N     listen on this port (default: any free one, printed)\n" &
   "  --no-open    print the link and do not open the browser\n" &
   "  --turn-timeout MINUTES  stop a chat turn that runs longer than this (default 60; long builds are normal)\n" &
-  "  --check      print the page's startup checks (claude or codex installed, signed in, folder trusted, edits allowed) with one fix line each, and exit without starting anything; exit 1 when no producer program is ready\n" &
+  "  --check      print the page's startup checks (claude or codex installed, signed in, folder trusted, edits allowed) with one fix line each, and the optional ones (Lavish, for visual boards), and exit without starting anything; exit 1 when no producer program is ready (an optional one never counts)\n" &
   "  it only listens on this computer (127.0.0.1); the link carries a key that changes every run\n" &
   "  Ctrl+C stops it, and closes the game window it opened. Check, Save and Backup run the same `para` commands a terminal would, with the same guards\n"
 
@@ -60,31 +60,6 @@ proc findRepoRoot*(start: string): string =
     if parent == dir: break
     dir = parent
 
-proc openInBrowser*(url: string): bool =
-  ## Starts the default browser on `url` without waiting for it: ShellExecute on Windows, `open` on
-  ## macOS, `xdg-open` elsewhere (in its own session, so Ctrl+C here does not close the browser).
-  ## False when none could be started; the caller then just prints the link.
-  when defined(windows):
-    openDefaultBrowser(url)
-    true
-  else:
-    var exe = if defined(macosx): "open" else: "xdg-open"
-    var args = @[url]
-    if not defined(macosx) and findExe("setsid").len > 0:
-      args = @[exe, url]
-      exe = "setsid"
-    if findExe(exe).len == 0: return false
-    try:
-      let p = startProcess(exe, args = args, options = {poUsePath, poParentStreams})
-      defer: p.close()
-      # xdg-open can stay alive as the browser itself; only a quick failure counts
-      for _ in 0 ..< 15:
-        if not p.running: return p.peekExitCode == 0
-        sleep(100)
-      true
-    except OSError:
-      false
-
 proc checkLines(label: string, checks: seq[PreflightCheck]): seq[string] =
   result.add label & ": " & (if allOk(checks): "ready" else: "not ready yet")
   for c in checks:
@@ -94,7 +69,17 @@ proc checkLines(label: string, checks: seq[PreflightCheck]): seq[string] =
     of csUnknown: result.add "  ?:   " & c.label & ". " & c.problem
     if c.state != csOk: result.add "       fix: " & c.fix
 
-proc startupChecks*(root: string, adapters: seq[AgentAdapter]): Run =
+proc optionalLines(checks: seq[PreflightCheck]): seq[string] =
+  ## Optional programs: listed, never counted, never a failure.
+  if checks.len == 0: return
+  result.add "Optional (Studio works without these):"
+  for c in checks:
+    if c.state == csOk: result.add "  ok:  " & c.label
+    else:
+      result.add "  --:  " & c.label & ". " & c.problem
+      result.add "       " & c.fix
+
+proc startupChecks*(root: string, adapters: seq[AgentAdapter], optional: seq[PreflightCheck] = @[]): Run =
   ## `para studio --check`: the checks `GET /api/preflight` runs, for every producer program that is
   ## installed (the page asks the one the game talks to; here no game is picked), or for the first
   ## of `adapters` when none is, so its "not installed" line and fix are shown. Read-only, like the
@@ -111,6 +96,7 @@ proc startupChecks*(root: string, adapters: seq[AgentAdapter]): Run =
   for (a, checks) in shown:
     lines.add checkLines(a.label, checks)
     if allOk(checks): ready = true
+  lines.add optionalLines(optional)
   lines.add "These never stop Studio from opening; the page shows them too, with a Check button."
   (lines.join("\n") & "\n", if ready: 0 else: 1)
 
@@ -160,7 +146,7 @@ proc runStudioWith*(args: seq[string], hooks: StudioHooks, root = "", paraExe = 
   if repo.len == 0:
     return errorOut("this is not a paraloop folder", @["Run `para studio` from inside the paraloop folder (the one with paraloop.nimble)"])
   if checkOnly:
-    return startupChecks(repo, allAdapters())
+    return startupChecks(repo, allAdapters(), @[boardCheck()])
   let plans = gamesWithPlan(repo)
   if requested.len > 0 and (not validGameName(requested) or requested notin plans):
     return errorOut("there is no game called \"" & cleanValue(requested) & "\" with a " & planFile & " in " & gamesDir & "/",

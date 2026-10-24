@@ -15,7 +15,7 @@ suite "para dispatch: help and errors":
     let r = dispatch(@["--help"])
     check r.code == 0
     check r.output == paraHelp
-    check r.output.contains("commands[16]{command,summary}:")
+    check r.output.contains("commands[17]{command,summary}:")
     check r.output.contains("examples[")
     for c in paraCommands:
       check r.output.contains("\n  " & c & " ") or r.output.contains("\n  " & c & ",")

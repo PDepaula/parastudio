@@ -5,7 +5,7 @@
 
 import art/toon
 
-const paraCommands* = ["art", "new", "test", "check", "save", "backup", "build", "sim", "shot", "driver", "live", "web", "setup", "producer-context", "studio"]
+const paraCommands* = ["art", "new", "test", "check", "save", "backup", "build", "sim", "shot", "driver", "live", "web", "setup", "producer-context", "studio", "board"]
 
 const paraHelp* = "para: build, test, see and drive paraloop games in this workspace; " &
   "bare `para` is the home view\n" &
@@ -25,7 +25,8 @@ const paraHelp* = "para: build, test, see and drive paraloop games in this works
     @["web pack [--game NAME | --dir DIR] [--out FILE]", "zip tmp/web/<game>/ into exactly what a static host needs (reproducible; a dev build is refused)"],
     @["setup hooks", "print a SessionStart hook config (prints only)"],
     @["producer-context", "print the producer voice, the game's names and a short resume digest (next step, last save point, unsaved changes, open choices) for a session-start hook (what .claude/settings.json and .codex/hooks.json run); nothing at all outside a friend's game folder or on any error, exit 0"],
-    @["studio [--game NAME] [--port N] [--no-open] [--turn-timeout MINUTES] [--check]", "open a page in your browser with the producer's chat (it runs the claude or codex program you installed and signed in to yourself, the page lets you pick per game; the studio never sees a login or key), a Play button that opens your game's own window and a screenshot button that puts a picture of it in the chat, Check, Save, your save points and the backup; served by `para` itself on 127.0.0.1 only, the link carries a key that changes every run; Check, Save and Backup run the same `para` commands with the same guards; a chat turn is stopped after --turn-timeout minutes (default 60); Ctrl+C stops it (and closes the game window); --check only prints the page's startup checks (installed, signed in, folder trusted) and exits"]]) &
+    @["studio [--game NAME] [--port N] [--no-open] [--turn-timeout MINUTES] [--check]", "open a page in your browser with the producer's chat (it runs the claude or codex program you installed and signed in to yourself, the page lets you pick per game; the studio never sees a login or key), a Play button that opens your game's own window and a screenshot button that puts a picture of it in the chat, Check, Save, your save points and the backup; served by `para` itself on 127.0.0.1 only, the link carries a key that changes every run; Check, Save and Backup run the same `para` commands with the same guards; a chat turn is stopped after --turn-timeout minutes (default 60); Ctrl+C stops it (and closes the game window); --check only prints the page's startup checks (installed, signed in, folder trusted) and exits"],
+    @["board [install|new TOPIC|open BOARD|answers BOARD|end BOARD|stop]", "visual boards: a page in the friend's browser where they click choices and leave notes and the answers come back to the producer (`para board --help`); a live board needs Lavish (lavish-axi, optional, from npm; `board install` says what and from where and asks y/n first), run on 127.0.0.1 only with its usage counts and publishing off; without it a board is a page whose button copies the picks"]]) &
   toonTable("flags", ["flag", "description"], @[
     @["--help", "show help for any command"],
     @["--version", "print the version"]]) &

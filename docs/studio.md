@@ -93,6 +93,11 @@ so it costs nothing.
 A check Studio cannot answer safely says **Could not check** with a hint, instead of a guess.
 Codex gets the first three checks and no edit check.
 
+Under **Optional** the checks also list **Lavish (visual boards)**, a program Studio works fine
+without (see [Visual boards](#visual-boards)). It is never counted in **Ready** and never a
+failure: when it is missing, the row says what it is and shows the one command that adds it,
+`tmp/para board install`, with a **Copy** button. The page installs nothing itself.
+
 **The first-run card.** When Claude is installed but not signed in, or does not trust this folder,
 the checks also show a card for the first run, which happens in a terminal the page cannot answer
 for you. It shows the folder to open a terminal in and the command to paste, with a **Copy**
@@ -231,6 +236,43 @@ screenshot is refused and the page says which game is open. Play is refused whil
 Backup runs. The producer can ask you to press either.
 
 ![The game's screenshot shown inline in the Studio chat](img/studio-3-play.png)
+
+## Visual boards
+
+When a choice is easier to see than to read (art options, picking a look, screenshots to compare,
+a plan with options), the producer can put it on a **board**: a page in your browser where you
+click your picks, leave a note if you like, and press one button, and it comes back to the
+producer. The answer is written down in your game's `CHOICES.md` like any other choice.
+
+- **With Lavish** (optional) the board is live: the button sends your picks straight back to the
+  producer. Lavish is `lavish-axi`, a free program (MIT licence) by Kun
+  Chen from the npm registry (<https://www.npmjs.com/package/lavish-axi>); it needs no account but
+  needs Node.js 22 or newer, which Studio itself does not. It is never installed for you. To add
+  it, run this in a terminal in the Studio folder:
+
+  ```text
+  tmp/para board install
+  ```
+
+  It says what it installs (`lavish-axi` 0.1.92, the version Studio was checked with), from where,
+  into which folder and how big, then asks a plain yes or no; only `y` or `yes` installs. It never
+  uses admin rights: if npm would need them, it stops and says so.
+- **Without Lavish** the board is the same page, opened on its own; its button copies your picks
+  as one line for you to paste into the chat. In Studio the screenshots in the chat (**Show me a
+  screenshot**) work too.
+
+**It stays on your computer.** Studio runs Lavish on `127.0.0.1` only, on its own port (4388) with
+its own settings in `tmp/lavish/`. Left to itself Lavish would also listen on your Tailscale
+address when Tailscale is running (so a phone on your tailnet could open a board); Studio turns
+that off, and closes a board at once if Lavish ever gives a link that is not on this computer.
+Studio also switches off Lavish's anonymous usage counts and its **Publish** menu item, which
+would otherwise put a copy of the board on a public website (ht-ml.app): with Studio it fails and
+nothing leaves the computer. Lavish stops by itself once no board is open, or after 30 idle
+minutes.
+
+Boards are scratch pages in `games/<game>/review/`, made from one shared template so every board
+looks the same: the Studio's colours, fonts and Pip, in light and dark, or your game's own palette
+when its `art/style.toml` names one. New games leave `review/` out of their save points.
 
 ## Check, Save and Backup
 

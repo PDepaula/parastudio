@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- The board template. `tmp/para board new TOPIC --game GAME` copies it to
+     games/GAME/review/TOPIC.html and fills in the marked parts (the title, the game, the fonts, the
+     stylesheet board.css, the game's palette if it has one, and Pip), so a board is one file that
+     loads nothing from anywhere else. In the copy, edit only what is between BOARD CONTENT START and
+     BOARD CONTENT END; the styling, the Send button and the script stay as they are. -->
+<html lang="en" data-lavish-annotate="off" data-board="{{topic}}"{{palette-attr}}>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<style>
+{{style}}
+</style>
+</head>
+<body>
+<svg class="pip-defs" width="0" height="0" aria-hidden="true" focusable="false"><defs>
+  <linearGradient id="pipGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFE953"/><stop offset="1" stop-color="#F3D400"/></linearGradient>
+  <radialGradient id="pipBody" cx="38%" cy="30%" r="85%"><stop offset="0" stop-color="#FFE953"/><stop offset="1" stop-color="#F3D400"/></radialGradient>
+</defs></svg>
+<main class="board">
+  <header class="board-head">
+    <span class="pip-tile">{{pip}}</span>
+    <div>
+      <p class="kicker">Para Studio &middot; {{game}}</p>
+      <h1>{{title}}</h1>
+      <p class="lede">Pick what you like, add a note if you want, then press the button at the bottom.</p>
+    </div>
+  </header>
+
+<!-- BOARD CONTENT START -->
+  <!-- One <section class="question"> per question. data-lavish-question is the answer's key (short,
+       lowercase); each option is a <label class="option"> with one radio (pick one) or checkbox
+       (pick any), its value the short answer. Mark the recommended one with <span class="pick">my
+       pick</span> and `checked`. Pictures: pass each with `tmp/para board open ... --picture FILE`,
+       then use <img class="pixel" src="pictures/FILE-NAME" width=".." height=".." alt="..."> at game
+       size (or a whole multiple of it). The note box is optional. -->
+  <section class="question" data-lavish-question="look">
+    <h2>Which look for the ship?</h2>
+    <p class="hint">Pick one. You can change your mind until you press the button.</p>
+    <div class="options">
+      <label class="option"><input type="radio" name="look" value="A" checked><span class="pick">my pick</span>
+        <span class="stage">picture A</span><span class="name">A: flat shapes</span><span class="what">clean and quick to read</span></label>
+      <label class="option"><input type="radio" name="look" value="B">
+        <span class="stage">picture B</span><span class="name">B: drawn sprite</span><span class="what">more character, more work</span></label>
+    </div>
+    <label class="note">Anything to add?<textarea name="look-note" rows="2"></textarea></label>
+  </section>
+<!-- BOARD CONTENT END -->
+
+  <footer class="send-bar">
+    <button type="button" class="btn primary" id="send">Send my picks to the producer</button>
+    <span id="status" role="status" aria-live="polite"></span>
+    <pre id="picks-line" hidden></pre>
+  </footer>
+</main>
+<script>
+// One answer for the whole board: every question's key and picks (and its note), as one line the
+// producer reads. In Lavish it is sent straight back (window.lavish); opened on its own, the button
+// copies the line so the friend can paste it into the chat.
+(() => {
+  const board = document.documentElement.dataset.board || "board";
+  const send = document.getElementById("send"), status = document.getElementById("status"), shown = document.getElementById("picks-line");
+  function collect() {
+    const answers = {}, notes = {}, parts = [];
+    for (const q of document.querySelectorAll("[data-lavish-question]")) {
+      const key = q.getAttribute("data-lavish-question");
+      const picked = [...q.querySelectorAll("input[type=radio]:checked, input[type=checkbox]:checked")].map((i) => i.value);
+      const note = [...q.querySelectorAll("textarea")].map((t) => t.value.trim()).filter(Boolean).join(" / ");
+      answers[key] = picked;
+      if (note) notes[key] = note;
+      parts.push(key + "=" + (picked.join("+") || "none") + (note ? " (note: " + note.replace(/\s+/g, " ") + ")" : ""));
+    }
+    return { line: "board picks (" + board + "): " + parts.join("; "), answers, notes };
+  }
+  function label() { send.textContent = window.lavish ? "Send my picks to the producer" : "Copy my picks"; }
+  label();
+  addEventListener("load", label);
+  send.addEventListener("click", async () => {
+    const r = collect();
+    if (window.lavish) {
+      window.lavish.queuePrompt(r.line, { tag: "board-picks", text: r.line, element: send, data: { board, answers: r.answers, notes: r.notes } });
+      window.lavish.sendQueuedPrompts();
+      status.textContent = "Sent to the producer. Change a pick and press it again to send a new answer.";
+      return;
+    }
+    shown.textContent = r.line;
+    shown.hidden = false;
+    try { await navigator.clipboard.writeText(r.line); status.textContent = "Copied. Paste it into the chat with the producer."; }
+    catch (e) { status.textContent = "Copy the line below and paste it into the chat with the producer."; }
+  });
+})();
+</script>
+</body>
+</html>

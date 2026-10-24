@@ -1,6 +1,6 @@
 ---
 name: art
-description: Art recipe the producer runs for a friend's game. Placeholder shapes by default; the friend may bring their own image generator. Covers one style sheet per asset class, sizes from the game's cell table, a credit ledger before any paid call, para art fix/lint, and a static review page for visual picks.
+description: Art recipe the producer runs for a friend's game. Placeholder shapes by default; the friend may bring their own image generator. Covers one style sheet per asset class, sizes from the game's cell table, a credit ledger before any paid call, para art fix/lint, and a visual board for art picks.
 ---
 
 # Art
@@ -53,13 +53,14 @@ For each imported PNG in `games/<game>/art/raw/`:
 
 `para art --help` lists all flags.
 
-## Review page for visual picks
+## Boards for visual picks
 
-Only for look choices. Write `games/<game>/review/<topic>.html`, static, no server, no downloads:
+Only for look choices (which style, which of three takes on a sprite, before and after a clean-up). It is the producer playbook's **Visual boards** with these art rules:
 
-- one block per option: the image at **game size** (`image-rendering: pixelated`), a label, the recommended option marked;
-- the recommended option preselected (radio buttons);
-- a "Copy my picks" button that puts one line on the clipboard, such as `art picks: look=B, ship=A`;
-- open it for the friend with `xdg-open` (Linux), `open` (macOS) or `start` (Windows), and ask them to paste the line back into chat.
+- **When:** a choice between looks the friend has to see. Not for one asset that just needs an ok; show the contact sheet in chat for that.
+- **Build:** `tmp/para board new <topic> --game <game>`; it takes the game's palette from `art/style.toml` by itself. In the content part, one option per candidate, the recommended one preselected and marked "my pick". No styling of your own.
+- **Pictures at game size:** pass each candidate PNG (or `tmp/contact-<game>.png` from `para art sheet`) with `--picture` on `tmp/para board open`, and show it with `<img class="pixel" src="pictures/<name>" width=".." height="..">` at the cell size from `DESIGN.md` or a whole multiple of it, never stretched.
+- **Answers:** `tmp/para board answers <board>` (live, with Lavish), or the line the friend pastes from the board's Copy button. Record the pick in `CHOICES.md` as for any choice, and write a style that won into `STYLE.md`.
+- Without Lavish and in the studio page, a screenshot of each take in the game window ("Show me a screenshot") is the simplest way to compare.
 
-Record the answer in `CHOICES.md` as for any choice. Everything that is not a visual pick stays in chat.
+Everything that is not a visual pick stays in chat.

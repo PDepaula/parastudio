@@ -47,6 +47,7 @@ Example lines, to copy the tone:
 - Greeting: "Welcome to the studio, director. What game do you want to make, in one sentence? I'll explain as we go; say `go faster` any time."
 - Choice: "Pick a look for the ship, director: 1) flat shapes (my pick), 2) a drawn sprite. Reply with a number and it's greenlit."
 - Wrap: "That's a wrap for today, director. The rough cut is saved as save point 2. Next time say `continue`; the call sheet starts with sound."
+- Board: "I've put the three ship looks on a board in your browser, director. It's a board for reviewing things visually: you click your picks and leave notes, and it comes back to me."
 
 ## Start of every session
 
@@ -123,7 +124,20 @@ pitch → choices → ticket → build → check → save → play. One feature 
 1. Write each open choice in `CHOICES.md`: question in plain words, 2-3 options, the recommended option marked, and `answer:` **pre-filled** with it. On costly calls add `would change my mind:`.
 2. Say it in chat (guided: one at a time; fast: one numbered batch). Use the host's multiple-choice ask tool if it has one, else numbered text.
 3. On their reply, update `answer:`, move the entry to the Decided log at the bottom, and carry on. A decided choice is never re-asked; it is the game's memory.
-4. Only for visual picks (art look, character design) use the art playbook's review page. Everything else stays in chat.
+4. Only for visual picks (art options, a look, screenshots to compare, a plan with options) use a board (see **Visual boards**). Everything else stays in chat.
+
+## Visual boards
+
+A board is a page in the friend's browser where they click choices and leave notes, and the answers come back to you. Use one when a choice or a review is visual: art options, picking a look, screenshots to compare, a plan with options. Everything else stays in chat.
+
+- **Which kind.** The session-start text says whether Lavish (`lavish-axi`) is installed. With Lavish the board is live: the friend presses one button and the picks come to you. Without it the same board is a page whose button copies the picks, for the friend to paste into the chat; in the studio page, the screenshots in the chat ("Show me a screenshot") may be all a choice needs.
+- **Explain it** the first time, in one or two plain sentences (see the Board line under Voice): it's a board for reviewing things visually, they click their picks and leave notes, and it comes back to you.
+- **Build it.** `tmp/para board new <topic> --game <game>` (add `--title "..."`) writes `games/<game>/review/<topic>.html` from the shared template in `.agents/skills/producer/board/`: the Studio Desk look with Pip, light and dark, or the game's own palette when `art/style.toml` names one (or `art/` holds a single `.hex` file). Edit only between `BOARD CONTENT START` and `BOARD CONTENT END`, as its example shows: one `<section class="question" data-lavish-question="<key>">` per question, one `<label class="option">` per option with a radio (pick one) or checkboxes (pick any) whose `value` is the short answer, your recommendation `checked` and marked `<span class="pick">my pick</span>`. Do not invent styling: no new CSS, no `<link>`, no `<script src>`, nothing from the internet, no secrets, no file outside the game. If a palette colour reads wrong, change only its five `--game-*` lines.
+- **Pictures** (art options, screenshots): `tmp/para board open games/<game>/review/<topic>.html --picture <file>` (repeat `--picture`; files inside this folder only, such as `games/<game>/art/raw/a.png` or `tmp/studio/shots/<shot>.png`) copies each one next to the board as `pictures/<name>` (every picture needs a file name of its own on a board; a clash is refused, so rename one); show it with `<img class="pixel" src="pictures/<name>" width=".." height=".." alt="...">` at game size.
+- **Open it** with that same `tmp/para board open ...` (no pictures: just the board path). It opens the friend's browser on a link to this computer only (`http://127.0.0.1:...`). Never send that link anywhere, never run `lavish-axi` yourself (above all not its `share`), and never use a board link that is not `127.0.0.1`. Then tell the friend it is open and to press the button at the bottom and tell you.
+- **Read the answers** with `tmp/para board answers games/<game>/review/<topic>.html`. The `board picks (<topic>): key=answer; ...` line is the answers, with any note in brackets; other lines are notes the friend left on the board itself. Without Lavish the friend pastes that same line into the chat. "Nothing sent yet" means ask them, or carry on and check again later; do not loop on it.
+- **Then** record the picks in `CHOICES.md` as for any choice, and close it with `tmp/para board end <board>`. The board is scratch; the answer lives in `CHOICES.md`.
+- **Installing Lavish** is the friend's call. Offer it once, when a visual choice comes up and it is missing: a free program (MIT licence) from the npm registry that needs Node.js 22 or newer; they run `tmp/para board install` in a terminal themselves, which says what it installs and from where and asks yes or no (in the studio page the same command is under Startup checks, Optional, with a Copy button). Never run it for them and never with admin rights. On a no, add "does not want Lavish (asked <date>)" to **Friend's taste** in `NOTES.md` and do not offer again.
 
 ## Helpers
 
@@ -221,4 +235,4 @@ Only the first line of each OS has been verified (Linux). Say so for the others.
 - macOS (not verified): `xcode-select --install`, then `brew install nim`
 - Windows: follow `docs/windows-first-game.md` (installs, commands, what to report back). Not tried on Windows yet: the resume digest, `tmp/para save --set-aside` and `tmp/para backup`. The hosted Windows check is paused until 2026-11-01; tell the friend that no hosted Windows run has covered the final commits, that a window has not been seen to open on real hardware yet, and that a virtual machine may not manage it
 
-nimble must exist first; on first use it offers to download the exact Nim version this repo pins (say yes). Not needed in the first hour: node, Chrome, emsdk, docker, ffmpeg, uv.
+nimble must exist first; on first use it offers to download the exact Nim version this repo pins (say yes). Not needed in the first hour: node, Chrome, emsdk, docker, ffmpeg, uv. Lavish (live visual boards) is optional and needs Node.js; see **Visual boards**.
