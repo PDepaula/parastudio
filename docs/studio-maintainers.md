@@ -380,7 +380,9 @@ code is `tools/para/lanecmd.nim` (`para lane`); its header has the whole design.
   existing `test --filter games/*`, `build --game *` and `check --game *` rules cover the lane forms.
 - **Limits.** Memory, not disk: one compile of a large game holds 3 to 4 GB, so the playbook keeps
   it to two helpers compiling at once. A lane costs about 64 KB of files plus about 6 MB of cache per
-  compiled program.
+  compiled program. Measured on Linux (32 cores): two lanes testing and building the template game
+  at once took 7.5 s wall; a real Studio turn in which the producer ran two builders and two
+  checkers in parallel, landed both, checked and saved took 79 s.
 - **Windows and macOS (not verified, reasoned from git's documentation).** `git worktree` is in Git
   for Windows since 2.5 and needs no symlinks or developer mode (a linked worktree's `.git` is a
   plain text file). Every path is passed to git as an argument list, never through a shell, and
