@@ -1,0 +1,4 @@
+# Windows batch files need CRLF line endings to run reliably (labels and goto can misfire with LF).
+# Keep them CRLF in every checkout and in `git archive` zips.
+*.bat text eol=crlf
+*.cmd text eol=crlf

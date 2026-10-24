@@ -1,5 +1,8 @@
 # Your first game on Windows
 
+Prefer a double-click? `Paraloop-Studio.bat` does the checks and builds below for you and
+starts Studio: see [windows.md](windows.md). This page is the same route typed by hand in Git Bash.
+
 A short checklist to go from nothing to a game window on a Windows PC. Do the
 steps in order and stop at the first one that fails (see "If a step fails" at the
 end).
