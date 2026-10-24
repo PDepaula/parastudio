@@ -24,7 +24,7 @@
 #
 # Programs are parameters (`BoardTools`) so tests drive stand-ins; `root` is the paraloop checkout.
 
-import std/[os, osproc, strutils, strtabs, streams, times, math, options]
+import std/[os, osproc, strutils, strtabs, streams, times, math, options, tables]
 import art/[clihelpers, toon, profile]
 import savepoint
 import browser
@@ -47,11 +47,9 @@ const
   picturesDir* = "pictures"
   maxPictures = 24
   maxPictureBytes = 10_000_000
-  maxReply = 1000
   maxTitle = 60
   openTimeoutMs = 60_000
   quickTimeoutMs = 20_000
-  maxWaitSeconds = 540 ## an agent's shell call is cut off at about ten minutes
   pictureExts = [".png", ".jpg", ".jpeg", ".gif", ".webp"]
   templateDir = ".." / ".." / ".agents" / "skills" / "producer" / "board"
   boardTemplate = staticRead(templateDir / "board.html")
@@ -61,22 +59,18 @@ const
   droppedEnv = ["LAVISH_AXI_LINK_HOST", "LAVISH_AXI_ALLOWED_HOSTS", "LAVISH_AXI_HTML_APP_TOKEN",
                 "LAVISH_AXI_UMAMI_HOST", "LAVISH_AXI_UMAMI_WEBSITE_ID", "LAVISH_AXI_IDLE_TIMEOUT_MS"]
 
-const boardHelp* = "para board [status]\n" &
-  "para board install\n" &
+const boardHelp* = "para board install\n" &
   "para board new TOPIC [--game NAME] [--title TEXT] [--replace]\n" &
-  "para board open BOARD [--picture FILE]... [--reopen]\n" &
-  "para board answers BOARD [--wait SECONDS]\n" &
-  "para board reply BOARD -m TEXT\n" &
+  "para board open BOARD [--picture FILE]...\n" &
+  "para board answers BOARD\n" &
   "para board end BOARD\n" &
   "para board stop\n" &
   "  visual boards: a page in the friend's browser where they click choices and leave notes, and the answers come back to the producer\n" &
-  "  status   says whether Lavish (lavish-axi, optional, the program that runs a live board) is installed, and how para board runs it\n" &
   "  install  says what it would install (" & lavishProgram & " " & lavishTested & " from the npm registry, MIT licence, needs Node.js " & $nodeNeeded & "+), from where and into which folder, then asks y/n; only y or yes installs, never with admin rights\n" &
   "  new      writes games/<game>/review/TOPIC.html from the shared template (the Studio Desk look, or the game's own palette); edit only between BOARD CONTENT START and END\n" &
-  "  open     copies each --picture (an image inside this folder) to the board's pictures/ folder and opens the board: live with Lavish, else as a page whose button copies the picks\n" &
-  "           --reopen only when the friend asks for a board they closed themself\n" &
-  "  answers  what the friend sent from the board, waiting up to --wait SECONDS (default 2, at most " & $maxWaitSeconds & ")\n" &
-  "  reply    shows a short message on the board;  end  closes it;  stop  stops Lavish (it also stops by itself once nothing is open, or after 30 idle minutes)\n" &
+  "  open     copies each --picture (an image inside this folder, each with its own file name) to the board's pictures/ folder and opens the board: live with Lavish, else as a page whose button copies the picks\n" &
+  "  answers  what the friend has sent from the board so far\n" &
+  "  end      closes the board;  stop  stops Lavish (it also stops by itself once nothing is open, or after 30 idle minutes)\n" &
   "  BOARD is games/<game>/review/<topic>.html. Lavish runs on this computer only (127.0.0.1, port " & $boardPort & "), with its usage counts and its publishing switched off; a link that is not local is closed at once\n"
 
 type
@@ -140,15 +134,27 @@ proc isLocalUrl*(url: string): bool =
       return true
   false
 
+type Drain = object
+  stream: Stream
+  output: string
+
+proc drainMain(d: ptr Drain) {.thread.} =
+  {.gcsafe.}:
+    d.output = d.stream.readAll()
+
 proc runLavish(t: BoardTools, root: string, args: seq[string], timeoutMs: int): tuple[output: string, code: int] =
-  ## One Lavish command in `root` with `localEnv`, stopped after `timeoutMs`.
+  ## One Lavish command in `root` with `localEnv`, stopped after `timeoutMs`. Its output is read
+  ## while it runs, so an answer longer than the pipe holds cannot stall it.
   var p: Process
   try:
     p = startProcess(t.lavish, workingDir = root, args = args, env = localEnv(root),
                      options = {poStdErrToStdOut})
   except OSError as e:
     return ("cannot run " & lavishProgram & ": " & e.msg & "\n", 127)
-  defer: p.close()
+  let drain = createShared(Drain)
+  drain.stream = p.outputStream
+  var reader: Thread[ptr Drain]
+  createThread(reader, drainMain, drain)
   let deadline = epochTime() + timeoutMs.float / 1000.0
   while p.running and epochTime() < deadline:
     sleep(20)
@@ -156,8 +162,12 @@ proc runLavish(t: BoardTools, root: string, args: seq[string], timeoutMs: int): 
     p.kill()
     discard p.waitForExit()
     return (lavishProgram & " did not answer within " & $(timeoutMs div 1000) & " seconds\n", 124)
-  result.output = p.outputStream.readAll()
   result.code = p.waitForExit()
+  joinThread(reader)
+  result.output = drain.output
+  drain.stream = nil
+  freeShared(drain)
+  p.close()
 
 proc field(output, name: string): string =
   ## The value of a top-level `name: value` line of Lavish's answer, without quotes.
@@ -351,10 +361,14 @@ proc runNew(root: string, args: seq[string]): Run =
 
 proc copyPictures(root: string, bf: BoardFile, files: seq[string], copied: var seq[string]): string =
   ## Copies each picture into the board's own pictures/ folder (a board can only show what sits
-  ## next to it). Only an image file inside this folder; "" when all went, else what is wrong.
+  ## next to it). Only an image file inside this folder, each under a name of its own: two files
+  ## with one name, or a name the board already has with other content, are refused before anything
+  ## is copied. "" when all went, else what is wrong.
   if files.len == 0: return ""
   let realRoot = try: expandFilename(root) except OSError: root
   let dest = boardPathOf(root, bf).parentDir / picturesDir
+  var taken = initTable[string, string]() # destination name -> the --picture that wants it
+  var plan: seq[(string, string)] # source, destination name
   for f in files:
     let src = if f.isAbsolute: f else: root / f
     let ext = src.splitFile.ext.toLowerAscii
@@ -370,11 +384,21 @@ proc copyPictures(root: string, bf: BoardFile, files: seq[string], copied: var s
     var name = ""
     for c in src.extractFilename:
       name.add(if c in {'a'..'z', 'A'..'Z', '0'..'9', '.', '-', '_'}: c else: '-')
+    if name in taken:
+      return "\"" & taken[name] & "\" and \"" & f & "\" would both be " & picturesDir & "/" & name & "; give one of the files another name"
+    taken[name] = f
+    try:
+      if fileExists(dest / name) and readFile(dest / name) != readFile(real):
+        return picturesDir & "/" & name & " is already on this board with other content, so \"" & f & "\" would replace it; give the file another name"
+    except IOError, OSError:
+      return "could not read \"" & f & "\": " & getCurrentExceptionMsg()
+    plan.add (real, name)
+  for (real, name) in plan:
     try:
       createDir(dest)
       copyFile(real, dest / name)
     except IOError, OSError:
-      return "could not copy \"" & f & "\": " & getCurrentExceptionMsg()
+      return "could not copy \"" & name & "\": " & getCurrentExceptionMsg()
     copied.add picturesDir & "/" & name
   ""
 
@@ -389,17 +413,15 @@ proc endQuietly(t: BoardTools, root: string, bf: BoardFile) =
 proc runOpen(t: BoardTools, root: string, args: seq[string]): Run =
   var target = ""
   var pictures: seq[string]
-  var reopen = false
   var i = 0
   while i < args.len:
     case args[i]
-    of "--reopen": reopen = true
     of "--picture":
       inc i
       if i >= args.len: return errorOut("--picture needs a file", @[])
       pictures.add args[i]
     else:
-      if args[i].startsWith("-"): return errorOut("unknown flag \"" & args[i] & "\"", @["Valid flags: --picture FILE, --reopen"])
+      if args[i].startsWith("-"): return errorOut("unknown flag \"" & args[i] & "\"", @["Valid flags: --picture FILE"])
       if target.len > 0: return errorOut("para board open takes one BOARD", @[])
       target = args[i]
     inc i
@@ -423,14 +445,10 @@ proc runOpen(t: BoardTools, root: string, args: seq[string]): Run =
       "In the studio, the screenshots in the chat work as well. Lavish (a live board that sends the picks back by itself) is optional: " &
       "the friend can add it with " & boardInstallCommand & ", which asks first.\"\n"
     return
-  let r = runLavish(t, root, (if reopen: @[bf.rel, "--reopen"] else: @[bf.rel]), openTimeoutMs)
+  let r = runLavish(t, root, @[bf.rel], openTimeoutMs)
   let url = field(r.output, "url")
   if r.code != 0 or url.len == 0:
-    if "--reopen" in r.output:
-      result.output.add "error: the friend closed this board themself, so it stays closed\n" &
-        toonHelp(@["Open it again only if they ask: tmp/para board open " & bf.rel & " --reopen"])
-    else:
-      result.output.add "error: Lavish could not open the board\n" & r.output.strip & "\n"
+    result.output.add "error: Lavish could not open the board\n" & r.output.strip & "\n"
     result.code = 1
     return
   if not isLocalUrl(url):
@@ -444,13 +462,13 @@ proc runOpen(t: BoardTools, root: string, args: seq[string]): Run =
     "next_step: \"Tell the friend the board is open in their browser: click the choices, add a note if they want, " &
     "then press the button at the bottom, and tell you here when they have. Then run: tmp/para board answers " & bf.rel & "\"\n"
 
-# --- answers, reply, end ------------------------------------------------------------------
+# --- answers, end ------------------------------------------------------------------
 
 proc nextStepFor(status: string, bf: BoardFile): string =
   case status
   of "feedback":
     "Read every prompt above: the \"board picks (" & bf.topic & ")\" line is the answers (question=pick), any other line is a note the friend left on the board. " &
-    "Record the picks in CHOICES.md, then thank them on the board with: tmp/para board reply " & bf.rel & " -m \"...\", or close it with: tmp/para board end " & bf.rel
+    "Record the picks in CHOICES.md, then close the board with: tmp/para board end " & bf.rel
   of "waiting":
     "Nothing sent yet: the friend has not pressed the button on the board. Ask them to, or carry on in the chat and run this again when they say they have."
   of "ended":
@@ -461,7 +479,7 @@ proc nextStepFor(status: string, bf: BoardFile): string =
     "Lavish answered something para board does not know; read it above, and carry on in the chat if it is unclear."
 
 proc boardArg(root: string, args: seq[string], bf: var BoardFile): string =
-  ## The one BOARD argument of answers/reply/end (flags already taken out).
+  ## The one BOARD argument of answers/end (flags already taken out).
   if args.len != 1: return "this needs one BOARD (games/<game>/review/<topic>.html)"
   result = boardFile(root, args[0], bf)
   if result.len == 0 and not fileExists(boardPathOf(root, bf)): result = "there is no board " & bf.rel
@@ -472,25 +490,13 @@ proc lavishNeeded(): Run =
               "To add Lavish (optional), the friend runs " & boardInstallCommand & " in a terminal; it asks first"]), 1)
 
 proc runAnswers(t: BoardTools, root: string, args: seq[string]): Run =
-  var wait = 2
-  var rest: seq[string]
-  var i = 0
-  while i < args.len:
-    if args[i] == "--wait":
-      inc i
-      if i >= args.len or args[i].len notin 1..3 or not args[i].allCharsInSet(Digits) or parseInt(args[i]) > maxWaitSeconds:
-        return errorOut("--wait needs a number of seconds from 0 to " & $maxWaitSeconds, @[])
-      wait = parseInt(args[i])
-    elif args[i].startsWith("-"):
-      return errorOut("unknown flag \"" & args[i] & "\"", @["Valid flags: --wait SECONDS"])
-    else: rest.add args[i]
-    inc i
+  for a in args:
+    if a.startsWith("-"): return errorOut("unknown flag \"" & a & "\"", @[])
   var bf: BoardFile
-  let bad = boardArg(root, rest, bf)
+  let bad = boardArg(root, args, bf)
   if bad.len > 0: return errorOut(bad, @[])
   if t.lavish.len == 0: return lavishNeeded()
-  let ms = max(wait * 1000, 1500)
-  let r = runLavish(t, root, @["poll", bf.rel, "--timeout-ms", $ms], ms + quickTimeoutMs)
+  let r = runLavish(t, root, @["poll", bf.rel, "--timeout-ms", "2000"], 2000 + quickTimeoutMs)
   if r.code != 0:
     return ("error: Lavish could not read the board's answers\n" & r.output.strip & "\n", 1)
   # Lavish's own next step names its own commands, and its page outline only repeats the board:
@@ -498,37 +504,6 @@ proc runAnswers(t: BoardTools, root: string, args: seq[string]): Run =
   for line in r.output.strip.splitLines:
     if not line.startsWith("next_step:") and not line.startsWith("dom_snapshot:"): result.output.add line & "\n"
   result.output.add "next_step: " & toonCell(nextStepFor(field(r.output, "status"), bf)) & "\n"
-
-proc runReply(t: BoardTools, root: string, args: seq[string]): Run =
-  var text = ""
-  var rest: seq[string]
-  var i = 0
-  while i < args.len:
-    if args[i] == "-m":
-      inc i
-      if i >= args.len: return errorOut("-m needs the message", @[])
-      text = args[i].strip
-    elif args[i].startsWith("-"):
-      return errorOut("unknown flag \"" & args[i] & "\"", @["Valid flags: -m TEXT"])
-    else: rest.add args[i]
-    inc i
-  var bf: BoardFile
-  let bad = boardArg(root, rest, bf)
-  if bad.len > 0: return errorOut(bad, @[])
-  if text.len == 0: return errorOut("-m needs the message", @[])
-  if t.lavish.len == 0: return lavishNeeded()
-  if text.len > maxReply: text = text[0 ..< maxReply]
-  # through a file, so no shell or quoting ever sees the words
-  let file = stateDir(root) / ("reply-" & bf.game & "-" & bf.topic & ".md")
-  try:
-    createDir(file.parentDir)
-    writeFile(file, text & "\n")
-  except IOError, OSError:
-    return ("error: could not write " & file & "\n", 1)
-  let r = runLavish(t, root, @["reply", bf.rel, "--agent-reply-file", file], quickTimeoutMs)
-  discard tryRemoveFile(file)
-  if r.code != 0: return ("error: Lavish did not take the reply\n" & r.output.strip & "\n", 1)
-  ("board: " & bf.rel & "\nreply: shown on the board\n", 0)
 
 proc runEnd(t: BoardTools, root: string, args: seq[string]): Run =
   for a in args:
@@ -547,7 +522,7 @@ proc runStop(t: BoardTools, root: string): Run =
   if r.code != 0: return ("error: Lavish did not stop\n" & r.output.strip & "\n", 1)
   ("lavish: stopped\n", 0)
 
-# --- status and install -------------------------------------------------------------------
+# --- the startup row and install -------------------------------------------------------------------
 
 const
   whatItIs* = "optional: a board for reviewing things visually, where the friend clicks choices and leaves notes, and the answers come back to the producer"
@@ -562,16 +537,6 @@ proc boardCheck*(lavish = lavishExe()): PreflightCheck =
     failed("boards", "Lavish (visual boards)",
       "Optional, not installed. Lavish is a board for reviewing things visually: you click choices and leave notes, and it comes back to the producer. Without it the producer uses the studio's screenshots.",
       "To add it, run in a terminal in this folder: " & boardInstallCommand & "  (it says what it installs and from where, and asks first)")
-
-proc runStatus(t: BoardTools, root: string): Run =
-  if t.lavish.len == 0:
-    return ("lavish: not installed (" & whatItIs & ")\n" &
-      "without it: a board is a page the friend opens on its own and copies the picks from; in the studio, the screenshots in the chat work too\n" &
-      toonHelp(@["To add it, the friend runs " & boardInstallCommand & " in a terminal: it says what it installs and from where, and asks first"]), 0)
-  let v = lavishVersion(t, root)
-  ("lavish: installed (" & (if v.len > 0: lavishProgram & " " & v else: lavishProgram) & ", checked with " & lavishTested & ")\n" &
-   "what: " & whatItIs & "\n" &
-   "runs: " & howItRuns & "\n", 0)
 
 proc nodeMajor*(versionText: string): int =
   ## 26 from "v26.2.0"; 0 when it is not a version.
@@ -659,27 +624,24 @@ proc runBoardWith*(args: seq[string], t: BoardTools, root = ""): Run =
   let repo = if root.len > 0: root else: findCheckout(getCurrentDir())
   if repo.len == 0:
     return errorOut("this is not a paraloop folder", @["Run `para board` from inside the paraloop folder (the one with paraloop.nimble)"])
-  let sub = if args.len == 0: "status" else: args[0]
+  if args.len == 0: return (boardHelp, 0)
+  let sub = args[0]
   let rest = if args.len > 1: args[1 .. ^1] else: @[]
   if rest.len > 0 and rest[0] in ["--help", "-h"]: return (boardHelp, 0)
   case sub
-  of "status":
-    if rest.len > 0: return errorOut("para board status takes no arguments", @[])
-    runStatus(t, repo)
   of "install":
     if rest.len > 0: return errorOut("para board install takes no arguments", @[])
     runInstall(t, repo)
   of "new": runNew(repo, rest)
   of "open": runOpen(t, repo, rest)
   of "answers": runAnswers(t, repo, rest)
-  of "reply": runReply(t, repo, rest)
   of "end": runEnd(t, repo, rest)
   of "stop":
     if rest.len > 0: return errorOut("para board stop takes no arguments", @[])
     runStop(t, repo)
   else:
     errorOut("unknown command \"board " & sub & "\"",
-      @["Valid commands: board status, board install, board new, board open, board answers, board reply, board end, board stop"])
+      @["Valid commands: board install, board new, board open, board answers, board end, board stop"])
 
 proc runBoard*(args: seq[string]): Run =
   runBoardWith(args, realTools())

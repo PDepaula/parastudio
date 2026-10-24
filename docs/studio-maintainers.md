@@ -160,15 +160,13 @@ leaves notes; the answer comes back to the producer (producer playbook, "Visual 
   the browser, and ends the session otherwise. `share`, `update`, `setup` and `export` are never
   run. The server stops by itself after the last session ends with nothing connected or after 30
   idle minutes; `para board stop` stops it at once.
-- **Answers.** `para board answers` runs `lavish-axi poll --timeout-ms` (2 s by default, `--wait`
-  up to 540 s), since a chat turn cannot hold an endless poll; Lavish keeps a sent answer queued
-  until it is read. The template's one button queues a single prompt, `board picks (<topic>):
+- **Answers.** `para board answers` runs `lavish-axi poll --timeout-ms` (2 s), since a chat turn
+  cannot hold an endless poll; Lavish keeps a sent answer queued until it is read. The template's one button queues a single prompt, `board picks (<topic>):
   key=answer; ...`, with the same answers as JSON. Lavish's own `next_step` (which names raw
-  `lavish-axi` commands) and page outline are replaced by para board's next step. Replies go
-  through a file (`--agent-reply-file`), so no shell sees the words.
+  `lavish-axi` commands) and page outline are replaced by para board's next step.
 - **Pictures** are copied next to the board (`pictures/`), because Lavish serves only the board's
   own folder: only image files from inside this folder, at most 10 MB each.
-- The producer may run `tmp/para board` and its `new`, `open`, `answers`, `reply`, `end` and `stop`
+- The producer may run `tmp/para board` and its `new`, `open`, `answers`, `end` and `stop`
   without a prompt (`.claude/settings.json`); never `install`. Not tried yet: Windows (npm's
   `lavish-axi.cmd`) and Codex as the producer (its sandbox may not allow the local server).
 

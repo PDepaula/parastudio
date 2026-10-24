@@ -256,8 +256,7 @@ producer. The answer is written down in your game's `CHOICES.md` like any other 
 
   It says what it installs (`lavish-axi` 0.1.92, the version Studio was checked with), from where,
   into which folder and how big, then asks a plain yes or no; only `y` or `yes` installs. It never
-  uses admin rights: if npm would need them, it stops and says so. `tmp/para board` says whether
-  Lavish is installed.
+  uses admin rights: if npm would need them, it stops and says so.
 - **Without Lavish** the board is the same page, opened on its own; its button copies your picks
   as one line for you to paste into the chat. In Studio the screenshots in the chat (**Show me a
   screenshot**) work too.

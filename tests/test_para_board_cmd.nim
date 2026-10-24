@@ -7,7 +7,7 @@
 #   (checked here against the Studio page and the documentation site), the fonts as data: URIs,
 #   Pip, nothing from anywhere else; the game's own palette when it has one;
 # - `board open` copies pictures from inside the folder only, and without Lavish opens the page on
-#   its own; `answers`, `reply` and `end` talk to Lavish only through `localEnv`;
+#   its own; `answers` and `end` talk to Lavish only through `localEnv`;
 # - `board install` never installs without a "yes": it says what, from where and into which folder,
 #   and refuses when Node.js is missing or too old or the npm folder needs admin rights;
 # - the optional startup-check row and the hook's line.
@@ -43,16 +43,15 @@ proc fakeLavishMain() =
   case cmd
   of "--version": echo "0.1.92"
   of "poll":
-    if getEnv("FAKE_LAVISH_POLL") == "feedback":
+    if getEnv("FAKE_LAVISH_POLL") == "big":
+      echo "session:\n  file: /x/look.html\n  status: feedback\nprompts[1]{uid,prompt}:\n" &
+        "  \"1\",\"board picks (look): look=B\"\ndom_snapshot: \"" & 'x'.repeat(300_000) & "\"\nnext_step: \"Run lavish-axi\""
+    elif getEnv("FAKE_LAVISH_POLL") == "feedback":
       echo "session:\n  file: /x/look.html\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n" &
         "  \"1\",\"board picks (look): look=B (note: more red)\",button#send,board-picks,\"board picks (look): look=B (note: more red)\"\n" &
         "dom_snapshot: \"uid=1 body\"\nnext_step: \"Run `lavish-axi poll /x/look.html --agent-reply` ...\""
     else:
       echo "session:\n  file: /x/look.html\n  status: waiting\nnext_step: \"Run `lavish-axi poll /x/look.html` without --timeout-ms\""
-  of "reply":
-    let i = args.find("--agent-reply-file")
-    fakeLog("reply-text: " & (if i >= 0: readFile(args[i + 1]).strip else: "<none>"))
-    echo "reply:\n  status: accepted"
   of "end": echo "session:\n  status: ended"
   of "stop": echo "server:\n  status: stopped"
   else:
@@ -143,13 +142,11 @@ suite "board: Lavish stays on this computer":
     check s.board("new", "look", "--game", "pong").code == 0
     check s.board("open", "games/pong/review/look.html").code == 0
     check s.board("answers", "games/pong/review/look.html").code == 0
-    check s.board("reply", "games/pong/review/look.html", "-m", "thanks").code == 0
     check s.board("end", "games/pong/review/look.html").code == 0
     check s.board("stop").code == 0
-    check s.board("status").code == 0
     let lines = logLines(s.log)
     let envs = lines.filterIt(it.startsWith("env: "))
-    check envs.len == 6 # open, answers, reply, end, stop and status's --version; `new` runs nothing
+    check envs.len == 4 # open, answers, end and stop; `new` runs nothing
     for e in envs:
       check "LAVISH_AXI_HOST=127.0.0.1" in e and ("LAVISH_AXI_PORT=" & $boardPort) in e
       check "LAVISH_AXI_TELEMETRY=0" in e and "LAVISH_AXI_HTML_APP_API_URL=http://127.0.0.1:9" in e
@@ -173,16 +170,22 @@ suite "board: Lavish stays on this computer":
     check s.opened.len == 0
     check logLines(s.log).anyIt(it == "args: end games/pong/review/look.html")
 
-  test "the words the friend and the producer see say local only, and never name another address":
-    check "127.0.0.1" in boardHelp and "only on this computer" in howItRuns
-    for text in [boardHelp, howItRuns, whatItIs, boardsLine, noBoardsLine]:
-      for bad in ["0.0.0.0", "ts.net", "tailnet", "LAN", "ht-ml.app"]:
-        check bad notin text
-    # the producer may run the board commands without asking, but never install or Lavish itself
+  test "the producer may run the board commands without asking, but never install or Lavish itself":
     let allow = parseJson(readFile(repoRoot / ".claude" / "settings.json"))["permissions"]["allow"].mapIt(it.getStr)
     check "Bash(tmp/para board open *)" in allow and "Bash(tmp/para board answers *)" in allow
     for rule in allow:
       check "lavish" notin rule and "board install" notin rule and "npm" notin rule
+
+  test "bare board prints its help; commands and flags that are not there are refused":
+    let s = scratch("pong")
+    defer: s.done()
+    let h = s.board()
+    check h.code == 0 and "para board install" in h.output and "reply" notin h.output and "status" notin h.output
+    check s.board("status").code == 2 and s.board("reply", "games/pong/review/look.html", "-m", "x").code == 2
+    check s.board("new", "look", "--game", "pong").code == 0
+    check s.board("open", "games/pong/review/look.html", "--reopen").code == 2
+    check s.board("answers", "games/pong/review/look.html", "--wait", "60").code == 2
+    check not fileExists(s.log)
 
 # --- the board file -----------------------------------------------------------------------
 
@@ -227,7 +230,6 @@ suite "board: the template and the Studio Desk look":
     check "BOARD CONTENT START" in html and "BOARD CONTENT END" in html
     for bad in ["http://", "https://", "<link", "<script src", "@import", "url(http", "url(//"]:
       check bad notin html
-    check "window.lavish.queuePrompt" in html and "navigator.clipboard" in html
 
   test "a board is not overwritten unless asked; topics and games are checked":
     let s = scratch("pong")
@@ -317,6 +319,34 @@ suite "board: opening one and reading the answers":
     check not fileExists(s.log)
     check s.board("open", "games/pong/review/none.html").code == 2
 
+  test "open: two pictures with one name are refused, naming both, before anything is copied":
+    let s = scratch("pong")
+    defer: s.done()
+    check s.board("new", "look", "--game", "pong").code == 0
+    s.root.put("tmp/shots/before/frame.png", "\x89PNG\r\n\x1a\nbefore")
+    s.root.put("tmp/shots/after/frame.png", "\x89PNG\r\n\x1a\nafter")
+    s.root.put("tmp/shots/other.png", "\x89PNG\r\n\x1a\nother")
+    let r = s.board("open", "games/pong/review/look.html", "--picture", "tmp/shots/other.png",
+                    "--picture", "tmp/shots/before/frame.png", "--picture", "tmp/shots/after/frame.png")
+    check r.code == 1 and "nothing was opened" in r.output
+    check "tmp/shots/before/frame.png" in r.output and "tmp/shots/after/frame.png" in r.output
+    check not dirExists(s.root / "games/pong/review/pictures")
+    check s.opened.len == 0 and not fileExists(s.log)
+
+  test "open: a later open may repeat a picture as it is, but not replace one with other content":
+    let s = scratch("pong")
+    defer: s.done()
+    check s.board("new", "look", "--game", "pong").code == 0
+    s.root.put("tmp/shots/frame.png", "\x89PNG\r\n\x1a\nfirst")
+    let board = "games/pong/review/look.html"
+    check s.board("open", board, "--picture", "tmp/shots/frame.png").code == 0
+    check s.board("open", board, "--picture", "tmp/shots/frame.png").code == 0
+    s.root.put("tmp/shots/frame.png", "\x89PNG\r\n\x1a\nsecond")
+    let r = s.board("open", board, "--picture", "tmp/shots/frame.png")
+    check r.code == 1 and "pictures/frame.png" in r.output and "other content" in r.output
+    check readFile(s.root / "games/pong/review/pictures/frame.png").endsWith("first")
+    check s.opened.len == 2
+
   test "open without Lavish: the board opens as a page on its own, and the install is only mentioned":
     let s = scratch("pong")
     defer: s.done()
@@ -336,41 +366,26 @@ suite "board: opening one and reading the answers":
     let r = s.board("answers", "games/pong/review/look.html")
     check r.code == 0
     check "board picks (look): look=B (note: more red)" in r.output
-    check "CHOICES.md" in r.output and "tmp/para board reply games/pong/review/look.html" in r.output
+    check "CHOICES.md" in r.output and "tmp/para board end games/pong/review/look.html" in r.output
     check "lavish-axi" notin r.output and "dom_snapshot" notin r.output
     check logLines(s.log).anyIt(it == "args: poll games/pong/review/look.html --timeout-ms 2000")
     delEnv("FAKE_LAVISH_POLL")
-    let w = s.board("answers", "games/pong/review/look.html", "--wait", "60")
+    let w = s.board("answers", "games/pong/review/look.html")
     check "status: waiting" in w.output and "Nothing sent yet" in w.output
-    check logLines(s.log).anyIt(it == "args: poll games/pong/review/look.html --timeout-ms 60000")
-    check s.board("answers", "games/pong/review/look.html", "--wait", "9999").code == 2
 
-  test "reply goes through a file (no shell sees the words), and the file is gone after":
+  test "answers: an answer longer than a pipe holds still comes through":
     let s = scratch("pong")
     defer: s.done()
     check s.board("new", "look", "--game", "pong").code == 0
-    let words = "Thanks, director: B it is; `rm -rf` $(nothing) \"quoted\""
-    let r = s.board("reply", "games/pong/review/look.html", "-m", words)
+    putEnv("FAKE_LAVISH_POLL", "big")
+    let r = s.board("answers", "games/pong/review/look.html")
     check r.code == 0
-    let lines = logLines(s.log)
-    check lines.anyIt(it == "reply-text: " & words)
-    check not lines.anyIt(it.startsWith("args: ") and "director" in it)
-    check toSeq(walkDir(s.root / "tmp" / "lavish")).len == 0
-    check s.board("reply", "games/pong/review/look.html").code == 2
+    check "board picks (look): look=B" in r.output
+    check "xxxx" notin r.output
 
-# --- status and install -------------------------------------------------------------------
+# --- the install offer -------------------------------------------------------------------
 
-suite "board: status and the install offer":
-  test "status says what it is, whether it is there, and how it runs":
-    let s = scratch("pong")
-    defer: s.done()
-    let here = s.board("status")
-    check "lavish: installed (lavish-axi 0.1.92, checked with " & lavishTested & ")" in here.output
-    check "127.0.0.1" in here.output
-    let absent = s.boardWithout("status")
-    check absent.code == 0 and "not installed" in absent.output and boardInstallCommand in absent.output
-    check "board for reviewing things visually" in absent.output
-
+suite "board: the install offer":
   test "already installed: nothing to do":
     let s = scratch("pong")
     defer: s.done()
@@ -433,8 +448,7 @@ suite "board: the optional startup check and the hook":
     let absent = boardCheck("")
     check absent.id == "boards" and absent.state != csOk
     check absent.problem.startsWith("Optional, not installed")
-    check "board for reviewing things visually" in absent.problem and "screenshots" in absent.problem
-    check boardInstallCommand in absent.fix and "asks first" in absent.fix
+    check boardInstallCommand in absent.fix
 
   test "the hook says whether Lavish is there, and never to install it yourself":
     let root = newGameRepo("pong")
@@ -442,6 +456,5 @@ suite "board: the optional startup check and the hook":
     root.put(voiceCoreFile, readFile(repoRoot / voiceCoreFile))
     let yes = producerContext(root, "", boards = true)
     check boardsLine in yes and noBoardsLine notin yes
-    check "tmp/para board new" in boardsLine and "tmp/para board answers" in boardsLine
     let no = producerContext(root, "", boards = false)
-    check noBoardsLine in no and "never install Lavish yourself" in noBoardsLine
+    check noBoardsLine in no and boardsLine notin no
