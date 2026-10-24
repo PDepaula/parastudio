@@ -63,8 +63,7 @@ take seconds.
    | 3 Nim 2.2.10 | "ok", or "MISSING" | Same. All three are checked before it stops, so you see everything missing at once. |
    | 4 Game libraries | "Nothing is printed here while it works" | Wait a few minutes. It is working even when nothing moves. |
    | 5 Building para | the same | Wait a few minutes. |
-   | 6 Claude or Codex | Says which it found, or where to install one | See "The producer's chat" below. |
-   | 7 Starting Studio | Studio opens in your browser | Keep the black window open while you use Studio. |
+   | 6 Starting Studio | Studio opens in your browser | Keep the black window open while you use Studio. |
 
 4. To stop Studio, press **Ctrl+C** in the black window (answer **Y** if it asks
    "Terminate batch job"), or just close the window.
@@ -100,19 +99,12 @@ close the window and double-click again.
 - **"I cannot find tools\launcher\launch.bat"** means the folder is not fully
   unpacked (see "What you need").
 
-## The producer's chat (Claude or Codex)
+## The producer's chat
 
-Studio's chat runs the `claude` or `codex` program on your PC. Studio does not
-install it and never handles sign-in: it never sees or keeps your password or
-key. If step 6 says neither is installed, install one from its official page,
-then open it once and sign in there, in its own window:
-
-- Claude Code: <https://code.claude.com/docs/en/setup>
-- Codex CLI: <https://developers.openai.com/codex/cli>
-
-You can start Studio before that; the chat starts working once one is installed
-and signed in. (Whether the chat runs from the launcher's plain Windows window,
-rather than Git Bash, has never been checked.)
+Studio's chat needs the `claude` (Claude Code) or `codex` program installed and
+signed in on your PC. The launcher does not check for it; Studio tells you in the
+chat if it is missing. Whether the chat runs from the launcher's plain Windows
+window, rather than Git Bash, has never been checked.
 
 ## If the game window does not open
 
@@ -131,7 +123,7 @@ block; it has its own message above):
 ==============================================================================
 Something went wrong. Please send the captain everything between these lines.
 ------------------------------------------------------------------------------
-Step:     5 of 7, build para
+Step:     5 of 6, build para
 Problem:  Building para failed. The log has the compiler's words.
 Computer: Microsoft Windows [Version 10.0.22631.4460], AMD64
 Log file: C:\Users\you\parastudio\tmp\launcher.log   (attach this file too)
@@ -154,7 +146,6 @@ line. The log is plain text: what each step printed, and nothing secret
   `winget` uses), and extends the PATH **inside its own window only**.
 - It talks to the internet only to let nimble fetch the game libraries, and
   through git. No telemetry.
-- It does not read, copy or change any login or setting of Claude or Codex.
 - To see what it would do without building or opening anything, open a Command
   Prompt in the `parastudio` folder and run
   `Paraloop-Studio.bat --dry-run`. The checks still really look; the later steps
@@ -162,15 +153,16 @@ line. The log is plain text: what each step printed, and nothing secret
 
 ## What was and was not checked
 
-Same steps and wording as the Mac launcher (`tools/launcher/launch.sh`), with two
-differences: it never installs Nim for you, and it checks all three tools before
-stopping.
+Same steps and wording as the Mac launcher (`tools/launcher/launch.sh`), with three
+differences: it never installs Nim for you, it checks all three tools before
+stopping, and it does not look for the chat program.
 
-- **Checked on Linux:** the text of both files by `tests/test_launcher_bat.nim`
-  (plain ASCII, Windows line endings, every `goto` and `call` has its label, no
-  command that installs or downloads, the install links and commands named
-  above).
-- **Run once under Wine on Linux:** the whole script (a first run and a second run,
+- **Checked on Linux:** only the shape of both files, by `tests/test_launcher_bat.nim`
+  (plain ASCII, Windows line endings, every `goto` and `call` has its label, no label
+  twice, no parenthesised blocks). That says nothing about what the script does.
+- **Run once under Wine on Linux, on an earlier version of the script** (before the
+  library check also looked at the `--path` folders and before the chat-program step was
+  removed; those parts were not rerun): the whole script (a first run and a second run,
   Nim of the wrong version, everything missing, a failing build, a failing Studio,
   `--dry-run`, `--help`, a bad option) was driven through Wine's `cmd.exe` with
   stand-in programs for `nim`, `nimble`, `git`, a C compiler and `para`, and

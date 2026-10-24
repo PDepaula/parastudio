@@ -2,15 +2,16 @@
 rem Para Studio launcher for Windows: checks what Studio needs (a C compiler, git, Nim), builds
 rem `para` and starts `tmp\para.exe studio`, which opens the browser itself. Run through
 rem Paraloop-Studio.bat (double-click); see docs/windows.md. It mirrors tools/launcher/launch.sh
-rem (macOS and Linux) step for step, with one difference: that one offers to install Nim after
-rem asking; this one never installs anything. When something is missing it says what to install
-rem and from where, and stops.
+rem (macOS and Linux), with two differences: that one offers to install Nim after asking and
+rem checks for the producer's chat program; this one never installs anything and leaves the chat
+rem program to Studio. When something is missing it says what to install and from where, and
+rem stops.
 rem
 rem   launch.bat [--dry-run] [--help]
 rem
 rem --dry-run runs the same checks (they only look) and says what each later step WOULD do; it
 rem builds nothing, fetches nothing and opens nothing. Test hook, read only in a dry run:
-rem PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim,agent pretends those are not installed.
+rem PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim pretends those are not installed.
 rem
 rem What it never does: install anything, change PATH or any setting of the computer (PATH is only
 rem extended inside this window), or send anything anywhere except nimble's package fetch and git.
@@ -27,9 +28,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 set "NIM_VERSION=2.2.10"
 set "NIM_ZIP_URL=https://nim-lang.org/download/nim-2.2.10_x64.zip"
 set "GIT_URL=https://git-scm.com/download/win"
-set "CLAUDE_INSTALL_URL=https://code.claude.com/docs/en/setup"
-set "CODEX_INSTALL_URL=https://developers.openai.com/codex/cli"
-set "STEPS=7"
+set "STEPS=6"
 set "STEP_NO=0"
 set "STEP_NAME=starting"
 set "DRY_RUN=0"
@@ -194,29 +193,7 @@ goto build_end
 call :would "run: nim c --hints:off --outdir:tmp tools/para/para.nim"
 :build_end
 
-rem --- step 6: the producer's chat program -------------------------------------------------------
-
-call :step "Checking for the producer's chat program (claude or codex)..." "claude or codex"
-set "HAVE_CLAUDE="
-set "HAVE_CODEX="
-if "%FAKE:,agent,=%"=="%FAKE%" call :find_agent claude
-if defined AGENT_FOUND set "HAVE_CLAUDE=%AGENT_FOUND%"
-if defined HAVE_CLAUDE call :ok "found Claude Code: %HAVE_CLAUDE%"
-if "%FAKE:,agent,=%"=="%FAKE%" call :find_agent codex
-if defined AGENT_FOUND set "HAVE_CODEX=%AGENT_FOUND%"
-if defined HAVE_CODEX call :ok "found Codex: %HAVE_CODEX%"
-if defined HAVE_CLAUDE goto agent_end
-if defined HAVE_CODEX goto agent_end
-echo       Neither Claude Code nor Codex is installed. The producer's chat needs one of them.
-echo       Install one from its official page, then open it once and sign in there:
-echo         Claude Code: %CLAUDE_INSTALL_URL%
-echo         Codex:       %CODEX_INSTALL_URL%
-echo       Studio never handles sign-in and never sees your password or key: you sign in once,
-echo       inside that program's own window, and Studio just uses the program you installed.
-echo       You can still open Studio now; the chat starts working once one of them is installed.
-:agent_end
-
-rem --- step 7: Studio ----------------------------------------------------------------------------
+rem --- step 6: Studio ----------------------------------------------------------------------------
 
 call :step "Starting Studio..." "start Studio"
 if "%DRY_RUN%"=="1" goto studio_dry
@@ -385,23 +362,30 @@ if "%NIM_VER%"=="%NIM_VERSION%" for %%I in ("%~1") do set "NIM_DIR=%%~dpI"
 if defined NIM_VER if not defined OTHER_NIM set "OTHER_NIM=%NIM_VER% at %~1"
 exit /b 0
 
-:find_agent
-rem $1 = claude or codex: sets AGENT_FOUND to the program's path, or clears it
-set "AGENT_FOUND="
-for /f "delims=" %%P in ('where %~1 2^>nul') do if not defined AGENT_FOUND set "AGENT_FOUND=%%P"
-if defined AGENT_FOUND exit /b 0
-for %%D in ("%USERPROFILE%\.local\bin" "%USERPROFILE%\.claude\local" "%APPDATA%\npm" "%USERPROFILE%\.bun\bin" "%LOCALAPPDATA%\Programs\claude") do for %%E in (exe cmd) do if not defined AGENT_FOUND if exist "%%~D\%~1.%%E" set "AGENT_FOUND=%%~D\%~1.%%E"
-if defined AGENT_FOUND for %%I in ("%AGENT_FOUND%") do set "PATH=%PATH%;%%~dpI"
-exit /b 0
-
 :deps_ready
-rem sets DEPS_READY=1 when nimble.paths exists, config.nims uses it and it is newer than the
-rem files it comes from (nimble.lock, paraloop.nimble)
+rem sets DEPS_READY=1 when nimble.paths exists, config.nims uses it, no file it comes from
+rem (nimble.lock, paraloop.nimble) is strictly newer, and every --path folder in it still exists
 set "DEPS_READY="
 if not exist "nimble.paths" exit /b 0
 findstr /c:"nimble.paths" config.nims >nul 2>&1
 if errorlevel 1 exit /b 0
-set "NEWEST="
-for /f "delims=" %%F in ('dir /b /o:-d 2^>nul ^| findstr /i /x /l /c:"nimble.paths" /c:"nimble.lock" /c:"paraloop.nimble"') do if not defined NEWEST set "NEWEST=%%F"
-if /i "%NEWEST%"=="nimble.paths" set "DEPS_READY=1"
+set "STALE="
+call :newer_than_paths "nimble.lock"
+call :newer_than_paths "paraloop.nimble"
+if defined STALE exit /b 0
+for /f "usebackq tokens=1* delims=:" %%A in ("nimble.paths") do if "%%A"=="--path" call :path_gone %%B
+if defined STALE exit /b 0
+set "DEPS_READY=1"
+exit /b 0
+
+:newer_than_paths
+rem $1 = a file; sets STALE=1 when it exists and is strictly newer than nimble.paths
+if not exist "%~1" exit /b 0
+xcopy /L /D /Y "%~1" "nimble.paths" 2>nul | findstr /i /x /c:"%~1" >nul
+if not errorlevel 1 set "STALE=1"
+exit /b 0
+
+:path_gone
+rem $1 = a folder from a --path line of nimble.paths: sets STALE=1 when it no longer exists
+if not exist "%~1\" set "STALE=1"
 exit /b 0

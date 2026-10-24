@@ -150,7 +150,7 @@ jobs:
           nim-version: "2.2.10"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Everything the launcher looks for is on the runner: it must get through all seven steps,
+      # Everything the launcher looks for is on the runner: it must get through all six steps,
       # say what each would do, and exit 0 without building or opening anything.
       - name: Dry run with everything installed
         shell: cmd
@@ -159,7 +159,7 @@ jobs:
           set RC=%ERRORLEVEL%
           type "%RUNNER_TEMP%\launcher-ok.txt"
           if not "%RC%"=="0" exit /b 1
-          findstr /c:"[7/7]" "%RUNNER_TEMP%\launcher-ok.txt"
+          findstr /c:"[6/6]" "%RUNNER_TEMP%\launcher-ok.txt"
           if errorlevel 1 exit /b 1
           findstr /c:"Dry run finished: nothing was installed, built or opened." "%RUNNER_TEMP%\launcher-ok.txt"
           if errorlevel 1 exit /b 1
@@ -181,6 +181,6 @@ jobs:
           if errorlevel 1 exit /b 1
           findstr /c:"https://nim-lang.org/download/nim-2.2.10_x64.zip" "%RUNNER_TEMP%\launcher-missing.txt"
           if errorlevel 1 exit /b 1
-          findstr /c:"[4/7]" "%RUNNER_TEMP%\launcher-missing.txt"
+          findstr /c:"[4/6]" "%RUNNER_TEMP%\launcher-missing.txt"
           if not errorlevel 1 exit /b 1
           exit /b 0
