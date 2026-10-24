@@ -5,9 +5,9 @@
 # so pass/fail comes from whether `tmp/tests-passed` was (re)written, not from
 # `nimble`'s own exit code. Each run hands the task a plan file and a passed-marker of its own
 # (`tmp/test-plan-<pid>.txt`, `tmp/tests-passed-<pid>`), so two runs at once (two helpers, each
-# testing its own lane) never read each other's plan; a pass then also writes `tmp/tests-passed`. `--filter` and `--area` narrow which test files
-# run (testplan.nim picks them, the nimble task runs exactly that plan, so
-# the files left out are never compiled). A full run records its outcome as the
+# testing its own lane) never read each other's plan; a pass then also writes `tmp/tests-passed`.
+# `--filter` and `--area` narrow which test files run (testplan.nim picks them, the nimble task
+# runs exactly that plan, so the files left out are never compiled). A full run records its outcome as the
 # `tests` status of every game under examples/ (the games the repo suite in
 # tests/ covers); a narrowed run records nothing, since it did not cover them.
 # `--skip-balance` / `--only-balance` set PARALOOP_BALANCE for the run

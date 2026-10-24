@@ -309,8 +309,8 @@ makes); a game without one is saved in the repository that contains `games/`, as
 One studio runs one chat turn at a time (Check, Save and Backup wait for it), because the producer
 changes files in the folder. Inside that one turn the producer's helpers already work at the same
 time, each in its own copy (see "Helpers work in their own copy"). To hold two conversations at
-once, keep two copies of the folder and run a studio in each. They share nothing: each has its own files, `tmp/` and save points, so they cannot
-step on each other.
+once, keep two copies of the folder and run a studio in each. They share nothing: each has its own
+files, `tmp/` and save points, so they cannot step on each other.
 
 ```
 git clone <the folder you have now> ../parastudio-b      # a second copy (or clone the repository again)
