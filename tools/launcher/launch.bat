@@ -2,10 +2,10 @@
 rem Para Studio launcher for Windows: checks what Studio needs (a C compiler, git, Nim), builds
 rem `para` and starts `tmp\para.exe studio`, which opens the browser itself. Run through
 rem Paraloop-Studio.bat (double-click); see docs/windows.md. It mirrors tools/launcher/launch.sh
-rem (macOS and Linux), with two differences: that one offers to install Nim after asking and
-rem checks for the producer's chat program; this one never installs anything and leaves the chat
-rem program to Studio. When something is missing it says what to install and from where, and
-rem stops.
+rem (macOS and Linux), with three differences: that one offers to install Nim after asking, stops
+rem at the first missing tool and checks for the producer's chat program; this one never installs
+rem anything, checks all three tools before stopping and leaves the chat program to Studio. When
+rem something is missing it says what to install and from where, and stops.
 rem
 rem   launch.bat [--dry-run] [--help]
 rem
