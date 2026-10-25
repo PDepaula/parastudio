@@ -28,9 +28,10 @@ big, and installs it only after a typed `y`; before opening the page each prints
 installs against stand-ins (`tests/test_launcher.nim`: a fake `sudo`/`apt-get`, a fake
 `xcode-select`, a fake `curl` serving a Nim archive made by the test) and once by hand with the real
 Nim download from nim-lang.org into a scratch home folder; the macOS branch only under those
-stand-ins, never on a Mac; the Windows script only as text (`tests/test_launcher_bat.nim`), never
-under `cmd.exe` or Wine. The `windows-launcher` job in the same workflow dry-runs the Windows one (by
-hand only, and not run yet), and nobody has run it on a real Windows PC.
+stand-ins, never on a Mac; the Windows script as text (`tests/test_launcher_bat.nim`) and, by the
+`installer` workflow below, under `cmd.exe` on a hosted Windows runner (earlier versions once under
+Wine, [windows.md](windows.md)). The `windows-launcher` job in the same workflow dry-runs the
+Windows one (by hand only, and not run yet), and nobody has run it on a real Windows PC.
 
 **One-line installers:** `install.sh` (macOS, Linux) and `install.ps1` (Windows),
 [install.md](install.md), clone a pinned commit and run the launchers above with `--no-studio`. The

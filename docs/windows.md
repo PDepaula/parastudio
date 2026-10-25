@@ -234,6 +234,11 @@ finding the chat program to `para studio --check`.
   proves that `cmd.exe` really runs the script, its checks, its messages, the question
   and the yes/no default on a hosted Windows runner. It still cannot prove a real download
   or install, winget, SmartScreen, a real user PATH, or a person typing.
+- **Also set up to run on a hosted Windows machine:** the `installer` workflow
+  (`.github/workflows/installer.yml`, [install.md](install.md)) runs `launch.bat --check --no-studio`
+  there with the offers faked and `PARALOOP_LAUNCHER_UNATTENDED=1` (every offer must be answered no
+  without asking, nothing installed, Studio not started), and runs it for real through `install.ps1`
+  with Nim already installed. Same limits as the job above.
 - **Never checked:** the SmartScreen prompt, the real double-click, a real winget
   or Nim install from this script, a yes or no typed by a person, a friend's PATH, `nimble` and the `para` build from this script,
   Studio's browser and chat from a plain Windows window, and the game window.
