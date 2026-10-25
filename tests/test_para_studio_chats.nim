@@ -288,6 +288,25 @@ suite "para studio chats: the list, opening and deleting":
     check running.post("/api/chat/new", %*{"game": "pong"}).status == 200
     check chatNow()["events"].len == 0 # a fresh chat has no record yet
 
+  test "a first message in a fresh chat is the chat's first line, with no note before it":
+    turn("Make the ship move", "aaaaaaaa-0000-4000-8000-000000000001")
+    let ev = chatNow()["events"]
+    check ev[0]["kind"].getStr == "you" and ev[0]["text"].getStr == "Make the ship move"
+    check ev.getElems.allIt(it{"code"}.getStr != "chat-opened")
+    check running.post("/api/chat/new", %*{"game": "pong"}).status == 200
+    turn("Add a score", "aaaaaaaa-0000-4000-8000-000000000002")
+    check chatNow()["events"].getElems.allIt(it{"code"}.getStr != "chat-opened")
+
+  test "a producer pick on the restored open chat comes after its note":
+    turn("Make the ship move", "aaaaaaaa-0000-4000-8000-000000000001")
+    running.stop()
+    running = startStudio(root, getAppFilename(), "", adapterNamed("claude", getAppFilename()),
+                          others = @[adapterNamed("codex", getAppFilename())])
+    check running.post("/api/agent/pick", %*{"game": "pong", "agent": "codex"}).status == 200
+    check running.post("/api/agent/pick", %*{"game": "pong", "agent": "claude"}).status == 200
+    let ev = chatNow()["events"]
+    check ev.len == 2 and ev[0]["code"].getStr == "chat-opened" and ev[1]["code"].getStr == "agent-picked"
+
   test "the one conversation an older studio kept shows as one chat and is resumed":
     running.stop()
     createDir(root / "tmp" / "studio")

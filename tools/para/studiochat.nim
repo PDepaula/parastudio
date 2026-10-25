@@ -60,6 +60,8 @@ type
     infos: Table[string, tuple[info: AgentInfo, at: float]]
     bookLock: Lock ## the chat lists below and their files; never held together with `lock`
     books: Table[string, ChatBook] ## by "<game>/<agent>", read from disk the first time
+    noteLock: Lock ## held while owed notes are taken and added, so no other line gets in between
+    notes: seq[ChatKey] ## chats read from disk with a record, still owed their "back in this chat" note
 
   Started* = object
     ok*: bool
@@ -73,6 +75,7 @@ proc initChat*(c: ptr ChatState, root: string, adapters: seq[AgentAdapter], time
   initLock(c.lock)
   initLock(c.startLock)
   initLock(c.bookLock)
+  initLock(c.noteLock)
   c.root = root
   c.adapters = adapters
   c.timeoutSec = timeoutSec
@@ -91,7 +94,10 @@ proc adapterFor(c: ptr ChatState, name: string): AgentAdapter =
 proc bookOf(c: ptr ChatState, game, agent: string): ChatBook =
   ## A copy of `game`'s chats with `agent`. Called with `bookLock` held.
   let k = game & "/" & agent
-  if k notin c.books: c.books[k] = loadBook(c.root, game, agent)
+  if k notin c.books:
+    let b = loadBook(c.root, game, agent)
+    c.books[k] = b
+    if b.find(b.current) >= 0: c.notes.add (game, agent, b.current)
   c.books[k]
 
 proc keep(c: ptr ChatState, game, agent: string, b: ChatBook) =
@@ -132,26 +138,29 @@ proc currentKey(c: ptr ChatState, game: string): ChatKey =
 
 # --- the event list -----------------------------------------------------------------
 
-proc add(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
+proc push(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
   acquire(c.lock)
   c.entries.add ChatEntry(seq: c.nextSeq, key: key, you: you, ev: ev)
   inc c.nextSeq
   if c.entries.len > maxEvents: c.entries = c.entries[c.entries.len - maxEvents .. ^1]
   release(c.lock)
 
-proc addIfNone(c: ptr ChatState, key: ChatKey, ev: UiEvent) =
-  ## Adds `ev` to chat `key` unless it has a line already (checked and added under one lock).
-  acquire(c.lock)
-  var any = false
-  for e in c.entries:
-    if e.key == key:
-      any = true
-      break
-  if not any:
-    c.entries.add ChatEntry(seq: c.nextSeq, key: key, ev: ev)
-    inc c.nextSeq
-    if c.entries.len > maxEvents: c.entries = c.entries[c.entries.len - maxEvents .. ^1]
-  release(c.lock)
+const backNote = UiEvent(kind: ukNotice, code: "chat-opened",
+  text: "Back in this chat. Its earlier messages are not kept on this computer; the conversation continues from where it left off, so just carry on.")
+
+proc flushNotes(c: ptr ChatState) =
+  ## Puts the owed "back in this chat" notes in their chats, so each comes before any other line.
+  acquire(c.noteLock)
+  defer: release(c.noteLock)
+  acquire(c.bookLock)
+  let owed = c.notes
+  c.notes = @[]
+  release(c.bookLock)
+  for key in owed: c.push(key, backNote)
+
+proc add(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
+  c.flushNotes()
+  c.push(key, ev, you)
 
 proc addCard*(c: ptr ChatState, game: string, ev: UiEvent) =
   ## A line the studio itself puts in `game`'s current chat (a screenshot card): not from the
@@ -330,9 +339,16 @@ proc newConversation*(c: ptr ChatState, game: string): bool =
   release(c.bookLock)
   true
 
+proc hasLines(c: ptr ChatState, key: ChatKey): bool =
+  acquire(c.lock)
+  defer: release(c.lock)
+  for e in c.entries:
+    if e.key == key: return true
+
 proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   ## The next message in `game` goes to chat `id` and resumes its conversation. Refused while a
-  ## turn runs. (A chat whose lines are not in memory any more gets its note from `view`.)
+  ## turn runs. A chat whose lines are not in memory any more (the studio was closed since) gets a
+  ## note saying so.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.startLock)
@@ -348,6 +364,8 @@ proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   release(c.bookLock)
   if not found:
     return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
+  let key: ChatKey = (game, agent, id)
+  if was != id and not c.hasLines(key): c.add(key, backNote)
   Started(ok: true, status: 200)
 
 proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
@@ -367,6 +385,7 @@ proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
   release(c.bookLock)
   if not found:
     return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
+  c.flushNotes()
   let key: ChatKey = (game, agent, id)
   acquire(c.lock)
   var kept: seq[ChatEntry]
@@ -401,16 +420,9 @@ type
     entries*: seq[tuple[seq: int, you: bool, ev: UiEvent]]
 
 proc view*(c: ptr ChatState, game: string, since: int): ChatView =
-  ## The lines after `since` of the chat `game`'s page shows now. A chat the list knows but whose
-  ## lines are not in memory (the studio was closed since) gets a note saying so, once.
-  let agent = agentOf(c, game)
-  acquire(c.bookLock)
-  let b = c.bookOf(game, agent)
-  release(c.bookLock)
-  let key: ChatKey = (game, agent, b.current)
-  if b.find(b.current) >= 0:
-    c.addIfNone(key, UiEvent(kind: ukNotice, code: "chat-opened",
-      text: "Back in this chat. Its earlier messages are not kept on this computer; the conversation continues from where it left off, so just carry on."))
+  ## The lines after `since` of the chat `game`'s page shows now.
+  let key = c.currentKey(game)
+  c.flushNotes()
   acquire(c.lock)
   defer: release(c.lock)
   result.running = c.running
