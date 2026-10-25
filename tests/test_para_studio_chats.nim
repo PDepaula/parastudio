@@ -264,7 +264,9 @@ suite "para studio chats: the list, opening and deleting":
     startHere()
     check chats() == before
     check chatNow()["chat"].getInt == first
-    check chatNow()["events"].len == 0 # the lines lived in memory
+    let back = chatNow()["events"]
+    check back.len == 1 and back[0]["kind"].getStr == "notice" and back[0]["code"].getStr == "chat-opened"
+    check chatNow()["events"].len == 1 # polling again adds nothing
     turn("Carry on")
     check lastArgs()[^2 .. ^1] == @["--resume", "aaaaaaaa-0000-4000-8000-000000000001"]
     # opening the other one after a restart says why its earlier lines are not shown
@@ -273,6 +275,18 @@ suite "para studio chats: the list, opening and deleting":
     check ev.len == 1 and ev[0]["kind"].getStr == "notice" and ev[0]["code"].getStr == "chat-opened"
     turn("More")
     check lastArgs()[^2 .. ^1] == @["--resume", "aaaaaaaa-0000-4000-8000-000000000002"]
+
+  test "a new game with no chats shows no note, and a restart gives the open chat one note":
+    check chatNow()["events"].len == 0
+    check chatNow()["events"].len == 0
+    turn("Make the ship move", "aaaaaaaa-0000-4000-8000-000000000001")
+    running.stop()
+    startHere()
+    check chatNow()["events"].len == 1
+    check chatNow()["events"].len == 1
+    check chatNow()["events"][0]["code"].getStr == "chat-opened"
+    check running.post("/api/chat/new", %*{"game": "pong"}).status == 200
+    check chatNow()["events"].len == 0 # a fresh chat has no record yet
 
   test "the one conversation an older studio kept shows as one chat and is resumed":
     running.stop()

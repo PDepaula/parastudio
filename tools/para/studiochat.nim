@@ -139,6 +139,20 @@ proc add(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
   if c.entries.len > maxEvents: c.entries = c.entries[c.entries.len - maxEvents .. ^1]
   release(c.lock)
 
+proc addIfNone(c: ptr ChatState, key: ChatKey, ev: UiEvent) =
+  ## Adds `ev` to chat `key` unless it has a line already (checked and added under one lock).
+  acquire(c.lock)
+  var any = false
+  for e in c.entries:
+    if e.key == key:
+      any = true
+      break
+  if not any:
+    c.entries.add ChatEntry(seq: c.nextSeq, key: key, ev: ev)
+    inc c.nextSeq
+    if c.entries.len > maxEvents: c.entries = c.entries[c.entries.len - maxEvents .. ^1]
+  release(c.lock)
+
 proc addCard*(c: ptr ChatState, game: string, ev: UiEvent) =
   ## A line the studio itself puts in `game`'s current chat (a screenshot card): not from the
   ## agent, so it works with no turn running.
@@ -316,16 +330,9 @@ proc newConversation*(c: ptr ChatState, game: string): bool =
   release(c.bookLock)
   true
 
-proc hasLines(c: ptr ChatState, key: ChatKey): bool =
-  acquire(c.lock)
-  defer: release(c.lock)
-  for e in c.entries:
-    if e.key == key: return true
-
 proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   ## The next message in `game` goes to chat `id` and resumes its conversation. Refused while a
-  ## turn runs. A chat whose lines are not in memory any more (the studio was closed since) gets a
-  ## note saying so.
+  ## turn runs. (A chat whose lines are not in memory any more gets its note from `view`.)
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.startLock)
@@ -341,10 +348,6 @@ proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   release(c.bookLock)
   if not found:
     return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
-  let key: ChatKey = (game, agent, id)
-  if was != id and not c.hasLines(key):
-    c.add(key, UiEvent(kind: ukNotice, code: "chat-opened",
-      text: "Back in this chat. Its earlier messages are not kept on this computer; the conversation continues from where it left off, so just carry on."))
   Started(ok: true, status: 200)
 
 proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
@@ -398,8 +401,16 @@ type
     entries*: seq[tuple[seq: int, you: bool, ev: UiEvent]]
 
 proc view*(c: ptr ChatState, game: string, since: int): ChatView =
-  ## The lines after `since` of the chat `game`'s page shows now.
-  let key = c.currentKey(game)
+  ## The lines after `since` of the chat `game`'s page shows now. A chat the list knows but whose
+  ## lines are not in memory (the studio was closed since) gets a note saying so, once.
+  let agent = agentOf(c, game)
+  acquire(c.bookLock)
+  let b = c.bookOf(game, agent)
+  release(c.bookLock)
+  let key: ChatKey = (game, agent, b.current)
+  if b.find(b.current) >= 0:
+    c.addIfNone(key, UiEvent(kind: ukNotice, code: "chat-opened",
+      text: "Back in this chat. Its earlier messages are not kept on this computer; the conversation continues from where it left off, so just carry on."))
   acquire(c.lock)
   defer: release(c.lock)
   result.running = c.running
