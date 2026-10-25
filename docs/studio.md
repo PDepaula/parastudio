@@ -211,22 +211,39 @@ The **Chats** list under **New chat** on the left has your earlier chats with th
 producer, the one you used last at the top. Each shows the start of the first message you sent in
 it and when you last used it (for example "5 min ago", "yesterday" or "12 Oct").
 
-- **Pick one** to go back to it. The producer carries on that same conversation, so just keep
-  talking. Studio shows a chat's messages only while it stays open: the earlier messages are not
-  kept on this computer. After you close and start Studio again, an old chat opens with a note
-  saying so, and the conversation continues from where it left off.
+- **Pick one** to go back to it. Its messages show again as they were: what you wrote, what the
+  producer said, its "Reading ..." and "Running ..." lines, helper cards and notes. The producer
+  carries on that same conversation, so just keep talking. This works after you close and start
+  Studio again too: the chat you were in opens with its messages.
+- **Chats from before Studio kept messages** (ones that showed only a title) get their messages
+  back the first time you open them, from Claude's own record of the conversation on this
+  computer. Studio only reads that record, for that one conversation, and then keeps the messages
+  in its own file, so this happens once. Thinking, tool results and what helpers said among
+  themselves are not shown, the same as in a live chat. When there is no record (it was removed,
+  or the chat was with **Codex**, whose records Studio does not look up), the chat opens with a
+  plain note that its earlier messages are not kept, and the conversation still continues from
+  where it left off.
 - **New chat** starts a fresh one. Your earlier chats stay in the list. Until you send its first
   message, the new chat is the "New chat" line at the top of the list.
-- **Delete** (the bin next to a chat) asks first. Saying yes takes the chat off the list for good,
-  and you cannot pick it up again. Your game, its files and its save points stay exactly as they
-  are.
+- **Delete** (the bin next to a chat) asks first. Saying yes takes the chat off the list for good
+  and removes its messages from this computer, and you cannot pick it up again. Your game, its
+  files and its save points stay exactly as they are.
 - While the producer is working the list is greyed out: wait for the answer, or press **Stop**,
   then pick or delete a chat.
 - Each producer keeps its own chats: with **Codex** picked, the list shows your chats with Codex.
-- Chats stay on this computer, in the `tmp/studio/` folder. For each chat Studio keeps its title
-  (the start of your first message, at most 60 letters, with anything that looks like a key taken
-  out), when it started and was last used, and the producer's own number for the conversation.
-  It keeps nothing else you typed and nothing the producer said.
+- Chats stay on this computer, in the `tmp/studio/` folder: they are never uploaded, never part
+  of a save point or a backup, and a chat's Delete removes them. For each chat Studio keeps its
+  title (the start of your first message, at most 60 letters), when it started and was last used,
+  the producer's own number for the conversation, and its messages as the chat showed them.
+  Anything that looks like a key or a password is taken out before it is written down.
+- A very long message is kept up to about 16,000 letters, with a note where it was cut. Each chat
+  keeps about its last 500 KB of messages; past that its oldest messages are left out and the chat
+  starts with a note saying so. Your conversation with the producer is not affected: it carries on
+  from where it left off either way.
+
+![An older chat opened again after a restart, its messages shown as they were](img/studio-chats-reopened.png)
+
+![The same chat on a phone](img/studio-chats-reopened-phone.png)
 
 ![The Chats list in the sidebar, the open chat highlighted](img/studio-chats.png)
 

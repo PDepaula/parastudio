@@ -35,8 +35,8 @@
 #   POST /api/chat/send         {game, text}: one turn with the producer in the open chat (one at a time)
 #   POST /api/chat/stop         {}: end the running turn and everything it started
 #   POST /api/chat/new          {game}: the next message starts a new chat; the earlier ones stay in the list
-#   POST /api/chat/open         {game, id}: open an earlier chat; the next message continues its conversation
-#   POST /api/chat/delete       {game, id, confirm: true}: forget a chat (its title, times and session id); nothing in the game's folder changes
+#   POST /api/chat/open         {game, id}: open an earlier chat, its lines read back; the next message continues its conversation
+#   POST /api/chat/delete       {game, id, confirm: true}: forget a chat (its title, times, session id and kept lines); nothing in the game's folder changes
 #   GET  /api/play              the game window: idle, building, starting, running, failed or exited, in plain words
 #   POST /api/play/start        {game}: build the game with its dev channel and open its native window (a second one restarts it)
 #   POST /api/play/stop         {}: close the game window, or stop its build

@@ -1631,8 +1631,9 @@ $("chat-new").addEventListener("click", async () => {
 });
 
 // --- the past chats ---------------------------------------------------------------------
-// The open game's chats with its producer, the one used last first. Picking one carries it on
-// (the producer resumes that same conversation); deleting one only forgets it in this list.
+// The open game's chats with its producer, the one used last first. Picking one shows its messages
+// as they were (the studio keeps them in tmp/studio on this computer) and carries it on (the
+// producer resumes that same conversation); deleting one forgets it and its kept messages.
 const chatsShown = 8;
 let chatsAll = false, chatsNow = [], deleting = null;
 function producerName() { return $("pip-name").textContent || "Pip"; }
@@ -1722,7 +1723,7 @@ function askDelete(c, from) {
   deleting = Object.assign({ game }, c); deleteFrom = from;
   say($("chats-result"), "", "");
   $("chat-del-h").firstChild.textContent = "Delete \u201c" + chatTitle(c) + "\u201d?";
-  $("chat-del-text").textContent = producerName() + " forgets this chat: it leaves the list and cannot be picked up again. Your game, its files and its save points stay exactly as they are.";
+  $("chat-del-text").textContent = producerName() + " forgets this chat: it leaves the list, its messages are removed from this computer, and it cannot be picked up again. Your game, its files and its save points stay exactly as they are.";
   $("chat-del").hidden = false;
   $("chat-del-no").focus();
 }

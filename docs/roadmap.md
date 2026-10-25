@@ -58,4 +58,4 @@ Status: built ([studio.md](studio.md), "Your chats").
 
 Past conversations in the Studio sidebar: every chat per game and producer,
 newest first, to pick up again, start fresh or delete (with a confirm). Old
-chats stay after a restart.
+chats stay after a restart and show their messages when reopened.

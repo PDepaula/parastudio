@@ -30,8 +30,19 @@
 # One stream can hold several `result` events: a helper that finishes after the producer has
 # answered wakes the producer up again. So the turn ends when the process exits, not at the first
 # `result`.
+#
+# A chat from before the studio kept each chat's lines gets them back once from Claude Code's own
+# record of the conversation (`claudePastTurns`): `<config>/projects/<folder>/<session id>.jsonl`,
+# where `<config>` is `$CLAUDE_CONFIG_DIR` or `~/.claude` and `<folder>` is the repository's path
+# with every character that is not a letter or digit made a `-` (Claude Code's own naming; a path
+# long enough that Claude shortens it with a hash is not looked up). Only the file named by the
+# session id the studio already keeps is opened, read-only; the folder is never listed or written,
+# and no settings or login file is read. The friend's messages, the producer's words and the same
+# activity lines a live turn shows come back; thinking, tool results, helpers' own talk, compaction summaries
+# and notices a helper finished do not.
 
 import std/[json, os, osproc, streams, strutils, tables, sets]
+from std/unicode import runes
 import agent
 import agentjson
 import nimutil
@@ -43,6 +54,7 @@ const
   maxHelperText = 400
   maxToolMemory = 400 ## tool calls remembered to word a refusal
   maxStray = 12 ## unparseable lines kept for the "details" of a crash
+  maxPastLines = 4000 ## lines rebuilt from Claude's own record of a conversation; the newest are kept
   costSentence* = "Talking to Claude uses your own Claude plan or API credit. The studio only starts the claude program on this computer; it never sees or keeps your login."
   aboutSentence* = "The default producer. It builds, checks and plays your game with helpers."
   notInstalledText* = "I can't find the claude program on this computer, so the producer can't chat here yet. " &
@@ -472,7 +484,80 @@ proc claudeRunTurn(a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl, emit
     result.ok = r.started and not result.cancelled and r.exitCode == 0 and not m.errorEmitted
     return
 
+# --- a conversation from before the studio kept chats' lines ---------------------------
+
+proc folderSlug*(path: string): string =
+  ## The name Claude Code gives a folder's directory under `projects/`: each character that is not
+  ## an ASCII letter or digit becomes `-`. "" for a path Claude would shorten (over 200 of them).
+  for r in path.runes:
+    let c = if r.int32 < 128: char(r.int32) else: '-'
+    result.add(if c in {'a'..'z', 'A'..'Z', '0'..'9'}: c else: '-')
+  if result.len > 200: result = ""
+
+proc userWords(e: JsonNode): seq[string] =
+  ## What the friend typed in a `user` entry of Claude's record; nothing for a tool result or a
+  ## note Claude added itself.
+  let content = e.at("message", "content")
+  var texts: seq[string]
+  if content != nil and content.kind == JString: texts.add content.getStr
+  elif content != nil and content.kind == JArray:
+    for b in content:
+      if b.str("type") == "text": texts.add b.str("text")
+  for t in texts:
+    let w = t.strip
+    if w.len == 0: continue
+    if w.startsWith("<system-reminder>") or w.startsWith("<command-") or w.startsWith("<local-command-") or
+       w.startsWith("<task-notification>") or w.startsWith("[Request interrupted"): continue
+    result.add w
+
+proc readClaudeRecord*(path, root: string): seq[ChatLine] =
+  ## The chat lines in one Claude Code conversation file: the friend's messages, the producer's
+  ## words and activity lines, as a live turn shows them. Empty when the file is missing or
+  ## cannot be read; a line that is not what Claude writes is skipped.
+  var m = newClaudeMapper(root)
+  try:
+    for line in lines(path):
+      if line.len == 0: continue
+      var e: JsonNode
+      try: e = parseJson(line)
+      except CatchableError: continue
+      if e.kind != JObject or e.flag("isSidechain") or e.flag("isMeta") or e.flag("isApiErrorMessage") or e.flag("isCompactSummary"): continue
+      case e.str("type")
+      of "user":
+        if e.str("origin", "kind") notin ["", "human"]: continue
+        for w in userWords(e): result.add (you: true, ev: say(w))
+      of "assistant":
+        for ev in m.onAssistant(e):
+          if ev.kind in {ukSay, ukActivity}: result.add (you: false, ev: ev)
+      else: discard
+      if result.len > 2 * maxPastLines: result = result[^maxPastLines .. ^1]
+  except IOError, OSError:
+    return @[]
+  if result.len > maxPastLines: result = result[^maxPastLines .. ^1]
+
+proc projectsDir(a: AgentAdapter): string =
+  if a.historyDir.len > 0: return a.historyDir
+  let dir = getEnv("CLAUDE_CONFIG_DIR")
+  (if dir.len > 0: dir else: getHomeDir() / ".claude") / "projects"
+
+proc claudePastTurns(a: AgentAdapter, root, sessionId: string): seq[ChatLine] =
+  let id = validSession(sessionId)
+  if id.len == 0: return
+  var folders = @[root]
+  try:
+    let real = expandFilename(root) # claude records the folder it runs in with links resolved
+    if real != root: folders.add real
+  except OSError:
+    discard
+  for folder in folders:
+    let slug = folderSlug(folder)
+    if slug.len == 0: continue
+    let path = projectsDir(a) / slug / (id & ".jsonl")
+    if not fileExists(path): continue
+    result = readClaudeRecord(path, root)
+    if result.len > 0: return
+
 proc newClaudeAdapter*(exe = ""): AgentAdapter =
   ## `exe` is for tests (a stand-in program); left out, `claude` is looked up on PATH each time.
   AgentAdapter(name: "claude", label: "Claude", exe: exe, describe: claudeDescribe, preflight: claudePreflight,
-               runTurn: claudeRunTurn, cost: costSentence, about: aboutSentence)
+               runTurn: claudeRunTurn, pastTurns: claudePastTurns, cost: costSentence, about: aboutSentence)

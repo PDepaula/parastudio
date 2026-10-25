@@ -16,7 +16,10 @@
 #   live with the agent program, and the studio has no sign-in screen. Anything of the agent's own
 #   words that reaches the page as a diagnostic goes through `redactSecrets` first;
 # - everything the agent says is untrusted text: the page puts it in with textContent, never as
-#   HTML, and nothing in it is ever run.
+#   HTML, and nothing in it is ever run;
+# - `pastTurns`, when it has one, opens only the agent's own record of the one conversation it is
+#   asked about, read-only: it never lists or scans the agent's folder, never writes there, and
+#   never reads the agent's settings or login.
 #
 # This file also owns the two pieces every child-process adapter needs and none should redo: the
 # `TurnControl` that lets another thread stop a turn (killing the child's whole process tree, the
@@ -47,6 +50,8 @@ type
     code*: string    ## ukNotice / ukError: a short stable word the page can act on
     detail*: string  ## ukError: a few redacted words from the agent, for the curious
     url*: string     ## ukError: where to read more; always one of our own constants
+
+  ChatLine* = tuple[you: bool, ev: UiEvent] ## one line of a chat; `you` for the friend's own message (an `ukSay`)
 
   EmitProc* = proc (ev: UiEvent) {.closure, gcsafe.}
   SessionProc* = proc (sessionId: string) {.closure, gcsafe.}
@@ -95,6 +100,12 @@ type
       ## returns a login, a token or a key.
     runTurn*: proc (a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl,
                     emit: EmitProc): TurnResult {.nimcall, gcsafe.}
+    pastTurns*: proc (a: AgentAdapter, root, sessionId: string): seq[ChatLine] {.nimcall, gcsafe.}
+      ## The friend's messages and the agent's words in conversation `sessionId`, read back from the
+      ## agent's own record of it on this computer, for a chat the studio kept no lines of (one from
+      ## before it kept them). Empty when there is no such record or it cannot be read; never raises.
+      ## Nil for an agent whose records are not that simple to find.
+    historyDir*: string  ## where `pastTurns` looks; "" = the agent's own folder. Set by tests
     cost*: string        ## one plain sentence about who pays, shown beside the chat
     about*: string       ## one plain sentence for the agent picker: what to expect from this one
 
