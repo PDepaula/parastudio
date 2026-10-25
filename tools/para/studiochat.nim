@@ -1,26 +1,27 @@
-# The producer's chat inside `para studio`: one conversation per game and agent, one turn at a time.
+# The producer's chat inside `para studio`: any number of chats per game and agent, one turn at a time.
 #
 # This file knows the agent only through agent.nim's `AgentAdapter`: it hands the adapter the
 # friend's message, collects the `UiEvent`s the adapter emits into a numbered list the page polls
-# (`GET /api/chat?since=N`, the same polling the Check and Save steps use), keeps the agent's
-# session id per game and agent in a small file so a restart or a reopened page resumes the same
-# conversation, and stops a turn (the Stop button, a timeout, or the studio closing).
+# (`GET /api/chat?since=N`, the same polling the Check and Save steps use), keeps each chat's
+# session id in chatstore.nim's file so a restart, a reopened page or picking the chat again from
+# the list resumes the same conversation, and stops a turn (the Stop button, a timeout, or the
+# studio closing).
 #
 # A turn runs on its own thread, with a second small thread watching the clock. Nothing is sent to
 # the agent unless the friend sends a message: opening the page, polling, even a reload start no
 # turn and so cost nothing.
 #
-# Each agent keeps its own conversation: the session file is `tmp/studio/session-<game>-<agent>.id`
-# and holds that agent's session id and nothing else (a newline-free token; `readSession` refuses
-# anything that is not one). One agent's id is never handed to another, which could not use it. The
-# agent a game talks to is remembered in `tmp/studio/agent-<game>.txt` (its name and nothing else);
-# a game with no pick uses the studio's default, the first adapter. The session file Claude used
-# before there was a second agent, `session-<game>.id`, is still read for Claude. Nothing the friend
-# typed, no transcript, and no login or key is ever written to disk by the studio. The conversation
-# shown on the page lives in memory for as long as the studio runs.
+# Each agent keeps its own chats (chatstore.nim: `tmp/studio/chats-<game>-<agent>.json`, each chat's
+# title, times and session id), and the page lists the chats of the agent the game talks to. One
+# agent's id is never handed to another, which could not use it. The agent a game talks to is
+# remembered in `tmp/studio/agent-<game>.txt` (its name and nothing else); a game with no pick uses
+# the studio's default, the first adapter. Of what the friend typed only each chat's title (the
+# start of its first message) is written to disk; no transcript and no login or key ever is. The
+# lines shown on the page live in memory, per chat, for as long as the studio runs.
 
 import std/[locks, os, strutils, tables, times]
 import agent
+import chatstore
 import savepoint
 
 const
@@ -29,9 +30,11 @@ const
   defaultTurnSeconds* = 3600
 
 type
+  ChatKey = tuple[game, agent: string, chat: int] ## which chat a line belongs to
+
   ChatEntry = object
     seq: int
-    game: string
+    key: ChatKey
     you: bool
     ev: UiEvent
 
@@ -43,8 +46,7 @@ type
     timeoutSec: int
     running: bool
     turnId: int
-    turnGame: string
-    turnAgent: string
+    turnKey: ChatKey
     turnText: string
     turnSession: string
     startedAt: float
@@ -56,6 +58,8 @@ type
     watchThread: Thread[ptr ChatState]
     threadsStarted: bool
     infos: Table[string, tuple[info: AgentInfo, at: float]]
+    bookLock: Lock ## the chat lists below and their files; never held together with `lock`
+    books: Table[string, ChatBook] ## by "<game>/<agent>", read from disk the first time
 
   Started* = object
     ok*: bool
@@ -68,6 +72,7 @@ proc initChat*(c: ptr ChatState, root: string, adapters: seq[AgentAdapter], time
   doAssert adapters.len > 0
   initLock(c.lock)
   initLock(c.startLock)
+  initLock(c.bookLock)
   c.root = root
   c.adapters = adapters
   c.timeoutSec = timeoutSec
@@ -81,55 +86,25 @@ proc adapterFor(c: ptr ChatState, name: string): AgentAdapter =
     if a.name == name: return a
   c.adapters[0]
 
-# --- the session file ---------------------------------------------------------------
+# --- the chat lists ---------------------------------------------------------------
 
-proc sessionPath*(root, game, agent: string): string =
-  root / "tmp" / "studio" / ("session-" & game & "-" & agent & ".id")
+proc bookOf(c: ptr ChatState, game, agent: string): ChatBook =
+  ## A copy of `game`'s chats with `agent`. Called with `bookLock` held.
+  let k = game & "/" & agent
+  if k notin c.books: c.books[k] = loadBook(c.root, game, agent)
+  c.books[k]
 
-proc legacySessionPath(root, game: string): string =
-  ## Where the one conversation per game was kept before each agent had its own (always Claude's).
-  root / "tmp" / "studio" / ("session-" & game & ".id")
-
-proc validAgentName(agent: string): bool =
-  agent.len in 1..24 and agent.allCharsInSet({'a'..'z', '0'..'9', '-'})
+proc keep(c: ptr ChatState, game, agent: string, b: ChatBook) =
+  ## Remembers `b` and writes it down. Called with `bookLock` held.
+  c.books[game & "/" & agent] = b
+  discard saveBook(c.root, game, agent, b) # if the disk refuses, the chats last until the studio closes
 
 proc readSession*(root, game, agent: string): string =
-  ## The saved session id for `game` with `agent`, "" when there is none or the file holds anything
-  ## but an id.
-  if not validGameName(game) or not validAgentName(agent): return ""
-  var paths = @[sessionPath(root, game, agent)]
-  if agent == "claude": paths.add legacySessionPath(root, game)
-  for path in paths:
-    try:
-      let id = validSessionToken(readFile(path).strip)
-      if id.len > 0: return id
-    except IOError, OSError:
-      discard
-
-proc writeSession*(root, game, agent, id: string) =
-  if not validGameName(game) or not validAgentName(agent) or validSessionToken(id).len == 0: return
-  let path = sessionPath(root, game, agent)
-  try:
-    createDir(path.parentDir)
-    let tmpPath = path & ".new"
-    writeFile(tmpPath, id)
-    moveFile(tmpPath, path)
-    if agent == "claude": removeFile(legacySessionPath(root, game)) # the new file now holds it
-  except IOError, OSError:
-    discard # the conversation still works; it just will not resume after a restart
-
-proc forgetSession*(root, game: string, agent = "") =
-  ## Forgets `agent`'s saved conversation for `game`, or every agent's when `agent` is left out.
-  if not validGameName(game): return
-  try:
-    for kind, path in walkDir(root / "tmp" / "studio"):
-      let name = path.extractFilename
-      if kind != pcFile or not name.startsWith("session-" & game & "-") or not name.endsWith(".id"): continue
-      let who = name["session-".len + game.len + 1 ..< name.len - ".id".len]
-      if agent.len == 0 or who == agent: removeFile(path)
-    if agent.len == 0 or agent == "claude": removeFile(legacySessionPath(root, game))
-  except OSError:
-    discard
+  ## The session id the next message in `game`'s current chat with `agent` resumes, "" for a new
+  ## conversation (read from disk, for tests and tools; the studio itself keeps the list in memory).
+  let b = loadBook(root, game, agent)
+  let i = b.find(b.current)
+  if i >= 0: b.chats[i].session else: ""
 
 # --- the agent a game talks to ------------------------------------------------------
 
@@ -147,58 +122,70 @@ proc agentOf*(c: ptr ChatState, game: string): string =
       discard
   c.adapters[0].name
 
+proc currentKey(c: ptr ChatState, game: string): ChatKey =
+  ## The chat `game`'s page shows now: its producer's current chat.
+  let agent = agentOf(c, game)
+  acquire(c.bookLock)
+  let b = c.bookOf(game, agent)
+  release(c.bookLock)
+  (game, agent, b.current)
+
 # --- the event list -----------------------------------------------------------------
 
-proc add(c: ptr ChatState, game: string, ev: UiEvent, you = false) =
+proc add(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
   acquire(c.lock)
-  c.entries.add ChatEntry(seq: c.nextSeq, game: game, you: you, ev: ev)
+  c.entries.add ChatEntry(seq: c.nextSeq, key: key, you: you, ev: ev)
   inc c.nextSeq
   if c.entries.len > maxEvents: c.entries = c.entries[c.entries.len - maxEvents .. ^1]
   release(c.lock)
 
 proc addCard*(c: ptr ChatState, game: string, ev: UiEvent) =
-  ## A line the studio itself puts in `game`'s conversation (a screenshot card): not from the
+  ## A line the studio itself puts in `game`'s current chat (a screenshot card): not from the
   ## agent, so it works with no turn running.
-  c.add(game, ev)
+  c.add(c.currentKey(game), ev)
+
+proc setChatSession(c: ptr ChatState, key: ChatKey, id: string) =
+  acquire(c.bookLock)
+  var b = c.bookOf(key.game, key.agent)
+  if b.setSession(key.chat, id): c.keep(key.game, key.agent, b)
+  release(c.bookLock)
 
 # --- a turn -------------------------------------------------------------------------
 
 proc turnMain(c: ptr ChatState) {.thread.} =
   var adapter: AgentAdapter
   var req: TurnRequest
-  var game: string
+  var key: ChatKey
   var ctl: ptr TurnControl
   var timeoutSec: int
   acquire(c.lock)
-  adapter = c.adapterFor(c.turnAgent)
-  game = c.turnGame
+  adapter = c.adapterFor(c.turnKey.agent)
+  key = c.turnKey
   req = TurnRequest(text: c.turnText, sessionId: c.turnSession, workDir: c.root)
   ctl = c.ctl
   timeoutSec = c.timeoutSec
   release(c.lock)
   {.cast(gcsafe).}:
-    let root = req.workDir
-    let agentName = adapter.name
-    req.onSession = proc (id: string) = writeSession(root, game, agentName, id)
+    req.onSession = proc (id: string) = c.setChatSession(key, id)
     var res: TurnResult
     try:
-      res = adapter.runTurn(adapter, req, ctl, proc (ev: UiEvent) = c.add(game, ev))
+      res = adapter.runTurn(adapter, req, ctl, proc (ev: UiEvent) = c.add(key, ev))
     except CatchableError as e:
-      c.add(game, UiEvent(kind: ukError, code: "crashed",
+      c.add(key, UiEvent(kind: ukError, code: "crashed",
         text: "The studio hit a problem while talking to the producer's tool: " & oneLine(redactSecrets(e.msg), 200)))
     let reason = ctl.cancelReason
     var done = UiEvent(kind: ukTurnDone, text: "")
     if res.cancelled and reason == "timeout":
-      c.add(game, UiEvent(kind: ukError, code: "timeout",
+      c.add(key, UiEvent(kind: ukError, code: "timeout",
         text: "This turn ran longer than " & (if timeoutSec >= 120: $(timeoutSec div 60) & " minutes" elif timeoutSec >= 60: "a minute" else: $timeoutSec & (if timeoutSec == 1: " second" else: " seconds")) & ", so I stopped it. Anything a helper already changed is still in the game folder. Ask the producer where things stand."))
       done.text = "timeout"
     elif res.cancelled:
-      c.add(game, UiEvent(kind: ukNotice, code: "stopped",
+      c.add(key, UiEvent(kind: ukNotice, code: "stopped",
         text: "Stopped. Anything a helper already changed is still in the game folder. Ask the producer where things stand."))
       done.text = "stopped"
     elif res.ok: done.text = "ok"
     else: done.text = "failed"
-    c.add(game, done)
+    c.add(key, done)
   acquire(c.lock)
   c.running = false
   release(c.lock)
@@ -264,19 +251,23 @@ proc startTurn*(c: ptr ChatState, game, text: string): Started =
   release(c.lock)
   reap(c)
   let agentName = agentOf(c, game)
-  let session = readSession(c.root, game, agentName)
+  acquire(c.bookLock)
+  var b = c.bookOf(game, agentName)
+  let session = b.noteMessage(text, epochTime().int64)
+  c.keep(game, agentName, b)
+  release(c.bookLock)
+  let key: ChatKey = (game, agentName, b.current)
   acquire(c.lock)
   c.running = true
   inc c.turnId
-  c.turnGame = game
-  c.turnAgent = agentName
+  c.turnKey = key
   c.turnText = text
   c.turnSession = session
   c.startedAt = epochTime()
   c.ctl = newTurnControl()
   result = Started(ok: true, status: 200, turnId: c.turnId)
   release(c.lock)
-  c.add(game, UiEvent(kind: ukSay, text: text.strip), you = true)
+  c.add(key, UiEvent(kind: ukSay, text: text.strip), you = true)
   try:
     createThread(c.turnThread, turnMain, c)
     createThread(c.watchThread, watchMain, c)
@@ -311,17 +302,90 @@ proc shutdownChat*(c: ptr ChatState) =
   if not isRunning(c): reap(c)
 
 proc newConversation*(c: ptr ChatState, game: string): bool =
-  ## Forgets the saved session for `game` and clears its lines from the page. False while a turn runs.
+  ## The next message in `game` starts a new chat with its producer; the earlier ones stay in the
+  ## list. False while a turn runs.
   if not validGameName(game): return false
+  acquire(c.startLock)
+  defer: release(c.startLock)
+  if isRunning(c): return false
+  let agent = agentOf(c, game)
+  acquire(c.bookLock)
+  var b = c.bookOf(game, agent)
+  b.freshChat()
+  c.keep(game, agent, b)
+  release(c.bookLock)
+  true
+
+proc hasLines(c: ptr ChatState, key: ChatKey): bool =
   acquire(c.lock)
   defer: release(c.lock)
-  if c.running: return false
+  for e in c.entries:
+    if e.key == key: return true
+
+proc openChat*(c: ptr ChatState, game: string, id: int): Started =
+  ## The next message in `game` goes to chat `id` and resumes its conversation. Refused while a
+  ## turn runs. A chat whose lines are not in memory any more (the studio was closed since) gets a
+  ## note saying so.
+  if not validGameName(game):
+    return Started(status: 400, code: "which-game", message: "Say which game this is about.")
+  acquire(c.startLock)
+  defer: release(c.startLock)
+  if isRunning(c):
+    return Started(status: 409, code: "busy", message: "The producer is working on your last message. Wait for it, or press Stop, then open the chat.")
+  let agent = agentOf(c, game)
+  acquire(c.bookLock)
+  var b = c.bookOf(game, agent)
+  let was = b.current
+  let found = b.openChat(id)
+  if found and was != id: c.keep(game, agent, b)
+  release(c.bookLock)
+  if not found:
+    return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
+  let key: ChatKey = (game, agent, id)
+  if was != id and not c.hasLines(key):
+    c.add(key, UiEvent(kind: ukNotice, code: "chat-opened",
+      text: "Back in this chat. The producer remembers it, so just carry on; the messages from before Studio was last closed are not shown here."))
+  Started(ok: true, status: 200)
+
+proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
+  ## Forgets chat `id` from `game`'s list (its title, times and session id) and its lines on the
+  ## page. Nothing in the game's folder is touched. Refused while a turn runs.
+  if not validGameName(game):
+    return Started(status: 400, code: "which-game", message: "Say which game this is about.")
+  acquire(c.startLock)
+  defer: release(c.startLock)
+  if isRunning(c):
+    return Started(status: 409, code: "busy", message: "The producer is working on your last message. Wait for it, or press Stop, then delete the chat.")
+  let agent = agentOf(c, game)
+  acquire(c.bookLock)
+  var b = c.bookOf(game, agent)
+  let found = b.dropChat(id)
+  if found: c.keep(game, agent, b)
+  release(c.bookLock)
+  if not found:
+    return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
+  let key: ChatKey = (game, agent, id)
+  acquire(c.lock)
   var kept: seq[ChatEntry]
   for e in c.entries:
-    if e.game != game: kept.add e
+    if e.key != key: kept.add e
   c.entries = kept
-  forgetSession(c.root, game)
-  true
+  release(c.lock)
+  Started(ok: true, status: 200)
+
+type
+  ChatList* = object
+    agent*: string
+    current*: int
+    chats*: seq[ChatRecord] ## newest first
+
+proc listChats*(c: ptr ChatState, game: string): ChatList =
+  ## `game`'s chats with the producer it talks to now, the one used last first.
+  let agent = agentOf(c, game)
+  acquire(c.bookLock)
+  let b = c.bookOf(game, agent)
+  release(c.bookLock)
+  ChatList(agent: agent, current: b.current, chats: b.newestFirst)
 
 # --- what the page reads ------------------------------------------------------------
 
@@ -330,16 +394,20 @@ type
     running*: bool
     turnId*: int
     next*: int
+    chat*: int ## the chat these lines are from
     entries*: seq[tuple[seq: int, you: bool, ev: UiEvent]]
 
 proc view*(c: ptr ChatState, game: string, since: int): ChatView =
+  ## The lines after `since` of the chat `game`'s page shows now.
+  let key = c.currentKey(game)
   acquire(c.lock)
   defer: release(c.lock)
   result.running = c.running
   result.turnId = c.turnId
   result.next = c.nextSeq - 1
+  result.chat = key.chat
   for e in c.entries:
-    if e.seq > since and e.game == game: result.entries.add (e.seq, e.you, e.ev)
+    if e.seq > since and e.key == key: result.entries.add (e.seq, e.you, e.ev)
 
 proc agentInfo*(c: ptr ChatState, name: string): AgentInfo =
   ## What `describe` says about `name`, looked up at most every 20 seconds (it may start the program
@@ -371,8 +439,8 @@ proc timeoutMinutes*(c: ptr ChatState): int = c.timeoutSec div 60
 
 proc pickAgent*(c: ptr ChatState, game, name: string): Started =
   ## Makes `name` the agent `game`'s chat talks to, from the next message on. Each agent keeps its
-  ## own conversation, so switching back later picks up where that agent left off. Refused while a
-  ## turn runs (it would be talking to the other one).
+  ## own chats, so switching back later picks up where that agent left off. Refused while a turn
+  ## runs (it would be talking to the other one).
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   if name notin c.agentNames:
@@ -389,6 +457,6 @@ proc pickAgent*(c: ptr ChatState, game, name: string): Started =
     moveFile(path & ".new", path)
   except IOError, OSError:
     return Started(status: 500, code: "cannot-save", message: "I could not remember that pick (is the disk full?).")
-  c.add(game, UiEvent(kind: ukNotice, code: "agent-picked",
-    text: "From your next message on, " & c.adapterFor(name).label & " is the producer. It has its own conversation, so it reads the game's notes (PLAN.md) to pick things up; it can't see what the other one said."))
+  c.add(c.currentKey(game), UiEvent(kind: ukNotice, code: "agent-picked",
+    text: "From your next message on, " & c.adapterFor(name).label & " is the producer. It has its own chats, so it reads the game's notes (PLAN.md) to pick things up; it can't see what the other one said."))
   Started(ok: true, status: 200)

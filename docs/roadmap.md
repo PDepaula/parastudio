@@ -54,7 +54,8 @@ Today they are only exercised with stand-ins, Wine or hosted runners.
 
 ## Studio sessions list
 
-Status: not started.
+Status: built ([studio.md](studio.md), "Your chats").
 
-Past conversations in the Studio sidebar. It needs the chat store to keep
-more than one conversation per game and producer.
+Past conversations in the Studio sidebar: every chat per game and producer,
+newest first, to pick up again, start fresh or delete (with a confirm). Old
+chats stay after a restart.
