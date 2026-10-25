@@ -2,7 +2,8 @@
 # throwaway repository whose launcher is a stand-in that only notes how it was run and makes
 # tmp/para: that an unstamped copy says it is not pinned and uses main, that a copy stamped the way
 # tools/docs/build.py stamps it checks out exactly that commit on `main` and refuses a commit the
-# repository does not have, that an existing folder is never overwritten (a Para Studio copy is only
+# repository does not have (removing the folder it had just cloned, and only that, so a run again starts
+# clean instead of reusing a copy at the wrong commit), that an existing folder is never overwritten (a Para Studio copy is only
 # set up again; anything else is refused untouched), that the launcher runs with --no-studio and, in
 # an unattended run, with PARALOOP_LAUNCHER_UNATTENDED=1 and no input, that a launcher that stops
 # stops the installer, and that a missing git or a missing terminal stops it before anything is
@@ -105,7 +106,34 @@ else:
       let r = run()
       check r.exitCode == 1
       check "commit " & repeat('a', 40) & " was not found" in r.output
+      check "I removed " & home / "parastudio" & ", the partial folder this run made" in r.output
+      check not dirExists(home / "parastudio")
       check "launch" notin launched()
+
+    test "after a stop that removed the partial folder, running again starts clean instead of reusing it":
+      stamp(repeat('a', 40))
+      check run().exitCode == 1
+      stamp(first)
+      let r = run()
+      check r.exitCode == 0
+      check "Cloning" in r.output
+      check "already holds a Para Studio copy" notin r.output
+      check git(home / "parastudio", "rev-parse HEAD") == first
+
+    test "a clone that fails stops without touching anything that was there":
+      let r = run({"PARASTUDIO_REPO": scratch / "no-such-repository"})
+      check r.exitCode == 1
+      check "git clone did not finish" in r.output
+      check not dirExists(home / "parastudio")
+      check dirExists(home)
+
+    test "a relative PARASTUDIO_DIR that this run made is left alone, with the way to remove it":
+      stamp(repeat('a', 40))
+      let r = run({"PARASTUDIO_DIR": "rel-studio"})
+      check r.exitCode == 1
+      check "is a relative path, so I left it alone" in r.output
+      check "I removed" notin r.output
+      check dirExists(scratch / "rel-studio")
 
     test "PARASTUDIO_DIR picks the folder":
       let r = run({"PARASTUDIO_DIR": scratch / "elsewhere" / "studio"})
@@ -123,7 +151,18 @@ else:
       var left: seq[string]
       for kind, f in walkDir(home / "parastudio"): left.add f.extractFilename
       check left == @["mine.txt"]
+      check readFile(home / "parastudio" / "mine.txt") == "keep\n"
+      check "I removed" notin r.output
       check "launch" notin launched()
+
+    test "a folder in the way is never removed, even when the commit is not found":
+      stamp(repeat('a', 40))
+      createDir(home / "parastudio")
+      writeFile(home / "parastudio" / "mine.txt", "keep\n")
+      let r = run()
+      check r.exitCode == 1
+      check "I removed" notin r.output
+      check readFile(home / "parastudio" / "mine.txt") == "keep\n"
 
     test "a second run changes no file and only runs the launcher again":
       stamp(first)

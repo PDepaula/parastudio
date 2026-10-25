@@ -41,6 +41,22 @@ stop() { # $1 = what went wrong and what to do; exits 1
   exit 1
 }
 
+CREATED=0 # 1 once this run has seen $DIR absent and started the clone: only then is the folder this run's own
+
+abandon() { # $1 = what went wrong; removes the folder this run made (and only that), then stops
+  case "$DIR" in
+    /*) ;;
+    *) stop "$1 $DIR is a relative path, so I left it alone; delete it before running this again." ;;
+  esac
+  case "$DIR" in
+    /|"$HOME"|"$HOME"/) stop "$1 $DIR is not a folder I will remove; delete what this run made in it before running this again." ;;
+  esac
+  if [ "$CREATED" = 1 ] && [ -d "$DIR" ] && [ ! -L "$DIR" ]; then
+    rm -rf -- "$DIR" && say "I removed $DIR, the partial folder this run made, so nothing half-done is left behind."
+  fi
+  stop "$1"
+}
+
 ask() { # $1 = the question; yes only for y or yes typed at the keyboard
   if [ "$YES" = 1 ]; then say "$1 yes (PARASTUDIO_YES=1)"; return 0; fi
   printf '%s (y/n, Enter means no) ' "$1"
@@ -125,17 +141,18 @@ main() {
   if [ "$EXISTING" = 0 ]; then
     say ""
     say "Cloning into $DIR..."
-    git clone --quiet "$REPO" "$DIR" || stop "git clone did not finish. Check that this computer is online. If $DIR was made, delete it before running this again."
+    if [ ! -e "$DIR" ] && [ ! -L "$DIR" ]; then CREATED=1; fi
+    git clone --quiet "$REPO" "$DIR" || abandon "git clone did not finish. Check that this computer is online."
     if [ -n "$PARASTUDIO_COMMIT" ]; then
       git -C "$DIR" cat-file -e "$PARASTUDIO_COMMIT^{commit}" 2>/dev/null \
         || git -C "$DIR" fetch --quiet origin "$PARASTUDIO_COMMIT" \
-        || stop "commit $PARASTUDIO_COMMIT was not found in $REPO. Delete $DIR and get the installer again from the docs site."
-      git -C "$DIR" checkout --quiet -B main "$PARASTUDIO_COMMIT" || stop "git could not check out commit $PARASTUDIO_COMMIT in $DIR."
+        || abandon "commit $PARASTUDIO_COMMIT was not found in $REPO. Get the installer again from the docs site."
+      git -C "$DIR" checkout --quiet -B main "$PARASTUDIO_COMMIT" || abandon "git could not check out commit $PARASTUDIO_COMMIT in $DIR."
       HEAD=$(git -C "$DIR" rev-parse HEAD)
-      [ "$HEAD" = "$PARASTUDIO_COMMIT" ] || stop "$DIR is at commit $HEAD, not $PARASTUDIO_COMMIT. Delete $DIR before running this again."
+      [ "$HEAD" = "$PARASTUDIO_COMMIT" ] || abandon "$DIR is at commit $HEAD, not $PARASTUDIO_COMMIT."
       say "  ok: $DIR is at commit $HEAD, the one this installer names."
     else
-      git -C "$DIR" checkout --quiet -B main origin/main || stop "git could not check out main in $DIR."
+      git -C "$DIR" checkout --quiet -B main origin/main || abandon "git could not check out main in $DIR."
       say "  ok: $DIR is at commit $(git -C "$DIR" rev-parse HEAD), the newest on main."
     fi
   fi

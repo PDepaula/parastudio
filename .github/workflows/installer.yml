@@ -129,6 +129,27 @@ jobs:
           grep -F "already exists and is not a Para Studio copy. I will not touch it." "$RUNNER_TEMP/run3.txt"
           test "$(ls -A "$RUNNER_TEMP/in-the-way")" = mine.txt
 
+      - name: launch.bat --check --no-studio asks nothing unattended, offers nothing and starts no Studio (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set "USERPROFILE=%RUNNER_TEMP%\bathome"
+          mkdir "%USERPROFILE%"
+          set "PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim"
+          set "PARALOOP_LAUNCHER_DRY_ASK=1"
+          set "PARALOOP_LAUNCHER_UNATTENDED=1"
+          (echo y& echo y& echo y& echo y) | call tools\launcher\launch.bat --check --no-studio > "%RUNNER_TEMP%\bat-check.txt" 2>&1
+          set "CODE=%ERRORLEVEL%"
+          type "%RUNNER_TEMP%\bat-check.txt"
+          if not "%CODE%"=="0" (echo launch.bat exited with %CODE% & exit /b 1)
+          set "NO=0"
+          for /f %%n in ('findstr /c:"No: this is an unattended run, and nothing is installed without a person typing y." "%RUNNER_TEMP%\bat-check.txt" ^| find /c /v ""') do set "NO=%%n"
+          if not "%NO%"=="3" (echo expected 3 unattended answers of no, got %NO% & exit /b 1)
+          findstr /c:"would: install" "%RUNNER_TEMP%\bat-check.txt" >nul && (echo an install was offered as a yes & exit /b 1)
+          findstr /c:"not started now (--no-studio)." "%RUNNER_TEMP%\bat-check.txt" >nul || (echo Studio was not skipped & exit /b 1)
+          if exist "%USERPROFILE%\.paraloop" (echo .paraloop was created & exit /b 1)
+          exit /b 0
+
       - name: Run the published install.ps1 as the one-liner does (irm | iex), three times
         if: runner.os == 'Windows'
         shell: powershell

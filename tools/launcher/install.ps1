@@ -49,6 +49,21 @@
     throw 'Para Studio install stopped.'
   }
 
+  $created = $false  # true once this run has seen $dir absent and started the clone: only then is the folder this run's own
+
+  function Stop-Partial([string]$why) {
+    # Removes the folder this run made (and only that), then stops.
+    if (-not [System.IO.Path]::IsPathRooted($dir)) { Stop-Install "$why $dir is a relative path, so I left it alone; delete it before running this again." }
+    $full = [System.IO.Path]::GetFullPath($dir).TrimEnd('\', '/')
+    $home1 = [System.IO.Path]::GetFullPath($HOME).TrimEnd('\', '/')
+    if (-not $full -or $full -match '^[A-Za-z]:$' -or $full -eq $home1) { Stop-Install "$why $dir is not a folder I will remove; delete what this run made in it before running this again." }
+    if ($created -and (Test-Path -LiteralPath $dir -PathType Container) -and -not ((Get-Item -LiteralPath $dir -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+      Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+      if (-not (Test-Path -LiteralPath $dir)) { Say "I removed $dir, the partial folder this run made, so nothing half-done is left behind." }
+    }
+    Stop-Install $why
+  }
+
   function Ask([string]$question) {
     # Yes only for y or yes typed here; Enter and anything else are no.
     if ($yes) { Say "$question yes (PARASTUDIO_YES=1)"; return $true }
@@ -120,20 +135,21 @@
   if (-not $existing) {
     Say ''
     Say "Cloning into $dir..."
+    if (-not (Test-Path -LiteralPath $dir)) { $created = $true }
     git clone --quiet $repo $dir
-    if ($LASTEXITCODE -ne 0) { Stop-Install "git clone did not finish. Check that this computer is online. If $dir was made, delete it before running this again." }
+    if ($LASTEXITCODE -ne 0) { Stop-Partial 'git clone did not finish. Check that this computer is online.' }
     if ($PARASTUDIO_COMMIT) {
       git -C $dir cat-file -e "$PARASTUDIO_COMMIT^{commit}" *> $null
       if ($LASTEXITCODE -ne 0) { git -C $dir fetch --quiet origin $PARASTUDIO_COMMIT }
-      if ($LASTEXITCODE -ne 0) { Stop-Install "commit $PARASTUDIO_COMMIT was not found in $repo. Delete $dir and get the installer again from the docs site." }
+      if ($LASTEXITCODE -ne 0) { Stop-Partial "commit $PARASTUDIO_COMMIT was not found in $repo. Get the installer again from the docs site." }
       git -C $dir checkout --quiet -B main $PARASTUDIO_COMMIT
-      if ($LASTEXITCODE -ne 0) { Stop-Install "git could not check out commit $PARASTUDIO_COMMIT in $dir." }
+      if ($LASTEXITCODE -ne 0) { Stop-Partial "git could not check out commit $PARASTUDIO_COMMIT in $dir." }
       $head = "$(git -C $dir rev-parse HEAD)".Trim()
-      if ($head -ne $PARASTUDIO_COMMIT) { Stop-Install "$dir is at commit $head, not $PARASTUDIO_COMMIT. Delete $dir before running this again." }
+      if ($head -ne $PARASTUDIO_COMMIT) { Stop-Partial "$dir is at commit $head, not $PARASTUDIO_COMMIT." }
       Say "  ok: $dir is at commit $head, the one this installer names."
     } else {
       git -C $dir checkout --quiet -B main origin/main
-      if ($LASTEXITCODE -ne 0) { Stop-Install "git could not check out main in $dir." }
+      if ($LASTEXITCODE -ne 0) { Stop-Partial "git could not check out main in $dir." }
       Say "  ok: $dir is at commit $(git -C $dir rev-parse HEAD), the newest on main."
     }
   }

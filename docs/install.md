@@ -52,7 +52,9 @@ you see.
   asks for an administrator password.
 - It never overwrites a folder. If the folder is already there and is a Para Studio copy, it only
   finishes setting that copy up and changes none of its files; anything else in the way and it
-  stops without touching it.
+  stops without touching it. The one folder it ever removes is one it made itself a moment ago: if
+  the copy cannot be finished (the download stops, or the code is not the commit the installer
+  names), it deletes that half-made folder, says so, and the next run starts clean.
 - It never changes your shell settings or your Windows settings, never touches a login, and never
   sends anything anywhere. There is no tracking of any kind. The only downloads are the copy from
   GitHub, the game libraries, and whatever you said `y` to.

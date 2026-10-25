@@ -134,17 +134,6 @@ suite "launcher (Windows): offers to install":
       for l in body:
         if not isComment(l) and "curl.exe -" in l: check name == "install_nim"
 
-  test "--no-studio skips only Studio, and an unattended run answers no without asking":
-    check "if /i \"%~1\"==\"--no-studio\" set \"NO_STUDIO=1\" & shift & goto parse_args" in lines
-    check "if defined NO_STUDIO goto studio_skip" in lines
-    check parts["studio_skip"].allIt("para.exe studio" notin it)
-    let ask = parts["ask"].filterIt(not isComment(it)).mapIt(code(it))
-    let unattended = ask.find("if \"%PARALOOP_LAUNCHER_UNATTENDED%\"==\"1\" goto ask_unattended")
-    check unattended >= 0
-    check unattended < ask.find("set /p \"REPLY=      %~1 (y/n, Enter means no) \"")
-    check ask.find("set \"ANSWER=no\"") in 0 ..< unattended
-    check parts["ask_unattended"].allIt("set /p" notin it.toLowerAscii and "=yes" notin it)
-
   test "the dry-run question hook is read only in a dry run and asks before it says what it would do":
     check "set \"DRY_ASK=\"" in lines
     check "if \"%DRY_RUN%\"==\"1\" if \"%PARALOOP_LAUNCHER_DRY_ASK%\"==\"1\" set \"DRY_ASK=1\"" in lines
