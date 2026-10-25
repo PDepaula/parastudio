@@ -243,7 +243,8 @@ edit rules take effect only in a folder Claude Code trusts (see "If something go
   until its first message, numbers are never reused, and the file is written whole (a new file
   moved over the old one). **New chat** opens a fresh chat for the game's current agent and keeps
   the rest. Opening a chat whose lines are not in memory (the studio was closed since) adds a
-  `chat-opened` note. Deleting forgets that chat's entry and its lines and nothing else: the agent's
+  `chat-opened` note; so does the chat that was open at a restart, once, when the game's chats are
+  first read from disk (before any other line of that chat). A fresh chat never gets it. Deleting forgets that chat's entry and its lines and nothing else: the agent's
   own record of the conversation (in its own folder) and the game's folder are not touched. The one
   conversation an older studio kept, `session-<game>-<agent>.id` (and Claude's `session-<game>.id`
   from before there was a second agent), is read as one chat with no title and removed once the
