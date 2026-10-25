@@ -243,7 +243,7 @@ edit rules take effect only in a folder Claude Code trusts (see "If something go
   **New chat** opens a fresh chat for the game's current agent and keeps the rest.
 - **Each chat's lines** go to `tmp/studio/chat-<game>-<agent>-<number>.jsonl` as they are shown,
   one JSON object a line (`kind` as the page's `GET /api/chat` names it, `text`, and the helper,
-  note and error fields; never an error's link). Not kept: the end-of-turn marker and a helper
+  note and error fields, with a note's or error's link kept only when it starts with `https://`). Not kept: the end-of-turn marker and a helper
   card's in-between `working` updates (its start and end are). Text goes through `redactSecrets`
   first, one message is cut past 16,000 bytes with a note, and a file past 512 KB is rewritten
   with its newest lines up to 384 KB behind one `chat-trimmed` note. Opening a chat, and the chat

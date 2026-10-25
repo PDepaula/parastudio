@@ -240,6 +240,7 @@ proc encodeLine(line: ChatLine): string =
   of ukNotice, ukError, ukRefused:
     if ev.code.len > 0: n["code"] = %oneLine(ev.code, 40)
     if ev.detail.len > 0: n["detail"] = %keptText(ev.detail)
+    if ev.kind != ukRefused and ev.url.startsWith("https://"): n["url"] = %ev.url
   else: discard
   $n
 
@@ -262,9 +263,11 @@ proc decodeLine(text: string, line: var ChatLine): bool =
         kind = k
         known = true
     if not known: return false
+  let url = n.strField("url")
   line = (you: word == "you", ev: UiEvent(kind: kind, text: n.strField("text"), id: n.strField("id"),
     role: n.strField("role"), status: n.strField("status"), tools: int(n.intField("tools").clamp(-1, 1_000_000)),
-    code: n.strField("code"), detail: n.strField("detail")))
+    code: n.strField("code"), detail: n.strField("detail"),
+    url: if kind in {ukNotice, ukError} and url.startsWith("https://"): url else: ""))
   true
 
 proc asKept*(line: ChatLine): ChatLine =

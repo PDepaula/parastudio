@@ -163,7 +163,7 @@ suite "the chat store":
       (you: false, ev: UiEvent(kind: ukActivity, text: "Running: tmp/para check")),
       (you: false, ev: UiEvent(kind: ukHelper, id: "t1", role: "builder", status: "done", text: "Ship moves", tools: 4)),
       (you: false, ev: UiEvent(kind: ukRefused, code: "outside-games", text: "Not allowed")),
-      (you: false, ev: UiEvent(kind: ukError, code: "agent-error", text: "It failed", detail: "a few words")),
+      (you: false, ev: UiEvent(kind: ukError, code: "agent-error", text: "It failed", detail: "a few words", url: "https://example.com/more")),
       (you: false, ev: UiEvent(kind: ukShot, text: "shot-3.png"))]
     for l in lines: check appendLine(root, "pong", "claude", 1, l)
     let back = readLines(root, "pong", "claude", 1)
@@ -185,6 +185,14 @@ suite "the chat store":
     check back[1].ev.detail == "Bearer [hidden]"
     check back[2].ev.text.startsWith("é".repeat(maxLineText div 2)) and back[2].ev.text.endsWith("too long to keep)")
     check back[2].ev.text.len < maxLineText + 100
+
+  test "a link is kept only when it is https":
+    check appendLine(root, "pong", "claude", 1, (you: false, ev: UiEvent(kind: ukError, code: "x", text: "t", url: "http://example.com/a")))
+    check appendLine(root, "pong", "claude", 1, (you: false, ev: UiEvent(kind: ukError, code: "x", text: "t", url: "javascript:alert(1)")))
+    check appendLine(root, "pong", "claude", 1, (you: false, ev: UiEvent(kind: ukNotice, code: "y", text: "t", url: "https://example.com/n")))
+    let back = readLines(root, "pong", "claude", 1).lines
+    check back[0].ev.url == "" and back[1].ev.url == ""
+    check back[2].ev.url == "https://example.com/n"
 
   test "a chat's file past its size keeps the newest lines, behind one note saying so":
     let line = "x".repeat(10_000)
