@@ -8,3 +8,7 @@
 # (the docs build writes the commit into install.sh / install.ps1 by exact line).
 *.sh text eol=lf
 *.ps1 text eol=lf
+
+# `nimble setup` looks for its own block in config.nims line by line and appends a second one when a
+# CRLF checkout hides it, which leaves a tracked file modified in an installed copy.
+*.nims text eol=lf

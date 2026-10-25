@@ -172,13 +172,13 @@ jobs:
             if ("$(git -C $dir rev-parse HEAD)".Trim() -ne $want) { throw "the copy is not at $want" }
             if ("$(git -C $dir symbolic-ref --short HEAD)".Trim() -ne 'main') { throw 'the copy is not on main' }
             if (-not (Test-Path (Join-Path $dir 'tmp\para.exe'))) { throw 'para.exe was not built' }
-            if ("$(git -C $dir status --porcelain)".Trim()) { throw 'the copy has changed files' }
+            if ("$(git -C $dir status --porcelain)".Trim()) { git -C $dir status --short; git -C $dir diff --stat; throw 'the copy has changed files' }
 
             Write-Host '::group::second run: the same folder'
             irm http://127.0.0.1:8765/install.ps1 | iex
             Write-Host '::endgroup::'
             if ("$(git -C $dir rev-parse HEAD)".Trim() -ne $want) { throw 'the second run moved the copy' }
-            if ("$(git -C $dir status --porcelain)".Trim()) { throw 'the second run changed files' }
+            if ("$(git -C $dir status --porcelain)".Trim()) { git -C $dir status --short; throw 'the second run changed files' }
 
             Write-Host '::group::third run: a folder in the way'
             $inTheWay = Join-Path $env:RUNNER_TEMP 'in-the-way'
