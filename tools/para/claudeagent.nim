@@ -38,8 +38,8 @@
 # long enough that Claude shortens it with a hash is not looked up). Only the file named by the
 # session id the studio already keeps is opened, read-only; the folder is never listed or written,
 # and no settings or login file is read. The friend's messages, the producer's words and the same
-# activity lines a live turn shows come back; thinking, tool results, helpers' own talk and
-# compaction summaries do not.
+# activity lines a live turn shows come back; thinking, tool results, helpers' own talk, compaction summaries
+# and notices a helper finished do not.
 
 import std/[json, os, osproc, streams, strutils, tables, sets]
 from std/unicode import runes
@@ -507,7 +507,7 @@ proc userWords(e: JsonNode): seq[string] =
     let w = t.strip
     if w.len == 0: continue
     if w.startsWith("<system-reminder>") or w.startsWith("<command-") or w.startsWith("<local-command-") or
-       w.startsWith("[Request interrupted"): continue
+       w.startsWith("<task-notification>") or w.startsWith("[Request interrupted"): continue
     result.add w
 
 proc readClaudeRecord*(path, root: string): seq[ChatLine] =
@@ -524,6 +524,7 @@ proc readClaudeRecord*(path, root: string): seq[ChatLine] =
       if e.kind != JObject or e.flag("isSidechain") or e.flag("isMeta") or e.flag("isApiErrorMessage") or e.flag("isCompactSummary"): continue
       case e.str("type")
       of "user":
+        if e.str("origin", "kind") notin ["", "human"]: continue
         for w in userWords(e): result.add (you: true, ev: say(w))
       of "assistant":
         for ev in m.onAssistant(e):
