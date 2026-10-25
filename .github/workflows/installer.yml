@@ -1,0 +1,175 @@
+name: Installer
+
+# The one-line installers (docs/install.md), end to end on hosted Linux, macOS and Windows runners.
+# Each job builds the docs site (which writes this commit into tools/launcher/install.sh and
+# install.ps1 as it copies them to the site's root), checks the published copies against the
+# repository's, serves the site on the runner and runs the published installer exactly as the
+# one-liners do (`curl -fsSL URL | sh`, and `irm URL | iex` in Windows PowerShell 5.1), unattended
+# (PARASTUDIO_YES=1), into a new folder under a clean, empty home folder. It checks the copy is at
+# this commit on `main` and that `para` was built; then that a second run changes nothing and that
+# a folder in the way is refused untouched.
+#
+# The installer installs nothing on the system here: an unattended run answers the launcher's
+# offers (git, a C compiler, Nim) with no. git and the C compiler come with each runner image, and
+# Nim 2.2.10 (plus, on Linux, the X11/GL headers the build needs) are set up by this workflow's own
+# steps before the installer runs. The clone is of this job's own checkout (PARASTUDIO_REPO), so a
+# pull request is tested on its own commit. What a hosted runner cannot show is in docs/install.md.
+on:
+  pull_request:
+    paths:
+      - tools/launcher/**
+      - tools/docs/build.py
+      - .github/workflows/installer.yml
+      - .github/scripts/installer-copy-check.sh
+      - paraloop.nimble
+      - nimble.lock
+  push:
+    branches: [main]
+    paths:
+      - tools/launcher/**
+      - tools/docs/build.py
+      - .github/workflows/installer.yml
+      - .github/scripts/installer-copy-check.sh
+      - paraloop.nimble
+      - nimble.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  installer:
+    name: installer (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: Linux }
+          - { os: macos-latest, label: macOS }
+          - { os: windows-latest, label: Windows }
+    steps:
+      # The whole history, and a branch at this commit, so the installer's own `git clone` of this
+      # checkout has the commit it is told to check out (a pull request's checkout is detached).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: A branch at this commit for the installer to clone
+        shell: bash
+        run: git branch -f installer-ci HEAD
+
+      - name: Install uv (runs tools/docs/build.py with its pinned dependency)
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.12.17"
+
+      - name: Build the docs site (writes this commit into the installers)
+        run: uv run --locked tools/docs/build.py
+
+      - name: The published installers are the repository's, with only the commit written in
+        shell: bash
+        run: .github/scripts/installer-copy-check.sh
+
+      # The runner's own setup, before the installer runs: an unattended installer never installs Nim.
+      - name: Install Nim 2.2.10 (nimble included)
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.10"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install X11/GL headers for GLFW (Linux; the build of para needs them)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+
+      - name: Run the published install.sh as the one-liner does (curl | sh), three times
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory tmp/site >"$RUNNER_TEMP/http.log" 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          for _ in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:8765/install.sh && break; sleep 1; done
+          home="$RUNNER_TEMP/home"
+          mkdir -p "$home"
+          want=$(git rev-parse HEAD)
+          install() { curl -fsSL http://127.0.0.1:8765/install.sh | HOME="$home" PARASTUDIO_YES=1 PARASTUDIO_REPO="$GITHUB_WORKSPACE" "$@" sh; }
+
+          echo "::group::first run: a new folder"
+          install env 2>&1 | tee "$RUNNER_TEMP/run1.txt"
+          echo "::endgroup::"
+          dir="$home/parastudio"
+          test "$(git -C "$dir" rev-parse HEAD)" = "$want"
+          test "$(git -C "$dir" symbolic-ref --short HEAD)" = main
+          grep -F "is at commit $want, the one this installer names." "$RUNNER_TEMP/run1.txt"
+          test -x "$dir/tmp/para"
+          test -z "$(git -C "$dir" status --porcelain)"
+
+          echo "::group::second run: the same folder"
+          install env 2>&1 | tee "$RUNNER_TEMP/run2.txt"
+          echo "::endgroup::"
+          grep -F "already holds a Para Studio copy (at commit $want)" "$RUNNER_TEMP/run2.txt"
+          grep -F "tmp/para is already built and up to date." "$RUNNER_TEMP/run2.txt"
+          test "$(git -C "$dir" rev-parse HEAD)" = "$want"
+          test -z "$(git -C "$dir" status --porcelain)"
+
+          echo "::group::third run: a folder in the way"
+          mkdir -p "$RUNNER_TEMP/in-the-way"
+          echo keep > "$RUNNER_TEMP/in-the-way/mine.txt"
+          if install env PARASTUDIO_DIR="$RUNNER_TEMP/in-the-way" 2>&1 | tee "$RUNNER_TEMP/run3.txt"; then
+            echo "a folder in the way was not refused"; exit 1
+          fi
+          echo "::endgroup::"
+          grep -F "already exists and is not a Para Studio copy. I will not touch it." "$RUNNER_TEMP/run3.txt"
+          test "$(ls -A "$RUNNER_TEMP/in-the-way")" = mine.txt
+
+      - name: Run the published install.ps1 as the one-liner does (irm | iex), three times
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8765', '--bind', '127.0.0.1', '--directory', 'tmp/site' -PassThru -WindowStyle Hidden
+          try {
+            foreach ($i in 1..30) { try { $null = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/install.ps1; break } catch { Start-Sleep 1 } }
+            $want = "$(git rev-parse HEAD)".Trim()
+            $home2 = Join-Path $env:RUNNER_TEMP 'home'
+            New-Item -ItemType Directory -Force $home2 | Out-Null
+            $env:USERPROFILE = $home2
+            $env:PARASTUDIO_YES = '1'
+            $env:PARASTUDIO_REPO = $env:GITHUB_WORKSPACE
+            $dir = Join-Path $home2 'parastudio'
+            $env:PARASTUDIO_DIR = $dir
+
+            Write-Host '::group::first run: a new folder'
+            irm http://127.0.0.1:8765/install.ps1 | iex
+            Write-Host '::endgroup::'
+            if ("$(git -C $dir rev-parse HEAD)".Trim() -ne $want) { throw "the copy is not at $want" }
+            if ("$(git -C $dir symbolic-ref --short HEAD)".Trim() -ne 'main') { throw 'the copy is not on main' }
+            if (-not (Test-Path (Join-Path $dir 'tmp\para.exe'))) { throw 'para.exe was not built' }
+            if ("$(git -C $dir status --porcelain)".Trim()) { throw 'the copy has changed files' }
+
+            Write-Host '::group::second run: the same folder'
+            irm http://127.0.0.1:8765/install.ps1 | iex
+            Write-Host '::endgroup::'
+            if ("$(git -C $dir rev-parse HEAD)".Trim() -ne $want) { throw 'the second run moved the copy' }
+            if ("$(git -C $dir status --porcelain)".Trim()) { throw 'the second run changed files' }
+
+            Write-Host '::group::third run: a folder in the way'
+            $inTheWay = Join-Path $env:RUNNER_TEMP 'in-the-way'
+            New-Item -ItemType Directory -Force $inTheWay | Out-Null
+            Set-Content (Join-Path $inTheWay 'mine.txt') 'keep'
+            $env:PARASTUDIO_DIR = $inTheWay
+            $refused = $false
+            try { irm http://127.0.0.1:8765/install.ps1 | iex } catch { $refused = $_.Exception.Message -eq 'Para Studio install stopped.' }
+            Write-Host '::endgroup::'
+            if (-not $refused) { throw 'a folder in the way was not refused' }
+            if ((Get-ChildItem -Force $inTheWay | ForEach-Object Name) -ne 'mine.txt') { throw 'the folder in the way was changed' }
+          } finally {
+            Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+          }
+          exit 0

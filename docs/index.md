@@ -24,8 +24,15 @@ tests, one CLI (`para`) and a Studio page in your browser.
 
 ## Quick start
 
-Get the `parastudio` folder (`git clone https://github.com/PDepaula/parastudio.git`, or a zip
-from GitHub), then open Para Studio with the launcher for your computer:
+Paste one line into a terminal. It makes a `parastudio` folder in your home folder, says exactly
+what it will do and asks before it installs anything, then offers to start Studio
+([what it does, and how to read it first](install.md)):
+
+- **Mac or Linux:** `curl -fsSL https://pdepaula.github.io/parastudio/install.sh | sh`
+- **Windows (PowerShell):** `irm https://pdepaula.github.io/parastudio/install.ps1 | iex`
+
+Already have the `parastudio` folder (`git clone https://github.com/PDepaula/parastudio.git`, or a
+zip from GitHub)? Open Para Studio with the launcher for your computer:
 
 - **Mac:** double-click `Paraloop-Studio.command`. The [Mac guide](mac.md) walks through the
   first time.

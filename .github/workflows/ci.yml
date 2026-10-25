@@ -122,6 +122,12 @@ jobs:
       - name: Build and check the site
         run: uv run --locked tools/docs/build.py
 
+      # The one-line installers the site publishes (docs/install.md) must be the repository's
+      # tools/launcher/install.sh and install.ps1 with only this commit written in: no second copy
+      # to drift. .github/workflows/installer.yml runs them end to end.
+      - name: The published installers match the repository's
+        run: .github/scripts/installer-copy-check.sh
+
   # The test suite, as four shards on four runners. `para test --shard i/4`
   # (tools/para/testplan.nim) deals the selection -- after --area and
   # --skip-balance -- into four slices by file, one class at a time: the heavy

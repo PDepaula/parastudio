@@ -9,6 +9,10 @@ yes or no before it does anything. It tells you in plain words what it is doing.
 and opening the game window has never been checked on macOS. You are the first, so
 please send the captain what you see if anything looks different from this page.
 
+Starting from nothing? The one-line installer ([Install with one line](install.md)) makes the
+`parastudio` folder and runs this same launcher for you. This page is for when you already have
+the folder.
+
 ## What you need
 
 - A Mac (Apple chip or Intel) with an internet connection.

@@ -280,6 +280,17 @@ else:
       check checks < r.output.find("Studio opens in your browser")
       check "Claude: not ready yet" in readFile(repo / "tmp" / "launcher.log")
 
+    test "--no-studio sets up, builds and prints the startup checks, then stops without starting Studio":
+      fakeProgram(fakeBin / "claude", "exit 0\n")
+      let r = launch("--no-studio", home, fakeBin, where = repo)
+      check r.exitCode == 0
+      check "nim c --hints:off --outdir:tmp tools/para/para.nim" in marks()
+      check "studio studio --check" in marks()
+      check "studio studio\n" notin marks()
+      check "[7/7] Starting Studio..." in r.output
+      check "not started now (--no-studio)." in r.output
+      check "Studio opens in your browser" notin r.output
+
     test "a dry run names the startup checks and runs nothing":
       fakeProgram(fakeBin / "claude", "exit 0\n")
       let r = launch("--dry-run", home, fakeBin, where = repo)
@@ -328,6 +339,17 @@ else:
         check "ok: found a C compiler." in r.output
         check "studio studio" in marks()
         removeDir(bin)
+
+    test "unattended (PARALOOP_LAUNCHER_UNATTENDED=1): an offer is answered no without asking, even with y waiting":
+      let bin = noCompilerBin()
+      let r = launch("--no-studio", home, bin, {"PARALOOP_LAUNCHER_UNATTENDED": "1"}, where = repo, answer = "y\n")
+      check r.exitCode == 1
+      check "Command: sudo apt-get install build-essential" in r.output
+      check "Run that command now? No: this is an unattended run, and nothing is installed without a person typing y." in r.output
+      check "(y/n, Enter means no)" notin r.output
+      check "Okay, nothing was installed and nothing changed." in r.output
+      check "sudo" notin marks()
+      check "studio" notin marks()
 
     proc nimArchive(dir: string): string =
       ## A stand-in for nim-2.2.10-linux_x64.tar.xz: a `nim` that answers --version and a `nimble`.

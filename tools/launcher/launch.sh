@@ -4,10 +4,14 @@
 # Run through Paraloop-Studio.command (macOS double-click) or paraloop-studio.sh (Linux); see
 # docs/mac.md. Plain bash 3.2 (what macOS ships): no associative arrays, no mapfile.
 #
-#   launch.sh [--dry-run | --check] [--help]
+#   launch.sh [--dry-run | --check] [--no-studio] [--help]
 #
 # --dry-run (or --check, the same) says what each step WOULD do and changes nothing: no install, no
-# build, no browser, and no question is asked. Test hooks (read only by the tests):
+# build, no browser, and no question is asked. --no-studio does every step but the last: it sets up
+# and builds, then stops without starting Studio (the one-line installer, tools/launcher/install.sh,
+# runs it that way and asks about Studio itself). PARALOOP_LAUNCHER_UNATTENDED=1 is for a run with
+# nobody at the keyboard (the installer's PARASTUDIO_YES=1): every offer to install is answered no
+# without asking, so the run stops with what to install by hand and installs nothing. Test hooks (read only by the tests):
 # PARALOOP_LAUNCHER_OS / _ARCH replace `uname -s` / `-m`, and, in a dry run only,
 # PARALOOP_LAUNCHER_FAKE_CLT=missing pretends the Apple tools are missing and
 # PARALOOP_LAUNCHER_FAKE_MISSING=cc,git pretends those are.
@@ -38,14 +42,17 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$ROOT"
 
 DRY_RUN=0
+NO_STUDIO=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run|--check) DRY_RUN=1 ;;
+    --no-studio) NO_STUDIO=1 ;;
     -h|--help)
       echo "Para Studio launcher"
-      echo "  launch.sh [--dry-run | --check]"
-      echo "  --dry-run  say what each step would do and what it would offer to install;"
-      echo "             install, build and open nothing, and ask nothing (--check is the same)"
+      echo "  launch.sh [--dry-run | --check] [--no-studio]"
+      echo "  --dry-run    say what each step would do and what it would offer to install;"
+      echo "               install, build and open nothing, and ask nothing (--check is the same)"
+      echo "  --no-studio  set up and build, then stop without starting Studio"
       echo "See docs/mac.md."
       exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 2 ;;
@@ -147,9 +154,14 @@ run_logged() {
 }
 
 # The one way the launcher asks. Yes only for "y" or "yes" typed here; Enter, any other answer and an
-# input that is closed (nothing can be typed) are all no.
+# input that is closed (nothing can be typed) are all no. An unattended run never asks: it is no.
 ask_yes_no() {
   local answer=""
+  if [ "${PARALOOP_LAUNCHER_UNATTENDED:-0}" = 1 ]; then
+    say "      $1 No: this is an unattended run, and nothing is installed without a person typing y."
+    log "asked: $1 -> no (unattended)"
+    return 1
+  fi
   printf '      %s (y/n, Enter means no) ' "$1"
   if ! IFS= read -r answer; then
     printf '\n'
@@ -549,6 +561,11 @@ EOF
 
 step_studio() {
   step "Starting Studio..." "start Studio"
+  if [ "$NO_STUDIO" = 1 ]; then
+    note "not started now (--no-studio)."
+    if [ "$DRY_RUN" = 1 ]; then say ""; say "Dry run finished: nothing was installed, built or opened."; fi
+    return 0
+  fi
   if [ "$DRY_RUN" = 1 ]; then
     would "run: tmp/para studio   (it prints a link and opens it in your default browser)"
     say ""

@@ -18,6 +18,10 @@ Windows has never been checked either; see [platforms.md](platforms.md)). The
 other route, typing commands in Git Bash, is
 [windows-first-game.md](windows-first-game.md); it is also not fully checked.
 
+Starting from nothing? The one-line installer ([Install with one line](install.md)) makes the
+`parastudio` folder and runs this same launcher for you. This page is for when you already have
+the folder.
+
 ## What you need
 
 Studio needs three things. The launcher checks for each and offers to install

@@ -1,7 +1,26 @@
 # Set up from a terminal
 
-The launchers ([Mac](mac.md), [Windows](windows.md), [Linux](linux.md)) do all of this for you.
-To do it by hand instead, on any system:
+The one-line installer ([Install with one line](install.md)) does all of this for you. These are
+the steps it takes, for when you would rather take them yourself.
+
+## Clone and start the launcher
+
+Clone the repository, then start the launcher for your computer. It needs nothing installed
+first: when Nim, a C compiler or git is missing it says what it would install, from where and into
+which folder, and asks before it does.
+
+```sh
+git clone https://github.com/PDepaula/parastudio.git
+```
+
+- **Mac:** double-click `Paraloop-Studio.command` in the folder ([Mac](mac.md)).
+- **Windows:** double-click `Paraloop-Studio.bat` in the folder ([Windows](windows.md), not yet
+  tried on a real Windows PC).
+- **Linux:** run `./paraloop-studio.sh` in the folder ([Linux](linux.md)).
+
+## Every command by hand
+
+To type every step yourself instead, on any system:
 
 You need [git](https://git-scm.com/), a C compiler (gcc or clang) and
 [Nim 2.2.10](https://nim-lang.org/install.html) (`nimble` comes with it; `choosenim 2.2.10` also works).
