@@ -6,10 +6,14 @@
 #   numbers that are never reused;
 # - opening an older chat resumes that chat's own conversation, not the newest one;
 # - the list, the open chat and every chat's session survive closing and starting the studio again;
+# - a chat's lines are kept in its own file (keys out, long messages cut, the file kept small) and
+#   show again when the chat is reopened, after a restart too;
+# - a chat from before lines were kept gets them back once from Claude's own record of the
+#   conversation (read-only, only that one file), or a plain note when there is none;
 # - the one conversation an older studio kept loads as one chat, and a file the studio did not
 #   write is read as far as it makes sense, never trusted;
-# - deleting needs an explicit yes, is refused while a turn runs, and never touches the game's
-#   folder.
+# - deleting needs an explicit yes, is refused while a turn runs, removes the chat's kept lines,
+#   and never touches the game's folder.
 
 import std/[unittest, os, strutils, json, times, sequtils, algorithm]
 import fake_claude
@@ -17,6 +21,7 @@ import studio_support
 import tools/para/agent
 import tools/para/agents
 import tools/para/chatstore
+import tools/para/claudeagent
 import tools/para/studiochat
 
 when isMainModule:
@@ -150,9 +155,122 @@ suite "the chat store":
     check titleOf("use sk-ant-REALLOOKINGKEY0123456789 please") == "use [hidden] please"
     check titleOf("") == ""
 
+  test "a chat's lines are kept in its own file and read back as the page showed them":
+    check not readLines(root, "pong", "claude", 1).found # no file yet
+    let lines: seq[ChatLine] = @[
+      (you: true, ev: UiEvent(kind: ukSay, text: "Make the ship move")),
+      (you: false, ev: UiEvent(kind: ukSay, text: "On it, director.")),
+      (you: false, ev: UiEvent(kind: ukActivity, text: "Running: tmp/para check")),
+      (you: false, ev: UiEvent(kind: ukHelper, id: "t1", role: "builder", status: "done", text: "Ship moves", tools: 4)),
+      (you: false, ev: UiEvent(kind: ukRefused, code: "outside-games", text: "Not allowed")),
+      (you: false, ev: UiEvent(kind: ukError, code: "agent-error", text: "It failed", detail: "a few words")),
+      (you: false, ev: UiEvent(kind: ukShot, text: "shot-3.png"))]
+    for l in lines: check appendLine(root, "pong", "claude", 1, l)
+    let back = readLines(root, "pong", "claude", 1)
+    check back.found and back.lines == lines
+    check readLines(root, "pong", "claude", 2).lines.len == 0 # each chat has its own file
+    check readLines(root, "pong", "codex", 1).lines.len == 0
+    dropLines(root, "pong", "claude", 1)
+    check not fileExists(logPath(root, "pong", "claude", 1)) and not readLines(root, "pong", "claude", 1).found
+
+  test "kept text has keys taken out, and a long message is cut, saying so":
+    check appendLine(root, "pong", "claude", 1, (you: true, ev: UiEvent(kind: ukSay, text: "my key is sk-ant-REALLOOKINGKEY0123456789")))
+    check appendLine(root, "pong", "claude", 1, (you: false, ev: UiEvent(kind: ukError, code: "x", text: "t", detail: "Bearer abcdef123456")))
+    let long = "é".repeat(maxLineText) # two bytes a letter: the cut falls between letters
+    check appendLine(root, "pong", "claude", 1, (you: false, ev: UiEvent(kind: ukSay, text: long)))
+    let raw = readFile(logPath(root, "pong", "claude", 1))
+    check "REALLOOKINGKEY" notin raw and "abcdef123456" notin raw
+    let back = readLines(root, "pong", "claude", 1).lines
+    check back[0].ev.text == "my key is [hidden]"
+    check back[1].ev.detail == "Bearer [hidden]"
+    check back[2].ev.text.startsWith("é".repeat(maxLineText div 2)) and back[2].ev.text.endsWith("too long to keep)")
+    check back[2].ev.text.len < maxLineText + 100
+
+  test "a chat's file past its size keeps the newest lines, behind one note saying so":
+    let line = "x".repeat(10_000)
+    for i in 1 .. 60:
+      check appendLine(root, "pong", "claude", 1, (you: false, ev: UiEvent(kind: ukSay, text: $i & " " & line)))
+    check getFileSize(logPath(root, "pong", "claude", 1)) <= maxLogBytes
+    let back = readLines(root, "pong", "claude", 1).lines
+    check back[0].ev.kind == ukNotice and back[0].ev.code == "chat-trimmed"
+    check back.countIt(it.ev.code == "chat-trimmed") == 1
+    check back[^1].ev.text.startsWith("60 ")
+    check back.len < 61
+
+  test "a chat's file the studio did not write is read as far as it makes sense":
+    createDir(root / "tmp" / "studio")
+    writeFile(logPath(root, "pong", "claude", 1), "not json\n[1]\n{\"kind\": \"done\"}\n{\"kind\": \"wat\"}\n" &
+      "{\"kind\": \"you\", \"text\": 5}\n{\"kind\": \"say\", \"text\": \"kept\", \"tools\": \"x\"}\n")
+    let back = readLines(root, "pong", "claude", 1)
+    check back.found and back.lines.len == 2
+    check back.lines[0].you and back.lines[0].ev.text == ""
+    check back.lines[1].ev.text == "kept"
+    for (game, agent, chat) in [("../x", "claude", 1), ("pong", "../c", 1), ("pong", "claude", 0)]:
+      check not appendLine(root, game, agent, chat, (you: true, ev: UiEvent(kind: ukSay, text: "x")))
+
+suite "Claude's own record of a conversation":
+  var dir: string
+  setup: dir = scratchRoot()
+  teardown: removeDir(dir)
+
+  const record = """{"type":"user","message":{"role":"user","content":"Make the ship move"},"isSidechain":false}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"let me think"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"On it, director."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"tmp/para check"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"a helper talking to itself"}]}}
+{"type":"user","isMeta":true,"message":{"content":"Caveat: a note claude added"}}
+{"type":"user","message":{"content":[{"type":"text","text":"<system-reminder>context</system-reminder>"}]}}
+not json at all
+{"type":"summary","summary":"Ship movement"}
+{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"API Error"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The ship moves now."}]}}
+{"type":"user","message":{"content":[{"type":"text","text":"Thanks!"}]}}
+"""
+
+  test "the friend's messages, the producer's words and its activity lines, nothing else":
+    writeFile(dir / "s.jsonl", record)
+    let got = readClaudeRecord(dir / "s.jsonl", dir)
+    check got.mapIt((it.you, it.ev.kind, it.ev.text)) == @[
+      (true, ukSay, "Make the ship move"), (false, ukSay, "On it, director."),
+      (false, ukActivity, "Running: tmp/para check"), (false, ukSay, "The ship moves now."),
+      (true, ukSay, "Thanks!")]
+
+  test "a missing, unreadable or empty record gives nothing, never an error":
+    check readClaudeRecord(dir / "missing.jsonl", dir).len == 0
+    createDir(dir / "a-folder.jsonl")
+    check readClaudeRecord(dir / "a-folder.jsonl", dir).len == 0
+    writeFile(dir / "junk.jsonl", "\x00\xff not json\n{}\n[]\n")
+    check readClaudeRecord(dir / "junk.jsonl", dir).len == 0
+
+  test "Claude's folder name for a path":
+    check folderSlug("/home/me/my.repo") == "-home-me-my-repo"
+    check folderSlug("C:\\Users\\me\\repo") == "C--Users-me-repo"
+    check folderSlug("/tmp/é") == "-tmp--"
+    check folderSlug("/" & "a".repeat(250)) == ""
+
+  test "the adapter opens only the one conversation's file, read-only":
+    let repo = dir / "repo"
+    let history = dir / "history"
+    createDir(repo)
+    let id = "aaaaaaaa-0000-4000-8000-0000000000aa"
+    createDir(history / folderSlug(repo))
+    writeFile(history / folderSlug(repo) / (id & ".jsonl"), record)
+    writeFile(history / folderSlug(repo) / "bbbbbbbb-0000-4000-8000-0000000000bb.jsonl", record)
+    var a = adapterNamed("claude")
+    a.historyDir = history
+    let before = toSeq(walkDirRec(history)).mapIt((it, readFile(it), getLastModificationTime(it)))
+    check a.pastTurns(a, repo, id).len == 5
+    check a.pastTurns(a, repo, "cccccccc-0000-4000-8000-0000000000cc").len == 0 # no such conversation
+    check a.pastTurns(a, repo, "../" & id).len == 0 # not a session id: never a path
+    check a.pastTurns(a, dir / "elsewhere", id).len == 0 # another folder's conversations are not looked at
+    check toSeq(walkDirRec(history)).mapIt((it, readFile(it), getLastModificationTime(it))) == before
+    check adapterNamed("codex").pastTurns.isNil # Codex's records are not looked up
+
 const fixtures = currentSourcePath.parentDir / "fixtures" / "claude-stream"
 
 var root: string
+var history: string ## stands in for Claude's own folder of conversation records
 var running: Running
 var logPath: string
 var scratch: seq[string]
@@ -169,10 +287,13 @@ proc fixtureFor(session: string): string =
   scratch.add result
 
 proc startHere() =
-  running = startStudio(root, getAppFilename(), "", adapterNamed("claude", getAppFilename()))
+  var a = adapterNamed("claude", getAppFilename())
+  a.historyDir = history
+  running = startStudio(root, getAppFilename(), "", a)
 
 proc begin() =
   root = newGameRepo(@["pong"])
+  history = getTempDir() / ("para_chats_history_" & $getCurrentProcessId() & "_" & $epochTime().int64)
   logPath = root / "tmp" / "fake.log"
   createDir(root / "tmp")
   putEnv("PARA_FAKE_CLAUDE", "1")
@@ -188,6 +309,7 @@ proc finish() =
   for f in scratch: removeFile(f)
   scratch = @[]
   removeDir(root)
+  removeDir(history)
 
 proc calls(): seq[JsonNode] =
   if not fileExists(logPath): return
@@ -212,6 +334,10 @@ proc turn(text: string, session = "") =
     if calls().len > before and not chatNow()["running"].getBool: return
     sleep(50)
   doAssert false, "the turn did not end"
+
+proc shown(): seq[string] =
+  ## The open chat's lines as "kind: text", leaving out the end-of-turn marker the page never shows.
+  chatNow()["events"].getElems.filterIt(it["kind"].getStr != "done").mapIt(it["kind"].getStr & ": " & it["text"].getStr)
 
 proc gameFiles(): seq[(string, string)] =
   for f in walkDirRec(root / "games"): result.add (f.relativePath(root), readFile(f))
@@ -264,29 +390,31 @@ suite "para studio chats: the list, opening and deleting":
     startHere()
     check chats() == before
     check chatNow()["chat"].getInt == first
-    let back = chatNow()["events"]
-    check back.len == 1 and back[0]["kind"].getStr == "notice" and back[0]["code"].getStr == "chat-opened"
-    check chatNow()["events"].len == 1 # polling again adds nothing
+    check shown() == @["you: Make the ship move", "say: Hello, director."] # its messages, as they were
+    check shown().len == 2 # polling again adds nothing
     turn("Carry on")
     check lastArgs()[^2 .. ^1] == @["--resume", "aaaaaaaa-0000-4000-8000-000000000001"]
-    # opening the other one after a restart says why its earlier lines are not shown
+    check shown() == @["you: Make the ship move", "say: Hello, director.", "you: Carry on", "say: Hello, director."]
+    # opening the other one after a restart shows its messages too
     check running.post("/api/chat/open", %*{"game": "pong", "id": idOf("Add a score")}).status == 200
-    let ev = chatNow()["events"]
-    check ev.len == 1 and ev[0]["kind"].getStr == "notice" and ev[0]["code"].getStr == "chat-opened"
+    check shown() == @["you: Add a score", "say: Hello, director."]
     turn("More")
     check lastArgs()[^2 .. ^1] == @["--resume", "aaaaaaaa-0000-4000-8000-000000000002"]
+    # and back again, in the same run
+    check running.post("/api/chat/open", %*{"game": "pong", "id": first}).status == 200
+    check shown().len == 4 and shown()[2] == "you: Carry on"
 
-  test "a new game with no chats shows no note, and a restart gives the open chat one note":
+  test "a new game shows nothing, and a restart shows the open chat's lines once, with no note":
     check chatNow()["events"].len == 0
     check chatNow()["events"].len == 0
     turn("Make the ship move", "aaaaaaaa-0000-4000-8000-000000000001")
     running.stop()
     startHere()
-    check chatNow()["events"].len == 1
-    check chatNow()["events"].len == 1
-    check chatNow()["events"][0]["code"].getStr == "chat-opened"
+    check shown() == @["you: Make the ship move", "say: Hello, director."]
+    check shown().len == 2
+    check chatNow()["events"].getElems.allIt(it{"code"}.getStr != "chat-opened")
     check running.post("/api/chat/new", %*{"game": "pong"}).status == 200
-    check chatNow()["events"].len == 0 # a fresh chat has no record yet
+    check chatNow()["events"].len == 0 # a fresh chat has no lines yet
 
   test "a first message in a fresh chat is the chat's first line, with no note before it":
     turn("Make the ship move", "aaaaaaaa-0000-4000-8000-000000000001")
@@ -297,7 +425,7 @@ suite "para studio chats: the list, opening and deleting":
     turn("Add a score", "aaaaaaaa-0000-4000-8000-000000000002")
     check chatNow()["events"].getElems.allIt(it{"code"}.getStr != "chat-opened")
 
-  test "a producer pick on the restored open chat comes after its note":
+  test "a producer pick on the restored open chat comes after its earlier lines":
     turn("Make the ship move", "aaaaaaaa-0000-4000-8000-000000000001")
     running.stop()
     running = startStudio(root, getAppFilename(), "", adapterNamed("claude", getAppFilename()),
@@ -305,7 +433,7 @@ suite "para studio chats: the list, opening and deleting":
     check running.post("/api/agent/pick", %*{"game": "pong", "agent": "codex"}).status == 200
     check running.post("/api/agent/pick", %*{"game": "pong", "agent": "claude"}).status == 200
     let ev = chatNow()["events"]
-    check ev.len == 2 and ev[0]["code"].getStr == "chat-opened" and ev[1]["code"].getStr == "agent-picked"
+    check ev.len == 3 and ev[0]["kind"].getStr == "you" and ev[1]["kind"].getStr == "say" and ev[2]["code"].getStr == "agent-picked"
 
   test "the one conversation an older studio kept shows as one chat and is resumed":
     running.stop()
@@ -314,6 +442,7 @@ suite "para studio chats: the list, opening and deleting":
     startHere()
     let d = chats()
     check d["chats"].len == 1 and d["chats"][0]["title"].getStr == "" and d["chats"][0]["open"].getBool
+    check chatNow()["events"].len == 1 and chatNow()["events"][0]["code"].getStr == "chat-opened" # no record of it to rebuild from
     turn("Where were we?")
     check lastArgs()[^2 .. ^1] == @["--resume", sessionId]
     check not fileExists(root / "tmp" / "studio" / "session-pong-claude.id")
@@ -330,8 +459,10 @@ suite "para studio chats: the list, opening and deleting":
       let r = running.post("/api/chat/delete", body)
       check r.status == 400 and jsonOf(r)["error"].getStr == "needs-confirm"
     check titles().len == 2
+    check fileExists(logPath(root, "pong", "claude", first))
     check running.post("/api/chat/delete", %*{"game": "pong", "id": first, "confirm": true}).status == 200
     check titles() == @["Add a score"]
+    check not fileExists(logPath(root, "pong", "claude", first)) # its kept lines go too
     check gameFiles() == files
     let r = running.post("/api/chat/open", %*{"game": "pong", "id": first})
     check r.status == 404 and jsonOf(r)["error"].getStr == "no-such-chat"
@@ -385,3 +516,66 @@ suite "para studio chats: the list, opening and deleting":
     let stopUntil = epochTime() + 20
     while chatNow()["running"].getBool and epochTime() < stopUntil: sleep(50)
     check running.post("/api/chat/open", %*{"game": "pong", "id": first}).status == 200
+
+const pastRecord = """{"type":"user","message":{"role":"user","content":"Make the ship move"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"On it, director."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"tmp/para check"}}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The ship moves now."}]}}
+{"type":"user","message":{"content":[{"type":"text","text":"Lovely, my key is sk-ant-REALLOOKINGKEY0123456789"}]}}
+"""
+
+suite "para studio chats: chats from before their lines were kept":
+  setup: begin()
+  teardown: finish()
+
+  proc legacyChat(sessions: openArray[string]) =
+    ## What the studio before this one kept: the chats' titles and sessions, no lines.
+    running.stop()
+    var list = newJArray()
+    for i, s in sessions:
+      list.add %*{"id": i + 1, "title": "Chat " & $(i + 1), "started": 100 + i, "updated": 200 + i, "session": s}
+    createDir(root / "tmp" / "studio")
+    writeFile(chatsPath(root, "pong", "claude"), $(%*{"current": 1, "next": sessions.len + 1, "chats": list}))
+
+  proc record(session, text: string) =
+    createDir(history / folderSlug(root))
+    writeFile(history / folderSlug(root) / (session & ".jsonl"), text)
+
+  test "a title-only chat gets its messages back once from Claude's own record":
+    let id = "aaaaaaaa-0000-4000-8000-0000000000aa"
+    legacyChat([id])
+    record(id, pastRecord)
+    let before = toSeq(walkDirRec(history)).mapIt((it, readFile(it)))
+    startHere()
+    check shown() == @["you: Make the ship move", "say: On it, director.", "activity: Running: tmp/para check",
+                       "say: The ship moves now.", "you: Lovely, my key is [hidden]"]
+    check toSeq(walkDirRec(history)).mapIt((it, readFile(it))) == before # read, never written
+    check "REALLOOKINGKEY" notin readFile(logPath(root, "pong", "claude", 1)) # written to the studio's file, key out
+    # the lookup ran once: with Claude's record gone the chat still shows, and carries on
+    removeDir(history)
+    running.stop()
+    startHere()
+    check shown().len == 5
+    turn("And faster")
+    check lastArgs()[^2 .. ^1] == @["--resume", id]
+    check shown().len > 6 and shown()[5] == "you: And faster"
+
+  test "a title-only chat with no record, or a broken one, opens with the plain note":
+    let one = "aaaaaaaa-0000-4000-8000-0000000000a1"
+    let two = "aaaaaaaa-0000-4000-8000-0000000000a2"
+    legacyChat([one, two, ""])
+    record(two, "not json\n{\"type\": \"user\"}\n")
+    startHere()
+    check chatNow()["events"].len == 1 and chatNow()["events"][0]["code"].getStr == "chat-opened"
+    for chat in [2, 3]:
+      check running.post("/api/chat/open", %*{"game": "pong", "id": chat}).status == 200
+      let ev = chatNow()["events"]
+      check ev.len == 1 and ev[0]["kind"].getStr == "notice" and ev[0]["code"].getStr == "chat-opened"
+    # written down, so after a restart it is still one note, not two
+    running.stop()
+    startHere()
+    check running.post("/api/chat/open", %*{"game": "pong", "id": 1}).status == 200
+    check chatNow()["events"].len == 1
+    turn("Where were we?")
+    check lastArgs()[^2 .. ^1] == @["--resume", one]
+    check shown()[0].startsWith("notice: ") and shown()[1] == "you: Where were we?"

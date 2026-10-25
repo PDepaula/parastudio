@@ -3,9 +3,9 @@
 # This file knows the agent only through agent.nim's `AgentAdapter`: it hands the adapter the
 # friend's message, collects the `UiEvent`s the adapter emits into a numbered list the page polls
 # (`GET /api/chat?since=N`, the same polling the Check and Save steps use), keeps each chat's
-# session id in chatstore.nim's file so a restart, a reopened page or picking the chat again from
-# the list resumes the same conversation, and stops a turn (the Stop button, a timeout, or the
-# studio closing).
+# session id and its lines in chatstore.nim's files so a restart, a reopened page or picking the
+# chat again from the list shows the chat as it was and resumes the same conversation, and stops a
+# turn (the Stop button, a timeout, or the studio closing).
 #
 # A turn runs on its own thread, with a second small thread watching the clock. Nothing is sent to
 # the agent unless the friend sends a message: opening the page, polling, even a reload start no
@@ -15,18 +15,24 @@
 # title, times and session id), and the page lists the chats of the agent the game talks to. One
 # agent's id is never handed to another, which could not use it. The agent a game talks to is
 # remembered in `tmp/studio/agent-<game>.txt` (its name and nothing else); a game with no pick uses
-# the studio's default, the first adapter. Of what the friend typed only each chat's title (the
-# start of its first message) is written to disk; no transcript and no login or key ever is. The
-# lines shown on the page live in memory, per chat, for as long as the studio runs.
+# the studio's default, the first adapter.
+#
+# Every line the page shows is also added to its chat's file (chatstore.nim:
+# `tmp/studio/chat-<game>-<agent>-<number>.jsonl`, keys taken out), so a chat opened again, or the
+# one open when the studio starts, shows its earlier lines read back from that file. A chat from
+# before lines were kept has no file: its lines are rebuilt once from the agent's own record of the
+# conversation (`AgentAdapter.pastTurns`, read-only, only that one conversation) and written to the
+# file; with no such record it gets a plain note instead. These files stay on this computer and
+# go when the chat is deleted; no login or key is ever written.
 
-import std/[locks, os, strutils, tables, times]
+import std/[locks, os, sequtils, strutils, tables, times]
 import agent
 import chatstore
 import savepoint
 
 const
   maxMessageChars* = 8000
-  maxEvents = 1500 ## chat lines kept in memory; the oldest go first
+  maxEvents = 8000 ## chat lines kept in memory; the oldest go first (a chat opened again is read back from its file)
   defaultTurnSeconds* = 3600
 
 type
@@ -60,8 +66,9 @@ type
     infos: Table[string, tuple[info: AgentInfo, at: float]]
     bookLock: Lock ## the chat lists below and their files; never held together with `lock`
     books: Table[string, ChatBook] ## by "<game>/<agent>", read from disk the first time
-    noteLock: Lock ## held while owed notes are taken and added, so no other line gets in between
-    notes: seq[ChatKey] ## chats read from disk with a record, still owed their "back in this chat" note
+    storeLock: Lock ## held while a line is added to memory and its chat's file, or a chat is read back, so the two keep the same order
+    noteLock: Lock ## held while owed chats are taken and read back, so no other line gets in between
+    notes: seq[ChatKey] ## chats open when their book was read from disk, still owed their earlier lines
 
   Started* = object
     ok*: bool
@@ -75,6 +82,7 @@ proc initChat*(c: ptr ChatState, root: string, adapters: seq[AgentAdapter], time
   initLock(c.lock)
   initLock(c.startLock)
   initLock(c.bookLock)
+  initLock(c.storeLock)
   initLock(c.noteLock)
   c.root = root
   c.adapters = adapters
@@ -97,7 +105,8 @@ proc bookOf(c: ptr ChatState, game, agent: string): ChatBook =
   if k notin c.books:
     let b = loadBook(c.root, game, agent)
     c.books[k] = b
-    if b.find(b.current) >= 0: c.notes.add (game, agent, b.current)
+    if b.find(b.current) >= 0 or fileExists(logPath(c.root, game, agent, b.current)):
+      c.notes.add (game, agent, b.current)
   c.books[k]
 
 proc keep(c: ptr ChatState, game, agent: string, b: ChatBook) =
@@ -139,6 +148,7 @@ proc currentKey(c: ptr ChatState, game: string): ChatKey =
 # --- the event list -----------------------------------------------------------------
 
 proc push(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
+  ## Puts a line on the page (in memory only).
   acquire(c.lock)
   c.entries.add ChatEntry(seq: c.nextSeq, key: key, you: you, ev: ev)
   inc c.nextSeq
@@ -146,21 +156,61 @@ proc push(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
   release(c.lock)
 
 const backNote = UiEvent(kind: ukNotice, code: "chat-opened",
-  text: "Back in this chat. Its earlier messages are not kept on this computer; the conversation continues from where it left off, so just carry on.")
+  text: "This chat's earlier messages are not kept on this computer. The conversation continues from where it left off, so just carry on.")
+
+proc kept(ev: UiEvent): bool =
+  ## Whether a line goes into its chat's file: not the end-of-turn marker, and of a helper card only
+  ## where it started and how it ended.
+  ev.kind != ukTurnDone and not (ev.kind == ukHelper and ev.status == "working")
+
+proc restore(c: ptr ChatState, key: ChatKey) =
+  ## Shows chat `key` as its file has it: whatever memory holds of it is replaced by the lines read
+  ## back. A listed chat with no file (one from before lines were kept) gets its lines rebuilt from
+  ## the agent's own record of the conversation, or the plain note when there is none, and either is
+  ## written to the file so this happens once. A fresh chat with no file shows nothing.
+  acquire(c.bookLock)
+  let b = c.bookOf(key.game, key.agent)
+  let i = b.find(key.chat)
+  let listed = i >= 0
+  let session = if listed: b.chats[i].session else: ""
+  release(c.bookLock)
+  acquire(c.storeLock)
+  defer: release(c.storeLock)
+  var (found, lines) = readLines(c.root, key.game, key.agent, key.chat)
+  if not found and listed:
+    let a = c.adapterFor(key.agent)
+    if session.len > 0 and a.name == key.agent and not a.pastTurns.isNil:
+      {.cast(gcsafe).}:
+        try: lines = a.pastTurns(a, c.root, session)
+        except CatchableError: lines = @[]
+    if lines.len == 0: lines = @[(you: false, ev: backNote)]
+    lines = lines.mapIt(asKept(it)) # as the file has them: keys out, long ones cut
+    discard writeLines(c.root, key.game, key.agent, key.chat, lines) # if the disk refuses, this runs again next time
+  acquire(c.lock)
+  var others: seq[ChatEntry]
+  for e in c.entries:
+    if e.key != key: others.add e
+  c.entries = others
+  release(c.lock)
+  for line in lines: c.push(key, line.ev, line.you)
 
 proc flushNotes(c: ptr ChatState) =
-  ## Puts the owed "back in this chat" notes in their chats, so each comes before any other line.
+  ## Reads back the chats owed their earlier lines, so those come before any other line.
   acquire(c.noteLock)
   defer: release(c.noteLock)
   acquire(c.bookLock)
   let owed = c.notes
   c.notes = @[]
   release(c.bookLock)
-  for key in owed: c.push(key, backNote)
+  for key in owed: c.restore(key)
 
 proc add(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
+  ## Puts a line on the page and in its chat's file.
   c.flushNotes()
+  acquire(c.storeLock)
   c.push(key, ev, you)
+  if ev.kept: discard appendLine(c.root, key.game, key.agent, key.chat, (you: you, ev: ev)) # if the disk refuses, it shows until the studio closes
+  release(c.storeLock)
 
 proc addCard*(c: ptr ChatState, game: string, ev: UiEvent) =
   ## A line the studio itself puts in `game`'s current chat (a screenshot card): not from the
@@ -339,16 +389,9 @@ proc newConversation*(c: ptr ChatState, game: string): bool =
   release(c.bookLock)
   true
 
-proc hasLines(c: ptr ChatState, key: ChatKey): bool =
-  acquire(c.lock)
-  defer: release(c.lock)
-  for e in c.entries:
-    if e.key == key: return true
-
 proc openChat*(c: ptr ChatState, game: string, id: int): Started =
-  ## The next message in `game` goes to chat `id` and resumes its conversation. Refused while a
-  ## turn runs. A chat whose lines are not in memory any more (the studio was closed since) gets a
-  ## note saying so.
+  ## The next message in `game` goes to chat `id` and resumes its conversation, and the page shows
+  ## its earlier lines, read back from its file. Refused while a turn runs.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.startLock)
@@ -364,13 +407,15 @@ proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   release(c.bookLock)
   if not found:
     return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
-  let key: ChatKey = (game, agent, id)
-  if was != id and not c.hasLines(key): c.add(key, backNote)
+  if was != id:
+    c.flushNotes()
+    c.restore((game, agent, id))
   Started(ok: true, status: 200)
 
 proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
-  ## Forgets chat `id` from `game`'s list (its title, times and session id) and its lines on the
-  ## page. Nothing in the game's folder is touched. Refused while a turn runs.
+  ## Forgets chat `id` from `game`'s list (its title, times and session id) and its lines, on the
+  ## page and in its file. Nothing in the game's folder is touched, nor the agent's own record of
+  ## the conversation. Refused while a turn runs.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.startLock)
@@ -387,12 +432,15 @@ proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
     return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
   c.flushNotes()
   let key: ChatKey = (game, agent, id)
+  acquire(c.storeLock)
+  dropLines(c.root, game, agent, id)
   acquire(c.lock)
-  var kept: seq[ChatEntry]
+  var others: seq[ChatEntry]
   for e in c.entries:
-    if e.key != key: kept.add e
-  c.entries = kept
+    if e.key != key: others.add e
+  c.entries = others
   release(c.lock)
+  release(c.storeLock)
   Started(ok: true, status: 200)
 
 type

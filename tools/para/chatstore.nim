@@ -6,8 +6,17 @@
 # out), when it started and was last used, and the agent's session id once the agent reported one,
 # so opening an old chat resumes the same conversation. Which chat the next message goes to is
 # kept too (`current`); a fresh chat has a number but no entry until its first message, so an
-# empty chat is never listed. Nothing else is kept: not the rest of what the friend typed, not
-# what the producer said, and no login or key.
+# empty chat is never listed.
+#
+# Each chat's lines, as the page showed them, are kept beside it in
+# `tmp/studio/chat-<game>-<agent>-<number>.jsonl`, one line of JSON each: what the friend typed,
+# what the producer said, its activity lines, helper cards (where they started and how they ended,
+# not every step in between), notes, errors and picture cards. Text is kept as it was with anything
+# that looks like a key taken out (the same `redactSecrets` as the titles), and one message is cut
+# past `maxLineText` bytes. A chat's file is kept under `maxLogBytes`: past that its oldest lines
+# are left out, down to `keepLogBytes`, behind a note that says so. These files stay on this
+# computer, in the repository's `tmp/` folder (never tracked, never part of a save point), are
+# never uploaded, and go when the chat is deleted. No login or key is ever kept.
 #
 # Before there was a list, the studio kept one session id per game and agent in
 # `session-<game>-<agent>.id` (and, before there was a second agent, Claude's in `session-<game>.id`).
@@ -17,7 +26,7 @@
 # studio did not write the way it writes it (not JSON, a field of the wrong kind, a session id that
 # could not be one) is read as far as it makes sense and the rest is left out; it never raises.
 
-import std/[algorithm, json, os, strutils, times]
+import std/[algorithm, json, os, sequtils, strutils, times]
 from std/unicode import runeLen, runeSubStr, validateUtf8
 import agent
 import savepoint
@@ -25,6 +34,9 @@ import savepoint
 const
   maxTitleRunes* = 60
   maxChatId = 999_999_999
+  maxLineText* = 16_000 ## bytes kept of one message; the rest is cut
+  maxLogBytes* = 512 * 1024 ## one chat's kept lines; past this the oldest are left out...
+  keepLogBytes* = 384 * 1024 ## ...down to this
 
 type
   ChatRecord* = object
@@ -196,3 +208,138 @@ proc dropChat*(b: var ChatBook, id: int): bool =
     b.current = b.next
     inc b.next
   true
+
+# --- each chat's lines ------------------------------------------------------------
+
+const kindWords: array[UiKind, string] = ["say", "activity", "helper", "refused", "notice", "error", "done", "shot"]
+
+proc logPath*(root, game, agent: string, chat: int): string =
+  studioDir(root) / ("chat-" & game & "-" & agent & "-" & $chat & ".jsonl")
+
+proc validLog(game, agent: string, chat: int): bool =
+  validGameName(game) and validAgentName(agent) and chat in 1..maxChatId
+
+proc keptText*(text: string): string =
+  ## `text` as a chat's file keeps it: keys taken out, and cut past `maxLineText` bytes (on a
+  ## letter, not inside one) with a few words saying so.
+  result = redactSecrets(text)
+  if result.len > maxLineText:
+    var cut = maxLineText
+    while cut > 0 and (ord(result[cut]) and 0xC0) == 0x80: dec cut
+    result = result[0 ..< cut].strip(leading = false) & "… (the rest of this message was too long to keep)"
+
+proc encodeLine(line: ChatLine): string =
+  let ev = line.ev
+  let n = %*{"kind": (if line.you: "you" else: kindWords[ev.kind]), "text": keptText(ev.text)}
+  case ev.kind
+  of ukHelper:
+    n["id"] = %oneLine(ev.id, 100)
+    n["role"] = %oneLine(ev.role, 20)
+    n["status"] = %oneLine(ev.status, 20)
+    n["tools"] = %ev.tools
+  of ukNotice, ukError, ukRefused:
+    if ev.code.len > 0: n["code"] = %oneLine(ev.code, 40)
+    if ev.detail.len > 0: n["detail"] = %keptText(ev.detail)
+  else: discard
+  $n
+
+proc strField(n: JsonNode, key: string): string =
+  let v = n{key}
+  if v != nil and v.kind == JString: v.getStr else: ""
+
+proc decodeLine(text: string, line: var ChatLine): bool =
+  ## One kept line back as the page shows it; false for a line the studio did not write.
+  var n: JsonNode
+  try: n = parseJson(text)
+  except CatchableError: return false
+  if n.kind != JObject: return false
+  let word = n.strField("kind")
+  var kind = ukSay
+  if word != "you":
+    var known = false
+    for k in UiKind:
+      if kindWords[k] == word and k != ukTurnDone:
+        kind = k
+        known = true
+    if not known: return false
+  line = (you: word == "you", ev: UiEvent(kind: kind, text: n.strField("text"), id: n.strField("id"),
+    role: n.strField("role"), status: n.strField("status"), tools: int(n.intField("tools").clamp(-1, 1_000_000)),
+    code: n.strField("code"), detail: n.strField("detail")))
+  true
+
+proc asKept*(line: ChatLine): ChatLine =
+  ## `line` as its chat's file keeps it and gives it back.
+  discard decodeLine(encodeLine(line), result)
+
+proc trimNote(): string =
+  encodeLine((you: false, ev: UiEvent(kind: ukNotice, code: "chat-trimmed",
+    text: "The oldest part of this chat was left out to keep it small (each chat keeps about its last 500 KB of messages).")))
+
+proc fitted(lines: seq[string]): seq[string] =
+  ## `lines` when they fit in `maxLogBytes`, else the newest that fit in `keepLogBytes`, behind one
+  ## note saying the oldest were left out.
+  var total = 0
+  for l in lines: total += l.len + 1
+  if total <= maxLogBytes: return lines
+  let note = trimNote()
+  var size = note.len + 1
+  var first = lines.len
+  while first > 0 and size + lines[first - 1].len + 1 <= keepLogBytes:
+    dec first
+    size += lines[first].len + 1
+  result = @[note]
+  for i in first ..< lines.len:
+    if lines[i] != note: result.add lines[i]
+
+proc writeWhole(path: string, lines: seq[string]): bool =
+  try:
+    createDir(path.parentDir)
+    writeFile(path & ".new", (if lines.len > 0: lines.join("\n") & "\n" else: ""))
+    moveFile(path & ".new", path)
+    true
+  except IOError, OSError:
+    false
+
+proc appendLine*(root, game, agent: string, chat: int, line: ChatLine): bool =
+  ## Adds one line to chat `chat`'s file; false when it could not be written (the line still shows
+  ## while the studio runs).
+  if not validLog(game, agent, chat): return false
+  let path = logPath(root, game, agent, chat)
+  try:
+    createDir(path.parentDir)
+    var f: File
+    if not open(f, path, fmAppend): return false
+    try: f.write(encodeLine(line) & "\n")
+    finally: f.close()
+    if getFileSize(path) > maxLogBytes:
+      return writeWhole(path, fitted(readFile(path).splitLines.filterIt(it.len > 0)))
+    true
+  except IOError, OSError:
+    false
+
+proc writeLines*(root, game, agent: string, chat: int, lines: seq[ChatLine]): bool =
+  ## Chat `chat`'s file holds `lines` from now on (the ones rebuilt for a chat from before lines
+  ## were kept, say).
+  if not validLog(game, agent, chat): return false
+  writeWhole(logPath(root, game, agent, chat), fitted(lines.mapIt(encodeLine(it))))
+
+proc readLines*(root, game, agent: string, chat: int): tuple[found: bool, lines: seq[ChatLine]] =
+  ## Chat `chat`'s kept lines. `found` is false when it has no file: a chat from before lines were
+  ## kept, or one with no line yet. A file that cannot be read gives no lines; a line the studio
+  ## did not write is left out.
+  if not validLog(game, agent, chat): return
+  let path = logPath(root, game, agent, chat)
+  if not fileExists(path): return
+  result.found = true
+  var text: string
+  try: text = readFile(path)
+  except IOError, OSError: return
+  for raw in text.splitLines:
+    var line: ChatLine
+    if raw.len > 0 and decodeLine(raw, line): result.lines.add line
+
+proc dropLines*(root, game, agent: string, chat: int) =
+  ## Removes chat `chat`'s file, if it has one.
+  if not validLog(game, agent, chat): return
+  try: removeFile(logPath(root, game, agent, chat))
+  except OSError: discard

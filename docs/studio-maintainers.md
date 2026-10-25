@@ -238,18 +238,39 @@ edit rules take effect only in a folder Claude Code trusts (see "If something go
   `tmp/studio/chats-<game>-<agent>.json`: for each chat its number, title (the start of its first
   message: one line, at most 60 letters, anything key-like taken out by `redactSecrets`), when it
   started and was last used (seconds), and the agent's session id once reported, plus which chat
-  the next message goes to. That is all the studio writes of what the friend typed; the lines on
-  the page live in memory, per chat, while the studio runs. A fresh chat has a number but no entry
-  until its first message, numbers are never reused, and the file is written whole (a new file
-  moved over the old one). **New chat** opens a fresh chat for the game's current agent and keeps
-  the rest. Opening a chat whose lines are not in memory (the studio was closed since) adds a
-  `chat-opened` note; so does the chat that was open at a restart, once, when the game's chats are
-  first read from disk (before any other line of that chat). A fresh chat never gets it. Deleting forgets that chat's entry and its lines and nothing else: the agent's
-  own record of the conversation (in its own folder) and the game's folder are not touched. The one
+  the next message goes to. A fresh chat has a number but no entry until its first message,
+  numbers are never reused, and the file is written whole (a new file moved over the old one).
+  **New chat** opens a fresh chat for the game's current agent and keeps the rest.
+- **Each chat's lines** go to `tmp/studio/chat-<game>-<agent>-<number>.jsonl` as they are shown,
+  one JSON object a line (`kind` as the page's `GET /api/chat` names it, `text`, and the helper,
+  note and error fields; never an error's link). Not kept: the end-of-turn marker and a helper
+  card's in-between `working` updates (its start and end are). Text goes through `redactSecrets`
+  first, one message is cut past 16,000 bytes with a note, and a file past 512 KB is rewritten
+  with its newest lines up to 384 KB behind one `chat-trimmed` note. Opening a chat, and the chat
+  that was open at a restart (once, when the game's chats are first read from disk, before any
+  other line of it), replace whatever memory holds of it with the lines read back from its file.
+  These files are the repository's `tmp/` (gitignored, outside every game's own repository, so
+  no Save or Backup takes them) and never leave the computer.
+- **Chats from before lines were kept** (a listed chat with no lines file) are rebuilt once
+  through the adapter's optional `pastTurns`: Claude's reads
+  `$CLAUDE_CONFIG_DIR/projects/<folder>/<session id>.jsonl` (`~/.claude/projects/...` when the
+  variable is unset; `<folder>` is the repository path with every character that is not an ASCII
+  letter or digit made `-`, tried for the path as given and with links resolved; a path over 200
+  characters, which Claude shortens with a hash, is not looked up). Only that file is opened,
+  read-only; the folder is never listed or written, and no settings or login file is read. The
+  friend's text and the producer's text and activity lines come back (tool results, thinking,
+  side chains, Claude's own meta notes and API error notes do not). The result, or a plain
+  `chat-opened` note when there is no record, no session id, or nothing readable in it, is
+  written to the chat's lines file so the lookup runs once. Codex keeps its records under
+  `~/.codex/sessions/<year>/<month>/<day>/` named by time as well as thread id, which would mean
+  searching folders, so Codex has no `pastTurns` and its older chats get the note. Deleting a
+  chat forgets its entry and its lines (on the page and the lines file) and nothing else: the
+  agent's own record of the conversation and the game's folder are not touched. The one
   conversation an older studio kept, `session-<game>-<agent>.id` (and Claude's `session-<game>.id`
   from before there was a second agent), is read as one chat with no title and removed once the
-  new file is written. Tests: `tests/test_para_studio_chats.nim` (the store, and the routes
-  through the server: many chats, reopen, restart, delete) and `test_para_studio_chat.nim`.
+  new file is written. Tests: `tests/test_para_studio_chats.nim` (the store and the lines files,
+  Claude's record read from a stand-in folder, and the routes through the server: many chats,
+  reopen, restart, rebuild, delete) and `test_para_studio_chat.nim`.
 - **Helpers** show as cards (builder, checker, scout, found from the playbook the
   producer names in the helper's prompt). A shell command left running in the
   background is a one-line note, not a card.
