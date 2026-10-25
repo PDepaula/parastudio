@@ -212,9 +212,9 @@ producer, the one you used last at the top. Each shows the start of the first me
 it and when you last used it (for example "5 min ago", "yesterday" or "12 Oct").
 
 - **Pick one** to go back to it. The producer carries on that same conversation, so just keep
-  talking. Studio keeps the messages on the page only while it is open: after you close and start
-  Studio again, an old chat opens with a note instead of its earlier messages, and the producer
-  still remembers them.
+  talking. Studio shows a chat's messages only while it stays open: the earlier messages are not
+  kept on this computer. After you close and start Studio again, an old chat opens with a note
+  saying so, and the conversation continues from where it left off.
 - **New chat** starts a fresh one. Your earlier chats stay in the list. Until you send its first
   message, the new chat is the "New chat" line at the top of the list.
 - **Delete** (the bin next to a chat) asks first. Saying yes takes the chat off the list for good,

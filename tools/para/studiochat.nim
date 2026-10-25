@@ -344,7 +344,7 @@ proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   let key: ChatKey = (game, agent, id)
   if was != id and not c.hasLines(key):
     c.add(key, UiEvent(kind: ukNotice, code: "chat-opened",
-      text: "Back in this chat. The producer remembers it, so just carry on; the messages from before Studio was last closed are not shown here."))
+      text: "Back in this chat. Its earlier messages are not kept on this computer; the conversation continues from where it left off, so just carry on."))
   Started(ok: true, status: 200)
 
 proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
