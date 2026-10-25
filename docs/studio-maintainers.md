@@ -259,7 +259,7 @@ edit rules take effect only in a folder Claude Code trusts (see "If something go
   characters, which Claude shortens with a hash, is not looked up). Only that file is opened,
   read-only; the folder is never listed or written, and no settings or login file is read. The
   friend's text and the producer's text and activity lines come back (tool results, thinking,
-  side chains, Claude's own meta notes and API error notes do not). The result, or a plain
+  side chains, Claude's own meta notes, compaction summaries and API error notes do not). The result, or a plain
   `chat-opened` note when there is no record, no session id, or nothing readable in it, is
   written to the chat's lines file so the lookup runs once. Codex keeps its records under
   `~/.codex/sessions/<year>/<month>/<day>/` named by time as well as thread id, which would mean

@@ -38,7 +38,8 @@
 # long enough that Claude shortens it with a hash is not looked up). Only the file named by the
 # session id the studio already keeps is opened, read-only; the folder is never listed or written,
 # and no settings or login file is read. The friend's messages, the producer's words and the same
-# activity lines a live turn shows come back; thinking, tool results and helpers' own talk do not.
+# activity lines a live turn shows come back; thinking, tool results, helpers' own talk and
+# compaction summaries do not.
 
 import std/[json, os, osproc, streams, strutils, tables, sets]
 from std/unicode import runes
@@ -520,7 +521,7 @@ proc readClaudeRecord*(path, root: string): seq[ChatLine] =
       var e: JsonNode
       try: e = parseJson(line)
       except CatchableError: continue
-      if e.kind != JObject or e.flag("isSidechain") or e.flag("isMeta") or e.flag("isApiErrorMessage"): continue
+      if e.kind != JObject or e.flag("isSidechain") or e.flag("isMeta") or e.flag("isApiErrorMessage") or e.flag("isCompactSummary"): continue
       case e.str("type")
       of "user":
         for w in userWords(e): result.add (you: true, ev: say(w))

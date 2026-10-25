@@ -231,6 +231,7 @@ suite "Claude's own record of a conversation":
 {"type":"user","message":{"content":[{"type":"text","text":"<system-reminder>context</system-reminder>"}]}}
 not json at all
 {"type":"summary","summary":"Ship movement"}
+{"type":"user","isCompactSummary":true,"message":{"content":"This session is being continued from a previous conversation that ran out of context."}}
 {"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"API Error"}]}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"The ship moves now."}]}}
 {"type":"user","message":{"content":[{"type":"text","text":"Thanks!"}]}}
