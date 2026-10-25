@@ -25,16 +25,25 @@ Two ways to use it:
 
 ## Quick start
 
-Clone this repository (`git clone https://github.com/PDepaula/parastudio.git`), then start the
-launcher for your computer. It needs nothing installed first: when Nim, a C compiler or git is
-missing it says what it would install and asks before it does.
+Paste one line into a terminal. It makes a `parastudio` folder in your home folder, says exactly
+what it will do and asks before it installs anything, then offers to start Studio.
 
-- **Mac:** double-click `Paraloop-Studio.command` ([docs/mac.md](docs/mac.md)).
-- **Windows:** double-click `Paraloop-Studio.bat` ([docs/windows.md](docs/windows.md), not yet tried
-  on a real Windows PC).
-- **Linux:** run `./paraloop-studio.sh` ([docs/linux.md](docs/linux.md)).
+Mac or Linux (Terminal):
 
-To type the commands yourself instead: [docs/start.md](docs/start.md).
+```sh
+curl -fsSL https://pdepaula.github.io/parastudio/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://pdepaula.github.io/parastudio/install.ps1 | iex
+```
+
+What it does, how to read it before running it, how to pick another folder and how to remove it:
+[docs/install.md](docs/install.md). It has run on GitHub's Linux, Mac and Windows test machines,
+not yet on a real Mac or Windows PC. To clone and start the launchers yourself, or to type every
+command: [docs/start.md](docs/start.md).
 
 ![Check passed, then Saved as save point 1](docs/img/studio-4-check-save.png)
 

@@ -10,6 +10,9 @@
 
 The markdown files stay where they are (README, the launchers and `para` point at
 docs/*.md), and the site is generated from them, so nothing is written twice.
+The one-line installers (tools/launcher/install.sh and install.ps1) are copied
+to the site's root with the commit being built written into them, so the
+published script always clones the code it was published with.
 Every URL in the output is relative, so the site works from any base path (a
 GitHub project page under /parastudio/) and from a plain static server.
 
@@ -45,6 +48,13 @@ IMG = DOCS / "img"
 THEME = Path(__file__).resolve().parent / "theme"
 FONTS = ROOT / "tools" / "para" / "studio" / "fonts"
 REPO_URL = "https://github.com/PDepaula/parastudio"
+# The one-line installers, published at the site's root: (source, the empty commit line in it, the
+# stamped line). The build writes the commit it is built from into that one line and changes
+# nothing else; .github/scripts/installer-copy-check.sh checks the published copies against this.
+INSTALLERS = [
+    (ROOT / "tools" / "launcher" / "install.sh", 'PARASTUDIO_COMMIT=""', 'PARASTUDIO_COMMIT="{sha}"'),
+    (ROOT / "tools" / "launcher" / "install.ps1", "  $PARASTUDIO_COMMIT = ''", "  $PARASTUDIO_COMMIT = '{sha}'"),
+]
 SITE_URL = "https://pdepaula.github.io/parastudio/"
 
 # The left navigation: (group, [(file in docs/, label)]). Every docs/*.md must
@@ -53,6 +63,7 @@ SITE_URL = "https://pdepaula.github.io/parastudio/"
 NAV: list[tuple[str, list[tuple[str, str]]]] = [
     ("Start here", [
         ("index.md", "Welcome"),
+        ("install.md", "Install with one line"),
         ("start.md", "Set up from a terminal"),
     ]),
     ("Using Studio", [
@@ -459,10 +470,28 @@ class Site:
                 shutil.copy2(f, out / "assets" / "fonts" / f.name)
         if IMG.is_dir():
             shutil.copytree(IMG, out / "img")
+        self.write_installers(out)
         for f in sorted(out.rglob("*")):
-            if f.suffix in (".html", ".js", ".css", ".txt"):
+            if f.suffix in (".html", ".js", ".css", ".txt", ".sh", ".ps1"):
                 for hit in private_hits(f.read_text(encoding="utf-8")):
                     self.findings.add(f"built {f.relative_to(out).as_posix()}", hit)
+
+    def write_installers(self, out: Path) -> None:
+        """Copy each installer to the site's root with the commit being built written into it."""
+        r = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True)
+        sha = r.stdout.strip()
+        if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            self.findings.add("tools/docs/build.py", "git rev-parse HEAD gave no commit to write into the installers")
+            return
+        for src, empty, stamped in INSTALLERS:
+            where = src.relative_to(ROOT).as_posix()
+            lines = src.read_bytes().decode("utf-8").split("\n")
+            hits = [i for i, line in enumerate(lines) if line == empty]
+            if len(hits) != 1:
+                self.findings.add(where, f"needs exactly one line {empty!r} for the build to write the commit into; found {len(hits)}")
+                continue
+            lines[hits[0]] = stamped.format(sha=sha)
+            (out / src.name).write_bytes("\n".join(lines).encode("utf-8"))
 
     @staticmethod
     def description(p: Page) -> str:

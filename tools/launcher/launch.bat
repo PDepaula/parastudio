@@ -6,11 +6,15 @@ rem (double-click); see docs/windows.md. It mirrors tools/launcher/launch.sh (ma
 rem two differences: it checks all three tools before it offers anything, so every offer comes in
 rem one go, and it leaves finding the chat program to `para studio --check`.
 rem
-rem   launch.bat [--dry-run | --check] [--help]
+rem   launch.bat [--dry-run | --check] [--no-studio] [--help]
 rem
 rem --dry-run (or --check, the same) runs the same checks (they only look), says what it would offer
 rem to install and what each later step WOULD do; it installs, builds, fetches, opens and asks
-rem nothing. Test hooks, read only in a dry run: PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim pretends
+rem nothing. --no-studio does every step but the last: it sets up and builds, then stops without
+rem starting Studio (the one-line installer, tools/launcher/install.ps1, runs it that way and asks
+rem about Studio itself). PARALOOP_LAUNCHER_UNATTENDED=1 is for a run with nobody at the keyboard
+rem (the installer's PARASTUDIO_YES=1): every offer to install is answered no without asking, so the
+rem run stops with what to install by hand and installs nothing. Test hooks, read only in a dry run: PARALOOP_LAUNCHER_FAKE_MISSING=cc,git,nim pretends
 rem those are not installed; PARALOOP_LAUNCHER_DRY_ASK=1 makes the dry run ask each offer's real
 rem question and say what it WOULD do for the answer it got, still running no install.
 rem
@@ -55,6 +59,7 @@ set "STEPS=7"
 set "STEP_NO=0"
 set "STEP_NAME=starting"
 set "DRY_RUN=0"
+set "NO_STUDIO="
 
 for %%I in ("%~dp0..\..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
@@ -63,6 +68,7 @@ cd /d "%ROOT%"
 if "%~1"=="" goto args_done
 if /i "%~1"=="--dry-run" set "DRY_RUN=1" & shift & goto parse_args
 if /i "%~1"=="--check" set "DRY_RUN=1" & shift & goto parse_args
+if /i "%~1"=="--no-studio" set "NO_STUDIO=1" & shift & goto parse_args
 if /i "%~1"=="--help" goto help
 if /i "%~1"=="-h" goto help
 if "%~1"=="/?" goto help
@@ -71,9 +77,10 @@ exit /b 2
 
 :help
 echo Para Studio launcher for Windows
-echo   launch.bat [--dry-run or --check]
-echo   --dry-run  check what is installed, say what it would offer to install and what each step
-echo              would do; install, build and open nothing, and ask nothing (--check is the same)
+echo   launch.bat [--dry-run or --check] [--no-studio]
+echo   --dry-run    check what is installed, say what it would offer to install and what each step
+echo                would do; install, build and open nothing, and ask nothing (--check is the same)
+echo   --no-studio  set up and build, then stop without starting Studio
 echo See docs/windows.md.
 exit /b 0
 
@@ -261,6 +268,7 @@ call :would "run: tmp\para.exe studio --check   (the startup checks the Studio p
 rem --- step 7: Studio ----------------------------------------------------------------------------
 
 call :step "Starting Studio..." "start Studio"
+if defined NO_STUDIO goto studio_skip
 if "%DRY_RUN%"=="1" goto studio_dry
 echo       Studio opens in your browser. Keep this window open while you use it;
 echo       press Ctrl+C here (then Y if it asks) or close this window to stop Studio.
@@ -281,6 +289,10 @@ exit /b 0
 call :would "run: tmp\para.exe studio   (it prints a link and opens it in your default browser)"
 echo.
 echo Dry run finished: nothing was installed, built or opened.
+exit /b 0
+:studio_skip
+call :note "not started now (--no-studio)."
+if "%DRY_RUN%"=="1" echo. & echo Dry run finished: nothing was installed, built or opened.
 exit /b 0
 
 rem --- the stop with a block to send the captain -------------------------------------------------
@@ -337,8 +349,9 @@ exit /b 0
 
 :ask
 rem $1 = the question. Sets ANSWER=yes only for y or yes typed here; Enter, anything else and an
-rem input that is closed (set /p then leaves REPLY empty) are all no.
+rem input that is closed (set /p then leaves REPLY empty) are all no. An unattended run never asks.
 set "ANSWER=no"
+if "%PARALOOP_LAUNCHER_UNATTENDED%"=="1" goto ask_unattended
 set "REPLY="
 set /p "REPLY=      %~1 (y/n, Enter means no) "
 setlocal EnableDelayedExpansion
@@ -348,6 +361,10 @@ if /i "!REPLY!"=="yes" set "RES=yes"
 endlocal & set "ANSWER=%RES%"
 call :log "asked: %~1 - answer: %ANSWER%"
 if not "%ANSWER%"=="yes" echo       Okay, nothing was installed.
+exit /b 0
+:ask_unattended
+echo       %~1 No: this is an unattended run, and nothing is installed without a person typing y.
+call :log "asked: %~1 - answer: no (unattended)"
 exit /b 0
 
 :pause_window

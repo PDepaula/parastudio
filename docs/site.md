@@ -44,6 +44,18 @@ The `docs` job in `.github/workflows/ci.yml` runs the build on every pull reques
 `.github/workflows/pages.yml` builds the same site on every push to `main` and deploys it to
 GitHub Pages with `actions/upload-pages-artifact` and `actions/deploy-pages`.
 
+## The installers
+
+The build also copies the one-line installers, `tools/launcher/install.sh` and
+`tools/launcher/install.ps1`, to the site's root (`install.sh`, `install.ps1`;
+[Install with one line](install.md)). It writes the commit it is built from (`git rev-parse HEAD`,
+the commit Pages deploys) into the one empty `PARASTUDIO_COMMIT` line of each and changes nothing
+else, so the published script clones exactly the code it was published with. There is no second
+copy to keep in step: after the build, the `docs` job runs `.github/scripts/installer-copy-check.sh`,
+which fails if a published installer is anything other than its source with that one line filled
+in. The `installer` workflow (`.github/workflows/installer.yml`) runs the published copies end to
+end on Linux, macOS and Windows runners.
+
 ## The look
 
 The site uses the Studio page's look ([Studio internals](studio-maintainers.md)): the same colour
