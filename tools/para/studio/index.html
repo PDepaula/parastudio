@@ -164,6 +164,37 @@ button.row:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 7%, 
 .thumb.t2 { background: var(--lilac); color: var(--ink); }
 .thumb.t3 { background: var(--gold); color: var(--purple); }
 .sb p.mute { padding: 4px 8px; font-size: 14px; margin: 0; }
+/* the past chats, under New chat */
+.chats { display: flex; flex-direction: column; gap: 2px; flex: none; }
+.chats .label { padding-top: 2px; }
+.chatrow { display: flex; align-items: center; gap: 2px; border-radius: 14px; padding-right: 2px; }
+.chatrow:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.chatrow.sel { background: var(--selected); box-shadow: inset 3px 0 0 var(--focus); }
+.chatrow .row, .chatrow .fresh { flex: 1; padding: 6px 4px 6px 12px; }
+.chatrow .fresh { display: flex; align-items: center; min-height: 42px; min-width: 0; font-size: 15.5px; line-height: 20px; }
+.chatrow button.row:hover:not(:disabled) { background: none; }
+.chatrow .cx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.chatrow .tx { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.chatrow.sel .tx { font-weight: 800; }
+.chatrow .when { font-size: 12.5px; line-height: 16px; color: var(--mute); font-weight: 600; }
+.chatrow .del { width: 36px; height: 36px; border-radius: 12px; }
+.chatrow .del .ic { width: 18px; height: 18px; }
+.chatrow .del:hover:not(:disabled) { color: var(--bad); background: var(--bad-soft); }
+.chatrow .del:disabled { opacity: .45; }
+@media (hover: hover) {
+  .chatrow .del { opacity: 0; }
+  .chatrow:hover .del, .chatrow:focus-within .del, .chatrow.sel .del { opacity: 1; }
+}
+.chats-empty { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 18px; background: var(--surface); font-size: 14.5px; line-height: 1.4; color: var(--mute); }
+.chats-empty .pip-tile { width: 44px; height: 44px; border-radius: 15px; }
+.chats .more { display: flex; align-items: center; min-height: 38px; padding: 6px 12px; border-radius: 14px; color: var(--link); font-weight: 800; font-size: 14.5px; }
+.chats .more:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.chats .confirm { margin-top: 6px; padding: 12px; gap: 10px; background: var(--bg); }
+.chats .confirm .btn { min-height: 42px; padding: 0 14px; font-size: 15px; }
+.btn.danger { background: var(--bad); color: #FFFFFF; }
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 85%, #000); }
+:root[data-theme="dark"] .btn.danger { color: #2A0A10; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.danger { color: #2A0A10; } }
 .foot { margin-top: auto; border-top: 2px solid var(--line); padding-top: 8px; display: flex; align-items: center; gap: 6px; }
 .me { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; font-weight: 700; }
 .me span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -451,7 +482,21 @@ dd { margin: 0; overflow-wrap: anywhere; }
     </div>
     <div class="lanes" id="lanes" aria-label="What the helpers are doing" aria-live="polite" hidden></div>
     <p class="result" id="lanes-result" role="status"></p>
-    <button type="button" class="newchat" id="chat-new"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New conversation</span></button>
+    <button type="button" class="newchat" id="chat-new"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New chat</span></button>
+    <section class="chats" id="chats" aria-labelledby="chats-label" hidden>
+      <div class="label" id="chats-label">Chats</div>
+      <div id="chats-list" role="list" aria-labelledby="chats-label"></div>
+      <button type="button" class="more" id="chats-more" aria-expanded="false" hidden></button>
+      <div class="confirm" id="chat-del" role="group" aria-labelledby="chat-del-h" hidden>
+        <p id="chat-del-h"><strong>Delete this chat?</strong></p>
+        <p id="chat-del-text"></p>
+        <div class="btns">
+          <button type="button" class="btn danger" id="chat-del-yes">Yes, delete it</button>
+          <button type="button" class="btn ghost" id="chat-del-no">Keep it</button>
+        </div>
+      </div>
+      <p class="result" id="chats-result" role="status" aria-live="polite"></p>
+    </section>
     <div>
       <div class="label" id="games-label" hidden>Games</div>
       <div id="games-list" role="group" aria-labelledby="games-label"></div>
@@ -900,6 +945,7 @@ function renderGames(games) {
 function pickGame(g) {
   closeDrawer(false);
   if (g === game) return;
+  hideDelete(); // the confirm was for a chat in the other game's list
   game = g;
   for (const id of ["check-result", "save-result", "backup-result"]) say($(id), "", "");
   $("check-details").hidden = true;
@@ -924,6 +970,7 @@ async function loadState() {
   $("nogame").hidden = !none;
   app.classList.toggle("no-game", !has);
   $("chat-new").hidden = !has;
+  $("chats").hidden = !has;
   $("backup-open").hidden = none;
   renderPill(s.facts);
   renderResume(s);
@@ -985,6 +1032,8 @@ function syncButtons() {
   $("chat-input").disabled = !agentReady;
   $("chat-stop").hidden = !chatRunning;
   $("chat-new").disabled = chatRunning;
+  for (const b of $("chats-list").querySelectorAll("button")) b.disabled = chatRunning;
+  $("chat-del-yes").disabled = chatRunning;
   for (const b of $("agents").children) b.disabled = chatRunning || busy;
   $("play-btn").disabled = busy || playBusy;
   $("shot-btn").disabled = shotBusy;
@@ -1100,6 +1149,7 @@ $("new-form").addEventListener("submit", async (ev) => {
 let agentReady = false;
 let chatSince = 0;
 let chatGame = "";
+let chatOpen = 0; // the number of the chat on the page (0: not known yet)
 let chatSeeded = false;
 let chatTimer = null;
 let unanswered = ""; // the last message sent, until the producer answers it
@@ -1340,7 +1390,8 @@ function renderAgents(a) {
 }
 async function pickAgent(name) {
   if (chatRunning || busy) return;
-  try { await api("POST", "/api/agent/pick", { game, agent: name }); await loadAgent(); pollChat(); }
+  hideDelete(); // each producer has its own list
+  try { await api("POST", "/api/agent/pick", { game, agent: name }); await loadAgent(); await loadChats(); pollChat(); }
   catch (e) { say($("chat-result"), e.message, "bad"); }
 }
 
@@ -1492,6 +1543,7 @@ function resetChatView() {
   chatSeeded = false;
   unanswered = "";
   chatGame = game;
+  chatOpen = 0;
 }
 
 async function pollChat() {
@@ -1501,6 +1553,13 @@ async function pollChat() {
     if (game) {
       if (chatGame !== game) resetChatView();
       const d = await api("GET", "/api/chat?since=" + chatSince + "&game=" + encodeURIComponent(game));
+      if (chatOpen && d.chat !== chatOpen) { // another chat was opened (in another tab, say): start the page over
+        resetChatView();
+        chatTimer = setTimeout(pollChat, 0);
+        loadChats();
+        return;
+      }
+      chatOpen = d.chat;
       let turnEnded = false;
       for (const ev of d.events) { if (ev.kind === "done") turnEnded = true; else renderEvent(ev); }
       chatSince = Math.max(chatSince, d.next);
@@ -1531,6 +1590,7 @@ async function sendChat(text) {
   gaveBack = false;
   try {
     await api("POST", "/api/chat/send", { game, text });
+    loadChats();
     unanswered = text;
     $("chat-input").value = ""; growInput();
     chatRunning = true;
@@ -1561,8 +1621,124 @@ $("chat-stop").addEventListener("click", async () => {
 });
 $("chat-new").addEventListener("click", async () => {
   closeDrawer(false);
-  try { await api("POST", "/api/chat/new", { game }); resetChatView(); say($("chat-result"), "Fresh start: the next message begins a new conversation.", "ok"); pollChat(); $("chat-input").focus(); }
+  hideDelete();
+  try {
+    await api("POST", "/api/chat/new", { game }); resetChatView();
+    say($("chat-result"), "Fresh start: your next message begins a new chat. The earlier ones stay in the list.", "ok");
+    pollChat(); loadChats(); $("chat-input").focus();
+  }
   catch (e) { say($("chat-result"), e.message, "bad"); }
+});
+
+// --- the past chats ---------------------------------------------------------------------
+// The open game's chats with its producer, the one used last first. Picking one carries it on
+// (the producer resumes that same conversation); deleting one only forgets it in this list.
+const chatsShown = 8;
+let chatsAll = false, chatsNow = [], deleting = null;
+function producerName() { return $("pip-name").textContent || "Pip"; }
+function chatTitle(c) { return c.title || "An earlier chat"; }
+function whenWords(sec) {
+  const d = new Date(sec * 1000), now = new Date(), ago = (now - d) / 1000;
+  if (ago < 60) return "just now";
+  if (ago < 3600) return Math.floor(ago / 60) + " min ago";
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86400000);
+  if (days === 0) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (days === 1) return "yesterday";
+  if (days < 7) return d.toLocaleDateString([], { weekday: "long" });
+  return d.toLocaleDateString([], { day: "numeric", month: "short", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
+}
+function renderChats(d) {
+  const list = $("chats-list");
+  list.textContent = "";
+  chatsNow = d.chats || [];
+  if (chatsNow.length === 0) {
+    const empty = textEl("div", "chats-empty", "");
+    empty.setAttribute("role", "listitem");
+    empty.append(pipTile(false), textEl("span", "", "No chats yet. Say hello to " + producerName() + " and your chat shows up here, so you can pick it up again later."));
+    list.append(empty);
+  }
+  const fresh = chatsNow.length > 0 && !chatsNow.some((c) => c.open);
+  if (fresh) { // the open chat has no message yet: say so at the top
+    const row = textEl("div", "chatrow sel", "");
+    row.setAttribute("role", "listitem");
+    const r = textEl("div", "fresh", "");
+    r.setAttribute("aria-current", "true");
+    const cx = textEl("span", "cx", "");
+    cx.append(textEl("span", "tx", "New chat"), textEl("span", "when", "starts with your next message"));
+    r.append(cx);
+    row.append(r);
+    list.append(row);
+  }
+  const shown = chatsAll ? chatsNow : chatsNow.slice(0, chatsShown);
+  for (const c of shown) {
+    const row = textEl("div", "chatrow" + (c.open ? " sel" : ""), "");
+    row.setAttribute("role", "listitem");
+    const open = document.createElement("button");
+    open.type = "button"; open.className = "row";
+    const cx = textEl("span", "cx", "");
+    cx.append(textEl("span", "tx", chatTitle(c)), textEl("span", "when", whenWords(c.updated)));
+    open.append(cx);
+    open.title = chatTitle(c) + " · last used " + new Date(c.updated * 1000).toLocaleString();
+    if (c.open) open.setAttribute("aria-current", "true");
+    open.addEventListener("click", () => openChat(c));
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "ib del";
+    del.setAttribute("aria-label", "Delete the chat: " + chatTitle(c));
+    del.title = "Delete this chat…";
+    del.append(svgIcon("M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"));
+    del.addEventListener("click", () => askDelete(c, del));
+    row.append(open, del);
+    list.append(row);
+  }
+  const more = $("chats-more");
+  more.hidden = chatsNow.length <= chatsShown;
+  more.textContent = chatsAll ? "Show fewer" : "Show all " + chatsNow.length + " chats";
+  more.setAttribute("aria-expanded", String(chatsAll));
+  if (deleting && !chatsNow.some((c) => c.id === deleting.id)) hideDelete();
+  syncButtons();
+}
+async function loadChats() {
+  if (!game) return;
+  try { renderChats(await api("GET", "/api/chats" + gameQuery())); }
+  catch (e) { say($("chats-result"), e.message, "bad"); }
+}
+$("chats-more").addEventListener("click", () => { chatsAll = !chatsAll; renderChats({ chats: chatsNow }); });
+async function openChat(c) {
+  if (chatRunning) return;
+  hideDelete();
+  say($("chats-result"), "", "");
+  if (c.open) { closeDrawer(false); $("chat-input").focus(); return; }
+  try {
+    await api("POST", "/api/chat/open", { game, id: c.id });
+    resetChatView();
+    say($("chat-result"), "", "");
+    closeDrawer(false);
+    pollChat(); loadChats(); $("chat-input").focus();
+  } catch (e) { say($("chats-result"), e.message, "bad"); }
+}
+let deleteFrom = null;
+function askDelete(c, from) {
+  deleting = Object.assign({ game }, c); deleteFrom = from;
+  say($("chats-result"), "", "");
+  $("chat-del-h").firstChild.textContent = "Delete \u201c" + chatTitle(c) + "\u201d?";
+  $("chat-del-text").textContent = producerName() + " forgets this chat: it leaves the list and cannot be picked up again. Your game, its files and its save points stay exactly as they are.";
+  $("chat-del").hidden = false;
+  $("chat-del-no").focus();
+}
+function hideDelete() { deleting = null; $("chat-del").hidden = true; }
+$("chat-del-no").addEventListener("click", () => { const back = deleteFrom; hideDelete(); if (back && back.isConnected) back.focus(); });
+$("chat-del-yes").addEventListener("click", async () => {
+  if (!deleting || chatRunning || deleting.game !== game) return;
+  const c = deleting;
+  try {
+    await api("POST", "/api/chat/delete", { game: c.game, id: c.id, confirm: true });
+    hideDelete();
+    say($("chats-result"), "Deleted \u201c" + chatTitle(c) + "\u201d.", "ok");
+    if (c.open) resetChatView();
+    pollChat(); await loadChats();
+    $("chat-new").focus();
+  } catch (e) { say($("chats-result"), e.message, "bad"); }
 });
 $("preflight-recheck").addEventListener("click", () => { say($("preflight-sum"), "Checking…", "busy"); loadAgent().catch((e) => { say($("chat-result"), e.message, "bad"); say($("preflight-sum"), "Could not run the checks. Press Check again.", "bad"); }); });
 
@@ -1642,7 +1818,7 @@ async function takeShot() {
 $("shot-btn").addEventListener("click", takeShot);
 
 async function refresh() {
-  try { await loadState(); await loadPoints(); await loadBackup(); }
+  try { await loadState(); await loadChats(); await loadPoints(); await loadBackup(); }
   catch (e) { $("greeting").textContent = e.message; }
 }
 

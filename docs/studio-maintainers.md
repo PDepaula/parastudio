@@ -36,7 +36,8 @@ For whoever changes Studio. The guide for the friend using it is [studio.md](stu
 The code is `tools/para/studiohttp.nim` (the server and its checks),
 `studioapi.nim` (the routes and jobs), `preflight.nim` (the startup checks, below),
 `studiocmd.nim` (the command),
-`studiochat.nim` (the chat's turns, session files and the pick per game), `agent.nim`
+`studiochat.nim` (the chat's turns, the chats and the pick per game), `chatstore.nim` (the list
+of chats on disk), `agent.nim`
 (the interface every agent adapter fills in), `claudeagent.nim` (the Claude adapter),
 `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
 raising), `agents.nim` (which adapters exist), `studioplay.nim` (the game window),
@@ -65,10 +66,14 @@ Font License 1.1 (`tools/para/studio/fonts/`, with their licences; listed in
 `font-src data:` and nothing else. Without them the page falls back to the system's own
 rounded or plain sans-serif font.
 
-**Not built: a list of past conversations.** The design this page follows had a "Producer
-sessions" list in the sidebar. The studio keeps one conversation per game and producer (see
-"Conversations" below), so there is nothing to list yet and the page leaves it out; keeping
-several would need `studiochat.nim` to store more than one session id per game.
+**The chats list.** The "Producer sessions" list of the design this page follows is the
+**Chats** list under **New chat** (see "Conversations" below for how it is kept). It lists the
+chats of the producer the game talks to now, newest first, eight at a time with **Show all**;
+picking one is `POST /api/chat/open`, the bin next to it opens a confirm under the list (focus goes
+to **Keep it**) and only its **Yes, delete it** sends `POST /api/chat/delete` with `confirm: true`.
+`GET /api/chat` says which chat its lines are from (`chat`), so a page that sees a different number
+(another tab opened a chat) starts its view over. The list is disabled while a turn runs, like
+**New chat**.
 
 ## Start a game (route)
 
@@ -229,12 +234,22 @@ edit rules take effect only in a folder Claude Code trusts (see "If something go
   whole process tree: its process group and descendants on macOS and Linux, `taskkill /T` on Windows).
   A turn is stopped after `--turn-timeout` minutes (default 60; long builds are
   normal). Closing the studio (Ctrl+C) ends a running turn too.
-- **Conversations.** One per game and agent. The session id is kept in
-  `tmp/studio/session-<game>-<agent>.id` (the id and nothing else) so a restart or a
-  reopened page resumes it; "New conversation" forgets every agent's id for
-  the game. The lines on the page live in memory while the studio runs. The one file
-  Claude used before there was a second agent, `session-<game>.id`, is still read for
-  Claude and replaced by the new name the next time Claude answers.
+- **Conversations.** Any number per game and agent, in `chatstore.nim`'s
+  `tmp/studio/chats-<game>-<agent>.json`: for each chat its number, title (the start of its first
+  message: one line, at most 60 letters, anything key-like taken out by `redactSecrets`), when it
+  started and was last used (seconds), and the agent's session id once reported, plus which chat
+  the next message goes to. That is all the studio writes of what the friend typed; the lines on
+  the page live in memory, per chat, while the studio runs. A fresh chat has a number but no entry
+  until its first message, numbers are never reused, and the file is written whole (a new file
+  moved over the old one). **New chat** opens a fresh chat for the game's current agent and keeps
+  the rest. Opening a chat whose lines are not in memory (the studio was closed since) adds a
+  `chat-opened` note; so does the chat that was open at a restart, once, when the game's chats are
+  first read from disk (before any other line of that chat). A fresh chat never gets it. Deleting forgets that chat's entry and its lines and nothing else: the agent's
+  own record of the conversation (in its own folder) and the game's folder are not touched. The one
+  conversation an older studio kept, `session-<game>-<agent>.id` (and Claude's `session-<game>.id`
+  from before there was a second agent), is read as one chat with no title and removed once the
+  new file is written. Tests: `tests/test_para_studio_chats.nim` (the store, and the routes
+  through the server: many chats, reopen, restart, delete) and `test_para_studio_chat.nim`.
 - **Helpers** show as cards (builder, checker, scout, found from the playbook the
   producer names in the helper's prompt). A shell command left running in the
   background is a one-line note, not a card.
@@ -254,7 +269,7 @@ edit rules take effect only in a folder Claude Code trusts (see "If something go
 
 The pick per game is remembered in `tmp/studio/agent-<game>.txt` (a name and nothing else).
 **Claude is the default** until Codex is picked for a game. A pick takes effect from the next
-message and is refused while a turn is running. Each agent has its own conversation.
+message and is refused while a turn is running. Each agent has its own chats.
 
 The Codex adapter (`codexagent.nim`) runs the `codex` program the friend installed and
 signed in to (OpenAI's Codex CLI; it was written against 0.159.2), one turn per process:

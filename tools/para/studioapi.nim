@@ -30,17 +30,20 @@
 #   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line; the optional programs (Lavish, for visual boards: `ok` or `absent`, never in `ready`) with the command that adds one; also this folder and whether the page may offer to open a terminal in it
 #   POST /api/terminal          {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
 #   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation)
-#   GET  /api/chat?game=&since= the chat lines after number `since`, and whether a turn is running
-#   POST /api/chat/send         {game, text}: one turn with the producer (one at a time)
+#   GET  /api/chat?game=&since= the open chat's lines after number `since`, which chat that is, and whether a turn is running
+#   GET  /api/chats?game=       the game's past chats with its producer, the one used last first: number, title, times, which one is open
+#   POST /api/chat/send         {game, text}: one turn with the producer in the open chat (one at a time)
 #   POST /api/chat/stop         {}: end the running turn and everything it started
-#   POST /api/chat/new          {game}: forget the saved conversation for this game
+#   POST /api/chat/new          {game}: the next message starts a new chat; the earlier ones stay in the list
+#   POST /api/chat/open         {game, id}: open an earlier chat; the next message continues its conversation
+#   POST /api/chat/delete       {game, id, confirm: true}: forget a chat (its title, times and session id); nothing in the game's folder changes
 #   GET  /api/play              the game window: idle, building, starting, running, failed or exited, in plain words
 #   POST /api/play/start        {game}: build the game with its dev channel and open its native window (a second one restarts it)
 #   POST /api/play/stop         {}: close the game window, or stop its build
 #   POST /api/play/shot         {game}: ask the open window for a picture and put it in the chat as a card
 #   GET  /api/shot?name=        one of the studio's own pictures (image/png); only names the studio made, only from its folder
 #
-# The chat is studiochat.nim (turns, the session file, stopping) on top of agent.nim's adapter
+# The chat is studiochat.nim (turns, the list of chats, stopping) on top of agent.nim's adapter
 # interface; nothing in this file knows which agent it is. A Check, Save or Backup step and a chat
 # turn do not run at the same time: starting one while the other runs is refused with a 409.
 #
@@ -142,6 +145,10 @@ proc bodyObject(req: Request, obj: var JsonNode): Response =
 
 proc fieldString(obj: JsonNode, key: string): string =
   if obj.hasKey(key) and obj[key].kind == JString: obj[key].getStr else: ""
+
+proc fieldInt(obj: JsonNode, key: string): int =
+  ## A whole number from 1 to 999999999, else 0.
+  if obj.hasKey(key) and obj[key].kind == JInt and obj[key].getBiggestInt in 1'i64 .. 999_999_999'i64: obj[key].getInt else: 0
 
 proc pickGame(st: ptr Studio, asked: string, game: var string): Response =
   ## The game a request is about: the one asked for, else the one the studio was started for, else
@@ -452,7 +459,29 @@ proc chatJson(st: ptr Studio, req: Request): Response =
   let v = view(addr st.chat, game, if sinceText.len > 0: parseInt(sinceText) else: 0)
   var rows = newJArray()
   for (n, you, ev) in v.entries: rows.add entryJson(n, you, ev)
-  jsonResponse(200, %*{"game": game, "running": v.running, "turn": v.turnId, "next": v.next, "events": rows})
+  jsonResponse(200, %*{"game": game, "chat": v.chat, "running": v.running, "turn": v.turnId, "next": v.next, "events": rows})
+
+proc chatsJson(st: ptr Studio, req: Request): Response =
+  var game: string
+  let picked = pickGame(st, req.queryValue("game"), game)
+  if picked.status != 0: return picked
+  let l = listChats(addr st.chat, game)
+  var rows = newJArray()
+  for c in l.chats:
+    rows.add %*{"id": c.id, "title": c.title, "started": c.started, "updated": c.updated, "open": c.id == l.current}
+  jsonResponse(200, %*{"game": game, "agent": l.agent, "current": l.current, "chats": rows})
+
+proc chatPickJson(st: ptr Studio, body: JsonNode, delete: bool): Response =
+  var game: string
+  let picked = pickGame(st, body.fieldString("game"), game)
+  if picked.status != 0: return picked
+  let id = body.fieldInt("id")
+  if id == 0: return fail(400, "Say which chat.", "which-chat")
+  if delete and not (body.hasKey("confirm") and body["confirm"].kind == JBool and body["confirm"].getBool):
+    return fail(400, "A chat is only deleted after you say yes to it.", "needs-confirm")
+  let r = if delete: deleteChat(addr st.chat, game, id) else: openChat(addr st.chat, game, id)
+  if not r.ok: return fail(r.status, r.message, r.code)
+  jsonResponse(200, %*{"ok": true})
 
 proc sendJson(st: ptr Studio, body: JsonNode): Response =
   var game: string
@@ -534,6 +563,7 @@ proc handle(st: ptr Studio, req: Request): Response =
     of "/api/agent": return agentJson(st, req)
     of "/api/preflight": return preflightJson(st, req)
     of "/api/chat": return chatJson(st, req)
+    of "/api/chats": return chatsJson(st, req)
     of "/api/play": return playJson(st)
     of "/api/lanes":
       var game: string
@@ -583,6 +613,8 @@ proc handle(st: ptr Studio, req: Request): Response =
     if not newConversation(addr st.chat, game):
       return fail(409, "The producer is still working. Stop the turn first.", "busy")
     jsonResponse(200, %*{"ok": true})
+  of "/api/chat/open": chatPickJson(st, body, delete = false)
+  of "/api/chat/delete": chatPickJson(st, body, delete = true)
   of "/api/backup":
     if not (body.hasKey("confirm") and body["confirm"].kind == JBool and body["confirm"].getBool):
       return fail(400, "A backup uploads your saved work, so it only runs after you say yes to it.", "needs-confirm")

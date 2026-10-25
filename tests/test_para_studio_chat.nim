@@ -7,7 +7,8 @@
 #   agent unless a message is sent: opening the page, polling and every refused request start no
 #   turn;
 # - a turn end to end: the friend's line, the producer's words, helper cards, the session id kept in
-#   tmp/ (and nothing else in that file), the next turn resuming it, games kept apart;
+#   tmp/ with the chat's title and times (and nothing else in that file), the next turn resuming it,
+#   games kept apart (the list of past chats itself is test_para_studio_chats.nim);
 # - one turn at a time (Check and Save wait for it, and it for them), Stop, the time limit, closing
 #   the studio, and "fresh conversation";
 # - what the page shows can never run: the server only sends JSON, and the page script has no way
@@ -190,15 +191,20 @@ suite "para studio chat: a turn end to end":
     check log[0]["cwd"].getStr.expandFilename == root.expandFilename
     check "Hello, producer!" notin $log[0]["args"]
 
-  test "the session id is kept per game in tmp/, alone in its file, and the next turn resumes it":
+  test "the session id is kept per game in tmp/, with the chat's title and times only, and the next turn resumes it":
     begin()
     var c: Chat
-    check running.send("one").status == 200
+    check running.send("one\nand a second line that is not kept in full because titles are short").status == 200
     running.waitFor(c, finished)
-    let file = root / "tmp" / "studio" / "session-pong-claude.id"
+    let file = root / "tmp" / "studio" / "chats-pong-claude.json"
     check fileExists(file)
-    check readFile(file) == sessionId # the id and nothing else
-    check not ("one" in readFile(file))
+    let saved = parseJson(readFile(file))
+    check saved["chats"].len == 1
+    let chat = saved["chats"][0]
+    check toSeq(chat.keys) == @["id", "title", "started", "updated", "session"]
+    check chat["session"].getStr == sessionId
+    check chat["title"].getStr == "one and a second line that is not kept in full because title…"
+    check "titles are short" notin readFile(file) # only the start of the first message
     check readSession(root, "pong", "claude") == sessionId
     check readSession(root, "pong", "codex") == "" # another agent's conversation is its own
     # a second turn, from a fresh page (a new Chat view) resumes the same conversation
@@ -210,7 +216,7 @@ suite "para studio chat: a turn end to end":
     check "--resume" notin calls()[0]["args"].getElems.mapIt(it.getStr)
 
   test "a session file with anything but an id in it is ignored":
-    begin()
+    begin() # the studio reads the chats the first time a game's chat is used, so this is in time
     createDir(root / "tmp" / "studio")
     writeFile(root / "tmp" / "studio" / "session-pong-claude.id", "--dangerously-skip-permissions")
     check readSession(root, "pong", "claude") == ""
@@ -218,7 +224,16 @@ suite "para studio chat: a turn end to end":
     check running.send("hi").status == 200
     running.waitFor(c, finished)
     check "--resume" notin calls()[0]["args"].getElems.mapIt(it.getStr)
-    check readFile(root / "tmp" / "studio" / "session-pong-claude.id") == sessionId # replaced by the real one
+    check readSession(root, "pong", "claude") == sessionId # replaced by the real one
+    # the same in the chats file: a session id that could never be one is dropped
+    running.stop()
+    let file = root / "tmp" / "studio" / "chats-pong-claude.json"
+    writeFile(file, readFile(file).replace(sessionId, "--dangerously-skip-permissions"))
+    running = startStudio(root, getAppFilename(), "", newClaudeAdapterFor(getAppFilename()))
+    var d = Chat(next: c.next)
+    check running.send("again").status == 200
+    running.waitFor(d, finished)
+    check "--resume" notin calls()[1]["args"].getElems.mapIt(it.getStr)
 
   test "two games keep separate chats and separate sessions":
     begin(games = @["pong", "tetris"])
@@ -232,22 +247,28 @@ suite "para studio chat: a turn end to end":
     var pongAgain: Chat
     running.poll(pongAgain, "pong")
     check pongAgain.events.allIt(it["text"].getStr != "for tetris")
-    check fileExists(root / "tmp" / "studio" / "session-pong-claude.id") and fileExists(root / "tmp" / "studio" / "session-tetris-claude.id")
+    check readSession(root, "pong", "claude") == sessionId and readSession(root, "tetris", "claude") == sessionId
+    check fileExists(root / "tmp" / "studio" / "chats-pong-claude.json") and fileExists(root / "tmp" / "studio" / "chats-tetris-claude.json")
     check running.request("GET", "/api/chat?game=nope&since=0").status == 404
     check running.send("x", "nope").status == 404
     check running.request("GET", "/api/chat?since=0").status == 400 # two games: which one?
 
-  test "starting over forgets the saved session and the lines on the page":
+  test "a new chat starts a new conversation with an empty page, and keeps the earlier one":
     begin()
     var c: Chat
     check running.send("hi").status == 200
     running.waitFor(c, finished)
-    check fileExists(root / "tmp" / "studio" / "session-pong-claude.id")
+    check readSession(root, "pong", "claude") == sessionId
     check running.post("/api/chat/new", %*{"game": "pong"}).status == 200
-    check not fileExists(root / "tmp" / "studio" / "session-pong-claude.id")
+    check readSession(root, "pong", "claude") == "" # the next message is a new conversation
     var d: Chat
     running.poll(d)
     check d.events.len == 0
+    check running.send("hello again").status == 200
+    running.waitFor(d, finished)
+    check "--resume" notin calls()[1]["args"].getElems.mapIt(it.getStr)
+    let list = jsonOf(running.request("GET", "/api/chats?game=pong"))["chats"]
+    check list.getElems.mapIt(it["title"].getStr) == @["hello again", "hi"]
 
   test "messages that cannot be sent are refused in plain words, without starting anything":
     begin()
@@ -314,12 +335,13 @@ suite "para studio chat: two agents, each with its own conversation":
     jsonOf(running.request("GET", "/api/agent?game=" & game))["current"].getStr
 
   proc turn(text: string) =
-    ## One whole turn; the page's list keeps every earlier turn's "done", so count them.
+    ## One whole turn: waits for its "done", whichever producer's chat the page shows.
     var c: Chat
+    running.poll(c)
+    c.events = @[]
     check running.send(text).status == 200
     inc turnsDone
-    let wanted = turnsDone
-    running.waitFor(c, proc (c: Chat): bool = c.kinds.count("done") >= wanted)
+    running.waitFor(c, finished)
 
   teardown:
     finish()
@@ -414,14 +436,18 @@ suite "para studio chat: two agents, each with its own conversation":
     var c: Chat
     running.waitFor(c, finished, 20)
 
-  test "starting over forgets every agent's conversation for the game, not the pick":
+  test "a new chat is for the producer the game talks to now; the other one's chat stays open":
     beginBoth()
     turn("one")
     check pick("codex").status == 200
     turn("two")
     check running.post("/api/chat/new", %*{"game": "pong"}).status == 200
-    check readSession(root, "pong", "claude") == "" and readSession(root, "pong", "codex") == ""
+    check readSession(root, "pong", "codex") == "" and readSession(root, "pong", "claude") == sessionId
     check currentAgent() == "codex"
+    # each producer lists its own chats
+    check jsonOf(running.request("GET", "/api/chats?game=pong"))["chats"].getElems.mapIt(it["title"].getStr) == @["two"]
+    check pick("claude").status == 200
+    check jsonOf(running.request("GET", "/api/chats?game=pong"))["chats"].getElems.mapIt(it["title"].getStr) == @["one"]
 
   test "the one conversation per game that claude had before there were two is still resumed, and moved":
     beginBoth()
@@ -431,7 +457,7 @@ suite "para studio chat: two agents, each with its own conversation":
     check readSession(root, "pong", "codex") == "" # it was never codex's
     turn("again")
     check calls()[0]["args"].getElems.mapIt(it.getStr)[^2 .. ^1] == @["--resume", sessionId]
-    check fileExists(root / "tmp" / "studio" / "session-pong-claude.id") and not fileExists(root / "tmp" / "studio" / "session-pong.id")
+    check fileExists(root / "tmp" / "studio" / "chats-pong-claude.json") and not fileExists(root / "tmp" / "studio" / "session-pong.id")
 
   test "a pick file with anything but an agent's name in it is ignored":
     beginBoth()

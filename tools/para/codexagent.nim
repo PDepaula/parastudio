@@ -69,7 +69,7 @@ const
     "Then reload this page and send your message again."
   noCreditText* = "Codex says your plan has no usage left for now. Wait for it to reset (your ChatGPT usage page shows when) or add credit, then send your message again."
   busyText* = "Codex is busy or you have reached a rate limit. Wait a little and send your message again."
-  contextFullText* = "This Codex conversation got too long to go on. Start a new conversation from the chat's menu; the producer picks the game up again from its notes."
+  contextFullText* = "This Codex conversation got too long to go on. Press New chat in the menu to start a fresh one; the producer picks the game up again from its notes."
   toolChangedText* = "Codex answered in a way this studio doesn't recognise, so nothing shows here. Codex may have changed. " &
     "Update the studio (git pull, then rebuild para), or keep chatting in your terminal for now."
   partialText* = "Some of what Codex said didn't look the way the studio expects, so parts of this turn may be missing. The studio may need an update."

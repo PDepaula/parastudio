@@ -72,8 +72,10 @@ backup still only goes to the remote named `backup`, after a click on a yes.
 The chat starts the friend's own `claude` program (`claude -p --output-format
 stream-json --verbose --setting-sources project,local`, the message on its standard
 input, `PARALOOP_UI=studio` in its environment) in the repo root, one turn at a
-time, and resumes the same conversation per game and agent from a session id kept in
-`tmp/studio/session-<game>-<agent>.id`. It sends nothing until the friend sends a message.
+time. Each game keeps any number of chats per agent in `tmp/studio/chats-<game>-<agent>.json`
+(each chat's title, times and session id), listed in the page's sidebar; the open one, or one
+picked from the list, resumes its own conversation. It sends nothing until the friend sends a
+message.
 **The studio never reads, asks for, stores, logs, forwards or shows a login, a token
 or an API key**, and has no sign-in screen: the friend signs in to `claude` once in
 a terminal, an API key is the documented path, and a Pro or Max login is the

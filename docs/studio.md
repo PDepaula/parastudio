@@ -41,8 +41,9 @@ The page is a desk in three columns, big and round on purpose:
 
 - **On the left**, Pip's card: the producer's face (it bobs while idle, thinks while a turn
   runs and talks when an answer arrives) and, when this computer knows more than one, the
-  **Claude** / **Codex** pick for the game. Under it **New conversation**, the games in this
-  folder (click one to switch), **Start a new game**, the save points, and at the bottom
+  **Claude** / **Codex** pick for the game. Under it **New chat**, your **Chats** with this
+  game's producer (see "Your chats" below), the games in this folder (click one to switch),
+  **Start a new game**, the save points, and at the bottom
   your name, **Back up online** (the cloud; it asks first and says what goes online and where)
   and the light / dark / follow-the-computer switch. The name on the card is Pip unless the
   game's `PLAN.md` says `Call the producer:` something other than "producer". On a phone this
@@ -191,7 +192,7 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
   ("Where did we leave off?" or "What should we work on next?") or send a message.
 - **Claude or Codex.** Pip's card lists the producers this computer can use and lets you pick one
   per game. Claude is the default until you pick Codex for a game. A pick takes effect from the
-  next message and is refused while a turn is running. Each has its own conversation, so
+  next message and is refused while a turn is running. Each has its own chats, so
   switching back resumes where that one stopped; the one you switch to has not seen the other's
   chat and picks the game up from its notes (`PLAN.md`, `NOTES.md`) like any fresh producer. For
   Codex, install Codex CLI from OpenAI's page (https://developers.openai.com/codex/cli; on
@@ -200,9 +201,40 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
 - **One turn at a time.** Check, Save and Backup wait while the producer is working, and the
   other way round. **Stop** ends the turn and everything it started. A turn is stopped after
   `--turn-timeout` minutes (default 60; long builds are normal).
-- **Conversations.** One per game and agent, so a restart or a reopened page picks up where you
-  were. **New conversation** forgets them for the game.
+- **Chats.** Each game keeps every chat you had with its producer, and a restart or a reopened
+  page picks up the one you were in. **New chat** starts a fresh one; see "Your chats" below.
 - **Helpers** (builder, checker, scout) show as cards in the chat.
+
+### Your chats
+
+The **Chats** list under **New chat** on the left has your earlier chats with this game's
+producer, the one you used last at the top. Each shows the start of the first message you sent in
+it and when you last used it (for example "5 min ago", "yesterday" or "12 Oct").
+
+- **Pick one** to go back to it. The producer carries on that same conversation, so just keep
+  talking. Studio shows a chat's messages only while it stays open: the earlier messages are not
+  kept on this computer. After you close and start Studio again, an old chat opens with a note
+  saying so, and the conversation continues from where it left off.
+- **New chat** starts a fresh one. Your earlier chats stay in the list. Until you send its first
+  message, the new chat is the "New chat" line at the top of the list.
+- **Delete** (the bin next to a chat) asks first. Saying yes takes the chat off the list for good,
+  and you cannot pick it up again. Your game, its files and its save points stay exactly as they
+  are.
+- While the producer is working the list is greyed out: wait for the answer, or press **Stop**,
+  then pick or delete a chat.
+- Each producer keeps its own chats: with **Codex** picked, the list shows your chats with Codex.
+- Chats stay on this computer, in the `tmp/studio/` folder. For each chat Studio keeps its title
+  (the start of your first message, at most 60 letters, with anything that looks like a key taken
+  out), when it started and was last used, and the producer's own number for the conversation.
+  It keeps nothing else you typed and nothing the producer said.
+
+![The Chats list in the sidebar, the open chat highlighted](img/studio-chats.png)
+
+![Deleting a chat asks first, in the dark look](img/studio-chats-delete.png)
+
+![A game with no chats yet](img/studio-chats-empty.png)
+
+![On a phone the chats are in the menu drawer](img/studio-chats-phone.png)
 
 ### Helpers work in their own copy
 
