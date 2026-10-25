@@ -2,3 +2,9 @@
 # Keep them CRLF in every checkout and in `git archive` zips.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# Shell scripts and the one-line installers are published and run byte for byte, and `sh` breaks on
+# a stray CR. Keep them LF in every checkout, including Windows runners where git would add CRLF
+# (the docs build writes the commit into install.sh / install.ps1 by exact line).
+*.sh text eol=lf
+*.ps1 text eol=lf
