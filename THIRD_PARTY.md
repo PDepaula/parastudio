@@ -33,6 +33,17 @@ is vendored. Direct dependencies: numpy (BSD-3-Clause), scipy (BSD-3-Clause),
 opencv-python-headless (Apache-2.0), Pillow (HPND), pixelfixer (MIT), unfake (MIT), and
 pytest (MIT, development only).
 
+## Windows portable zip
+
+The portable Windows zip (`tools/launcher/build_portable.py`, docs/windows.md) is assembled at build
+time from downloads checked against pinned SHA-256 values; none of it is stored in this repository.
+It carries, unmodified except that a C build's unused front ends, the debugger and documentation are
+deleted from the compiler folder: Nim 2.2.10 (MIT) and the MinGW-w64 build Nim's own Windows
+installer sets up (winlibs `gcc-11.1.0-mingw-w64-8.0.2-r1`: GCC 11.1.0, binutils 2.36.1, mingw-w64
+8.0.2, GNU Make 4.3 and others; GPL-3.0-or-later, GCC under the GCC Runtime Library Exception, source
+from the winlibs project and each project). The zip's `licenses/NOTICES.txt` states the same and the
+source offer.
+
 ## Toolchain
 
 Emscripten (for the browser build) and Chromium (for `para web smoke`) are installed by

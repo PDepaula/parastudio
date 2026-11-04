@@ -1,0 +1,245 @@
+name: Portable zip
+
+# The portable Windows zip (docs/windows.md, "The portable zip"): Paraloop-Studio.exe, the native
+# launcher (tools/launcher/launch.nim), with Nim 2.2.10, MinGW and a pinned checkout of this
+# repository beside it, assembled by tools/launcher/build_portable.py on a hosted Windows runner and
+# then run there the way a friend runs it, from a clean home folder with a PATH that holds no
+# compiler and no Nim: it must find the zip's own tools, fetch the libraries, build `para`, start
+# Studio and serve its page. The zip is kept as a workflow artifact on every run, so it can be
+# handed to the friend straight from a pull request.
+#
+# It is UNSIGNED. Signing slots in at the marked hook below (after the launcher is compiled, before
+# the zip is assembled, so the signature is inside the zip). The job always reports the launcher's
+# signature status in its summary; set the repository variable PORTABLE_REQUIRE_SIGNED to `true`
+# once signing is wired up and an unsigned build fails the job.
+#
+# Nothing here publishes anything on a pull request or a push. A release is made only when someone
+# pushes a tag named portable-v<something>, and then only as a DRAFT release that a person has to
+# publish by hand. No tag is pushed by this repository's automation.
+on:
+  pull_request:
+    paths:
+      - tools/launcher/launch.nim
+      - tools/launcher/build_portable.py
+      - .github/workflows/portable.yml
+      - paraloop.nimble
+      - nimble.lock
+  push:
+    branches: [main]
+    paths:
+      - tools/launcher/launch.nim
+      - tools/launcher/build_portable.py
+      - .github/workflows/portable.yml
+      - paraloop.nimble
+      - nimble.lock
+    tags: ["portable-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  portable:
+    name: portable zip (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 75
+    outputs:
+      name: ${{ steps.zip.outputs.name }}
+    steps:
+      # The whole history: the zip carries this repository's history at the commit being built.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Only to compile the launcher itself; the zip carries its own Nim.
+      - name: Install Nim 2.2.10 (compiles the launcher)
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.10"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compile the launcher
+        shell: pwsh
+        run: python tools/launcher/build_portable.py --launcher-only tmp/launcher/Paraloop-Studio.exe
+
+      # ===================================================================================
+      # SIGNING HOOK. The launcher above is UNSIGNED. When a signing identity exists (the
+      # captain is pursuing Azure Artifact Signing), enable this step: set the repository
+      # variable PORTABLE_SIGNING to `enabled` and add the secrets and variables it names
+      # (https://github.com/Azure/artifact-signing-action).
+      # It must sign tmp/launcher/Paraloop-Studio.exe IN PLACE, before the next step copies it
+      # into the zip. Nothing else in this workflow changes. Until then the step below is
+      # skipped and the build says so.
+      # ===================================================================================
+      - name: SIGNING HOOK (skipped until PORTABLE_SIGNING is enabled)
+        if: ${{ vars.PORTABLE_SIGNING == 'enabled' }}
+        uses: Azure/artifact-signing-action@v2.0.0
+        with:
+          # Input names checked against the action's action.yml at v2.0.0 (2026-11-03).
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\tmp\launcher\Paraloop-Studio.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Report the launcher's signature
+        id: sig
+        shell: pwsh
+        run: |
+          $s = Get-AuthenticodeSignature tmp/launcher/Paraloop-Studio.exe
+          $line = "launcher signature: $($s.Status)" + $(if ($s.SignerCertificate) { ", signer $($s.SignerCertificate.Subject)" } else { '' })
+          Write-Host $line
+          "### Portable zip`n- $line" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          if ($s.Status -ne 'Valid') { Write-Host '::notice::the launcher is UNSIGNED: friends will see the Windows "protected your PC" warning' }
+          if ($s.Status -ne 'Valid' -and '${{ vars.PORTABLE_REQUIRE_SIGNED }}' -eq 'true') { throw 'PORTABLE_REQUIRE_SIGNED is true and the launcher is not signed' }
+
+      - name: Assemble the zip
+        id: zip
+        shell: pwsh
+        run: python tools/launcher/build_portable.py --launcher tmp/launcher/Paraloop-Studio.exe --out tmp/portable
+
+      - name: Check the zip's layout
+        shell: pwsh
+        run: |
+          $z = (Get-ChildItem tmp/portable -Filter *.zip).FullName
+          python tools/launcher/build_portable.py --check-zip $z
+          if ($LASTEXITCODE -ne 0) { throw 'the zip layout is wrong' }
+
+      # Extract the way the README says (a short folder), into a clean home, and run it with a PATH
+      # that has Windows and git on it and NOTHING else: no gcc, no Nim, no nimble. If the launcher
+      # used anything from the runner instead of the zip, this is where it fails.
+      - name: Unpack the zip to a short folder
+        shell: pwsh
+        run: |
+          $z = (Get-ChildItem tmp/portable -Filter *.zip).FullName
+          New-Item -ItemType Directory -Force C:\ps | Out-Null
+          & "$env:SystemRoot\System32\tar.exe" -xf $z -C C:\ps   # Windows' own tar; Git's GNU tar cannot read a zip
+          if ($LASTEXITCODE -ne 0) { throw 'tar could not unpack the zip' }
+          Get-ChildItem C:\ps\Paraloop-Studio | Select-Object Name | Format-Table -HideTableHeaders
+
+      - name: Dry run from the unpacked zip (nothing installed, built or opened)
+        shell: pwsh
+        run: |
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP 'friend-home'
+          New-Item -ItemType Directory -Force $env:USERPROFILE | Out-Null
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;C:\Program Files\Git\cmd"
+          foreach ($tool in 'gcc', 'nim', 'nimble') { if (Get-Command $tool -ErrorAction SilentlyContinue) { throw "$tool is on the test PATH; the test would prove nothing" } }
+          $out = & C:\ps\Paraloop-Studio\Paraloop-Studio.exe --check 2>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw "the dry run exited $LASTEXITCODE" }
+          foreach ($want in 'gcc in C:\ps\Paraloop-Studio\mingw64\bin (the one in this zip)', 'found Nim 2.2.10 in C:\ps\Paraloop-Studio\nim-2.2.10\bin', '[7/7]', 'Dry run finished: nothing was installed, built or opened.') {
+            if (-not $out.Contains($want)) { throw "the dry run did not say: $want" }
+          }
+          if (Test-Path "$env:USERPROFILE\.paraloop") { throw '.paraloop was created' }
+          if (Test-Path C:\ps\Paraloop-Studio\parastudio\tmp) { throw 'the dry run built something' }
+
+      - name: Run the launcher for real and talk to Studio
+        shell: pwsh
+        run: |
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP 'friend-home'
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;C:\Program Files\Git\cmd"
+          $env:PARALOOP_LAUNCHER_UNATTENDED = '1'   # nobody is typing: an offer would be answered no
+          $env:PARALOOP_LAUNCHER_PAUSE = '0'
+          $out = Join-Path $env:RUNNER_TEMP 'launcher-out.txt'
+          $err = Join-Path $env:RUNNER_TEMP 'launcher-err.txt'
+          $t0 = Get-Date
+          $p = Start-Process C:\ps\Paraloop-Studio\Paraloop-Studio.exe -ArgumentList '--no-open' -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+          $link = ''
+          try {
+            # Setting up and building para on a fresh machine takes a while; the link comes after.
+            while ((Get-Date) -lt $t0.AddMinutes(45)) {
+              $txt = if (Test-Path $out) { Get-Content $out -Raw } else { '' }
+              if ($txt) { $m = [regex]::Match($txt, 'http://127\.0\.0\.1:\d+/\?token=[A-Za-z0-9_-]+'); if ($m.Success) { $link = $m.Value; break } }
+              if ($p.HasExited) { break }
+              Start-Sleep 5
+            }
+            $took = [math]::Round(((Get-Date) - $t0).TotalMinutes, 1)
+            Write-Host (Get-Content $out -Raw)
+            if (Test-Path $err) { Write-Host (Get-Content $err -Raw) }
+            if (-not $link) { throw 'Studio printed no link' }
+            Write-Host "Studio printed its link after $took minutes"
+            "- time from double-click to Studio's link on a clean hosted runner: $took minutes" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            $base = $link -replace '/\?token=.*$', ''
+            $key = $link -replace '^.*token=', ''
+            $page = Invoke-WebRequest -UseBasicParsing $link
+            if ($page.StatusCode -ne 200 -or $page.Content -notmatch 'Para Studio') { throw 'the Studio page did not load' }
+            $state = Invoke-WebRequest -UseBasicParsing -Headers @{ 'X-Studio-Token' = $key } "$base/api/state"
+            if ($state.StatusCode -ne 200 -or $state.Content -notmatch '"games"') { throw 'the state call failed' }
+            $code = 0
+            try { $null = Invoke-WebRequest -UseBasicParsing "$base/api/state" } catch { $code = [int]$_.Exception.Response.StatusCode }
+            if ($code -ne 403) { throw "a call without the key answered $code, not 403" }
+          } finally {
+            if (-not $p.HasExited) { taskkill /PID $p.Id /T /F | Out-Null }
+          }
+          $log = Get-Content C:\ps\Paraloop-Studio\parastudio\tmp\launcher.log -Raw
+          Write-Host $log
+          if ($log -notmatch 'per-run key') { throw 'the log does not note that Studio output is not logged' }
+          if ($log -match [regex]::Escape($key)) { throw "Studio's per-run key is in the launcher log" }
+          if (Test-Path "$env:USERPROFILE\.paraloop") { throw '.paraloop was created' }
+          if (Test-Path "$env:USERPROFILE\.claude") { throw 'the launcher touched .claude' }
+          foreach ($want in 'found a C compiler: gcc in C:\ps\Paraloop-Studio\mingw64\bin', 'libraries ready', 'built tmp\para.exe') {
+            if (-not $log.Contains($want) -and -not (Get-Content $out -Raw).Contains($want)) { throw "the run did not say: $want" }
+          }
+
+      - name: A second start finds everything set up
+        shell: pwsh
+        run: |
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP 'friend-home'
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;C:\Program Files\Git\cmd"
+          $env:PARALOOP_LAUNCHER_UNATTENDED = '1'
+          $out = & C:\ps\Paraloop-Studio\Paraloop-Studio.exe --no-studio 2>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw "the second run exited $LASTEXITCODE" }
+          if (-not $out.Contains('the libraries are already set up.')) { throw 'the second run did not skip the libraries' }
+          if (-not $out.Contains('not started now (--no-studio).')) { throw 'Studio was not skipped' }
+          if ((git -C C:\ps\Paraloop-Studio\parastudio status --porcelain | Out-String).Trim()) { git -C C:\ps\Paraloop-Studio\parastudio status --short; throw 'running it changed files in the copy' }
+
+      - name: Keep the zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip.outputs.name }}
+          path: |
+            tmp/portable/*.zip
+            tmp/portable/*.zip.sha256
+            tmp/portable/*.json
+          retention-days: 14
+          compression-level: 0
+
+  # A DRAFT release, only for a pushed tag named portable-v*. A person publishes it by hand after
+  # reading it; nothing here makes anything public.
+  draft-release:
+    name: draft release
+    needs: portable
+    if: ${{ startsWith(github.ref, 'refs/tags/portable-v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.portable.outputs.name }}
+          path: dist
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          NAME: ${{ needs.portable.outputs.name }}
+        run: |
+          {
+            echo "Portable Para Studio for Windows (64-bit). UNSIGNED: Windows will show \"Windows protected your PC\" once; More info, then Run anyway."
+            echo
+            echo "Unpack it into a short folder such as C:\\ParaStudio and double-click Paraloop-Studio.exe. docs/windows.md has the steps."
+            echo
+            echo "SHA-256: $(cut -d' ' -f1 "dist/$NAME.zip.sha256")"
+          } > notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --title "Para Studio portable ($TAG)" --notes-file notes.md \
+            "dist/$NAME.zip" "dist/$NAME.zip.sha256"

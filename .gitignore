@@ -13,6 +13,7 @@ tools/art/.venv/
 tools/art/__pycache__/
 tools/art/**/__pycache__/
 games/*/atlas/__pycache__/
+__pycache__/
 tools/art/.pytest_cache/
 tests/test_*
 !tests/test_*.nim

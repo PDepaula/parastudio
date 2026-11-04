@@ -1,26 +1,110 @@
 # Para Studio on Windows
 
-How to start Para Studio on a Windows PC by double-clicking one file,
-`Paraloop-Studio.bat`. The file checks what your PC has, builds the `para` tool,
-prints the same startup checks as the Studio page, starts Studio and opens it in
-your browser. Like the Mac launcher ([mac.md](mac.md)), if a C compiler, git or
-Nim is missing it says exactly what it would install, from where and into which
-folder, and **installs it only after you answer `y`**; any other answer stops
-with what to install by hand.
+Two ways to start Para Studio on a Windows PC, both with a plain yes or no before anything is
+installed:
 
-**Status: unverified.** This launcher was written and its text was checked on
-Linux only. Nobody has run it on a real Windows PC yet, so you are the first:
-please send the captain what you see if anything differs from this page. In
-particular these have never been checked: the Windows warning about a downloaded
-file, the double-click itself, the winget installs and the Nim install it offers, and whether Studio and its
-game window work from a plain Windows window at all (opening the game window on
-Windows has never been checked either; see [platforms.md](platforms.md)). The
-other route, typing commands in Git Bash, is
+- **The portable zip (new, the one to try first).** Download one zip, extract it, double-click
+  `Paraloop-Studio.exe`. Nim and the C compiler are inside the zip, so there is nothing to
+  detect or install for them. See [The portable zip](#the-portable-zip). A signed version comes
+  later; for now the program is **not signed** and Windows warns once.
+- **The batch file.** In a folder you already have, double-click `Paraloop-Studio.bat`. It checks
+  what your PC has, offers to install a missing C compiler, git or Nim (saying exactly what,
+  from where and into which folder, and **installing it only after you answer `y`**), builds the
+  `para` tool, prints the same startup checks as the Studio page, starts Studio and opens it in
+  your browser. The rest of this page is about the batch file, after the zip section. Like the Mac
+  launcher ([mac.md](mac.md)), any answer but `y` stops with what to install by hand.
+
+**Status: unverified.** Both launchers were written and their text was checked on Linux only.
+Nobody has run them on a real Windows PC yet, so you are the first: please send the captain what
+you see if anything differs from this page. In particular these have never been checked: the
+Windows warning about a downloaded file, the double-click itself, the winget installs and the
+Nim install the batch file offers, and whether Studio and its game window work from a plain
+Windows window at all (opening the game window on Windows has never been checked either; see
+[platforms.md](platforms.md)). The other route, typing commands in Git Bash, is
 [windows-first-game.md](windows-first-game.md); it is also not fully checked.
 
-Starting from nothing? The one-line installer ([Install with one line](install.md)) makes the
-`parastudio` folder and runs this same launcher for you. This page is for when you already have
-the folder.
+Starting from nothing and want the batch file? The one-line installer ([Install with one
+line](install.md)) makes the `parastudio` folder and runs the same launcher for you. Testing the
+zip for the captain? [The zip test](windows-friend-test.md) is a short checklist for what to
+time and write down.
+
+## The portable zip
+
+**What it is.** One zip, `Paraloop-Studio-<version>-windows-x64.zip` (about 135 MB), holding one
+folder, `Paraloop-Studio`:
+
+| In the folder | What it is |
+|---|---|
+| `Paraloop-Studio.exe` | The launcher: a native program (no cmd, no PowerShell, no execution policy) that does what `Paraloop-Studio.bat` does. |
+| `nim-2.2.10\` | Nim 2.2.10 and `nimble`, unmodified, from nim-lang.org. |
+| `mingw64\` | The MinGW-w64 C compiler that Nim's own Windows installer sets up (GCC 11.1), from nim-lang.org, minus the parts a C build never runs (Fortran, D and Objective-C compilers, a debugger). |
+| `parastudio\` | Para Studio at one exact commit, with its `.git` folder, so save points work. |
+| `licenses\` | What Nim and MinGW are licensed under, and where their source is. |
+| `README.txt` | The three steps below. |
+
+**What you do.**
+
+1. Download the zip the captain sent. **Do not** "Unblock" it first if the captain asked you to time
+   the warnings (see [the zip test](windows-friend-test.md)); otherwise unblock it (right-click the zip,
+   Properties, tick **Unblock** at the bottom, OK) to skip Windows' warning.
+2. Right-click the zip, **Extract All**, and extract into a **short folder** such as
+   `C:\ParaStudio` (a long path can make a build fail; the launcher warns when yours is long).
+   Do not double-click from inside the zip: it will not find the rest.
+3. Open `C:\ParaStudio\Paraloop-Studio` and double-click **`Paraloop-Studio.exe`**. If Windows shows
+   **"Windows protected your PC"**, click **More info**, then **Run anyway**. The program is not
+   signed yet (the captain is arranging that); that is the only reason for the warning.
+4. A black window prints seven numbered steps. The first start fetches the game libraries and builds
+   Studio, which takes several minutes; it says so and is working even when nothing moves. Later
+   starts take seconds. Studio opens in your browser. Keep the black window open while you use Studio;
+   press **Ctrl+C** in it or close it to stop Studio.
+
+**What it asks, and what it never does.**
+
+- The only thing it can offer to install is **git** (nimble fetches the game libraries with it), and
+  only when your PC has none: it prints what (Git for Windows), from where (winget's catalog),
+  the exact command (`winget install --id Git.Git -e --source winget --scope user`), where it goes
+  (your user folder) and that it needs no administrator password, then asks `(y/n, Enter means no)`.
+  Only `y` or `yes` is yes. If you say no it stops with what to install by hand.
+- It never downloads Nim or a compiler (they are in the zip), never runs a downloaded script, never asks for
+  an administrator password, never changes your Windows settings or PATH (it extends the PATH of its
+  own window and the programs it starts, nothing else), and never reads, copies or changes any
+  login or setting of Claude or Codex. The only things it fetches are the game libraries (nimble,
+  through git) and whatever you said `y` to.
+- `tmp\launcher.log` in the `parastudio` folder records what each step printed, with the time, and
+  how long the start took. It never holds Studio's own output (that carries a private key).
+- `Paraloop-Studio.exe --dry-run` (or `--check`) shows what it would do and changes nothing.
+  `--no-studio` sets up and builds but does not start Studio; `--no-open` starts Studio without
+  opening a browser tab.
+
+**If something is missing or fails.** The launcher stops with a block to send the captain (the same
+as the batch file's, below). If it says the compiler or Nim folder is missing, the zip was not fully
+extracted: use Extract All again.
+
+**Where git comes from.** The zip does not carry git (it is much larger than the rest, and
+bundling it would be the next step if the git question turns out to be the one prompt left).
+
+**Updates.** There is no auto-update. A new zip is a new download; the captain can also update the
+`parastudio` folder inside with `git pull`.
+
+**Building it yourself, and what is checked.** `python tools/launcher/build_portable.py` assembles
+the zip on a Windows PC that has Nim 2.2.10 and a C compiler on PATH (to compile the launcher); it
+checks both downloads against the SHA-256 pinned in the script and the one nim-lang.org publishes
+beside each file. The `portable` workflow (`.github/workflows/portable.yml`) builds it on a GitHub
+Windows machine on every change to the launcher, then unpacks it into `C:\ps`, and runs it with a
+PATH that has Windows and git on it and nothing else (no compiler, no Nim), in a clean home folder:
+the launcher must find the zip's own tools, fetch the libraries, build `para`, start Studio, and
+Studio's page must load with its key. That proves the zip works on a clean machine; it does not
+prove a window opens (a hosted machine has no graphics card), the SmartScreen prompt, or a person's
+double-click. The zip is kept as a workflow artifact on every run. A release is made only when a
+person pushes a tag called `portable-v...`, and then only as a draft that a person publishes.
+**Signing** is a marked hook in that workflow (`SIGNING HOOK`): once the captain has an Azure
+Artifact Signing account it signs the launcher before the zip is made, and the workflow can be set
+to fail on an unsigned build.
+
+## The batch file
+
+Everything from here to the end of this page is about `Paraloop-Studio.bat`, the route for a
+folder you already have (the zip above does the same without it).
 
 ## What you need
 
@@ -239,6 +323,17 @@ finding the chat program to `para studio --check`.
   there with the offers faked and `PARALOOP_LAUNCHER_UNATTENDED=1` (every offer must be answered no
   without asking, nothing installed, Studio not started), and runs it for real through `install.ps1`
   with Nim already installed. Same limits as the job above.
+- **The portable zip, checked on Linux:** `tests/test_launcher_exe.nim` compiles
+  `tools/launcher/launch.nim` and runs it against a throwaway folder shaped like the zip with
+  stand-ins for nim, nimble, gcc, git, winget and para: the seven steps in order with the zip's own
+  tools ahead of anything on PATH, a second run skipping the libraries, a failure printing the block
+  to send, a half-extracted zip stopping with the way out, the git offer asking first (only `y` or
+  `yes`, nothing run otherwise, nothing asked unattended), `--dry-run` doing nothing, and the log
+  never holding Studio's output. `tests/test_portable.nim` keeps the zip script, the launcher and
+  the workflow in agreement. The zip itself was assembled on Linux with a stand-in launcher to check
+  its layout (a clean `git status` inside it, one top folder, no `finish.exe`).
+- **The portable zip, set up to run on a hosted Windows machine:** the `portable` workflow (above).
+  It had **not been run** when this page was written.
 - **Never checked:** the SmartScreen prompt, the real double-click, a real winget
   or Nim install from this script, a yes or no typed by a person, a friend's PATH, `nimble` and the `para` build from this script,
   Studio's browser and chat from a plain Windows window, and the game window.
