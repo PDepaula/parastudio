@@ -25,7 +25,8 @@
 # `TurnControl` that lets another thread stop a turn (killing the child's whole process tree, the
 # part that differs between Windows and the rest), and `redactSecrets`.
 
-import std/[locks, os, osproc, strutils, strtabs, times]
+import std/[locks, os, strutils, strtabs, times]
+import nimutil
 when not defined(windows):
   import std/posix
 
@@ -136,7 +137,11 @@ proc descendantsOf*(pid: int): seq[int] =
   else:
     var kids: seq[(int, int)]
     try:
-      for line in execProcess("ps", args = ["-A", "-o", "pid=,ppid="], options = {poUsePath}).splitLines:
+      # through nimutil's spawn lock: a `ps` started while another thread starts a turn's child (a
+      # Stop for one game as another game's turn begins) would inherit that child's pipes and wait on it
+      let ps = runCaptured("ps", @["-A", "-o", "pid=,ppid="])
+      if ps.exitCode != 0: return
+      for line in ps.output.splitLines:
         let f = line.splitWhitespace
         if f.len == 2 and f[0].allCharsInSet(Digits) and f[1].allCharsInSet(Digits):
           kids.add (parseInt(f[0]), parseInt(f[1]))

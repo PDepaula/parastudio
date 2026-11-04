@@ -180,7 +180,7 @@ is refused while a Check, Save or chat turn is running.
 ## Talking to the producer
 
 The chat is the same producer you get in a terminal, in a page. It runs the `claude` program
-**you** installed and signed in to (or `codex`), one turn at a time, in your paraloop folder.
+**you** installed and signed in to (or `codex`), one turn at a time for each game, in your paraloop folder.
 
 - **Accounts.** Studio never reads, asks for, stores, logs, forwards or shows a login, a token or
   an API key, and has no sign-in screen. It only starts the unmodified program you installed and
@@ -207,9 +207,14 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
   Studio does not choose either: the tool's own settings do (for Codex `default effort` means the model's own default; Claude does
   not report its effort, so it shows `effort not reported`). Until the first message there is nothing to show. A big model on high effort is the
   usual reason a turn is slow.
-- **One turn at a time.** Check, Save and Backup wait while the producer is working, and the
-  other way round. **Stop** ends the turn and everything it started. A turn is stopped after
-  `--turn-timeout` minutes (default 60; long builds are normal).
+- **One turn at a time for each game.** Two games can each have the producer working at once
+  (the games list says "Working" beside them). A game's Check, Save and Backup wait while the
+  producer is working on that game, and the other way round; another game's do not. Only one
+  Check, Save or Backup step runs at a time. A third game waits while two others have helpers
+  building, to keep your computer from running out of memory. **Stop** ends the turn of the game
+  you are on, and everything it started. A turn is stopped after `--turn-timeout` minutes
+  (default 60; long builds are normal). A Check, Save or Backup step that is still running after
+  30 minutes is stopped too, with a line saying so, so one stuck step never holds the others.
 - **Chats.** Each game keeps every chat you had with its producer, and a restart or a reopened
   page picks up the one you were in. **New chat** starts a fresh one; see "Your chats" below.
 - **Helpers** (builder, checker, scout) show as cards in the chat.

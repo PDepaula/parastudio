@@ -11,6 +11,9 @@
 #   games kept apart (the list of past chats itself is test_para_studio_chats.nim);
 # - one turn at a time (Check and Save wait for it, and it for them), Stop, the time limit, closing
 #   the studio, and "fresh conversation";
+# - one turn at a time for each game: two games each have a turn running, a second message to the
+#   same game is refused, Stop acts on the game asked for, a Check for another game runs beside a
+#   turn, and a third game waits while two have helpers building;
 # - what the page shows can never run: the server only sends JSON, and the page script has no way
 #   to put text in as HTML;
 # - a key in the environment never appears in anything the server returns.
@@ -33,6 +36,17 @@ when isMainModule:
   elif getEnv("PARA_FAKE_CLAUDE") == "1":
     fakeClaudeMain()
 
+proc watchdog() {.thread.} =
+  ## A stuck test must fail the run, not hold it for hours.
+  sleep(10 * 60 * 1000)
+  stderr.writeLine "test_para_studio_chat: still running after 10 minutes; giving up"
+  quit 1
+
+when isMainModule:
+  if getEnv("PARA_FAKE_CLAUDE") != "1" and getEnv("PARA_FAKE_CODEX") != "1":
+    var dog: Thread[void]
+    createThread(dog, watchdog)
+
 const
   fixtures = currentSourcePath.parentDir / "fixtures" / "claude-stream"
 
@@ -48,7 +62,7 @@ proc post(r: Running, path: string, body: JsonNode): Reply =
 
 proc newClaudeAdapterFor(exe: string): AgentAdapter = adapterNamed("claude", exe)
 
-proc begin(mode = "normal", fixtureName = "helper_ok.jsonl", games: seq[string] = @["pong"], turnSeconds = defaultTurnSeconds) =
+proc begin(mode = "normal", fixtureName = "helper_ok.jsonl", games: seq[string] = @["pong"], turnSeconds = defaultTurnSeconds, jobSeconds = defaultJobSeconds) =
   root = newGameRepo(games)
   logPath = root / "tmp" / "fake.log"
   createDir(root / "tmp")
@@ -56,7 +70,7 @@ proc begin(mode = "normal", fixtureName = "helper_ok.jsonl", games: seq[string] 
   putEnv("FAKE_CLAUDE_MODE", mode)
   putEnv("FAKE_CLAUDE_FIXTURE", if fixtureName.isAbsolute: fixtureName else: fixtures / fixtureName)
   putEnv("FAKE_CLAUDE_LOG", logPath)
-  running = startStudio(root, getAppFilename(), "", newClaudeAdapterFor(getAppFilename()), turnSeconds)
+  running = startStudio(root, getAppFilename(), "", newClaudeAdapterFor(getAppFilename()), turnSeconds, jobSeconds = jobSeconds)
 
 proc finish() =
   running.stop()
@@ -660,6 +674,224 @@ suite "para studio chat: one turn at a time, stopping, the time limit":
         sleep(50)
       check gone
 
+proc waitCalls(n: int, seconds = 20) =
+  ## Until the stand-in claude has been started `n` times in all (each turn logs once it has its message).
+  let until = epochTime() + seconds.float
+  while calls().len < n and epochTime() < until: sleep(50)
+  doAssert calls().len >= n, "only " & $calls().len & " claude start(s) after " & $seconds & "s"
+
+proc turnRunning(game: string): bool =
+  jsonOf(running.request("GET", "/api/chat?game=" & game))["running"].getBool
+
+proc working(): seq[string] =
+  jsonOf(running.request("GET", "/api/chat?game=pong"))["working"].getElems.mapIt(it.getStr)
+
+proc stopGame(game: string): bool =
+  let r = running.post("/api/chat/stop", %*{"game": game})
+  doAssert r.status == 200, "stop " & game & ": " & r.raw
+  jsonOf(r)["stopped"].getBool
+
+proc ownRepos(games: varargs[string]) =
+  ## The games as `para new` makes them: a repository of each, which the outer one ignores.
+  discard gitOk(root, "rm", "-r", "-q", "--cached", "games")
+  root.put(".gitignore", "tmp/\ngames/*\n")
+  for g in games:
+    let dir = root / "games" / g
+    discard gitOk(dir, "init", "-q")
+    discard gitOk(dir, "config", "user.name", "Scratch")
+    discard gitOk(dir, "config", "user.email", "scratch@example.com")
+    discard gitOk(dir, "config", "commit.gpgsign", "false")
+
+suite "para studio chat: two games, each with a turn of its own":
+  teardown: finish()
+
+  test "a message for another game goes through while one game's turn runs; the same game's is refused":
+    begin("hang", games = @["pong", "ship"])
+    check running.send("build pong", "pong").status == 200
+    let again = running.send("and more", "pong")
+    check again.status == 409 and jsonOf(again)["error"].getStr == "busy"
+    check running.send("start a ship game", "ship").status == 200
+    waitCalls(2)
+    check turnRunning("pong") and turnRunning("ship")
+    check working() == @["pong", "ship"]
+    check jsonOf(running.request("GET", "/api/state?game=ship"))["working"].getElems.mapIt(it.getStr) == @["pong", "ship"]
+    # the same game's other doors stay shut, the other game's are open
+    check running.post("/api/chat/new", %*{"game": "ship"}).status == 409
+    check running.post("/api/agent/pick", %*{"game": "ship", "agent": "claude"}).status == 409
+    check running.send("more", "ship").status == 409
+    # Stop acts on the game asked for: the other game's turn goes on
+    check stopGame("ship")
+    var s: Chat
+    running.waitFor(s, finished, 20, "ship")
+    check s.events.anyIt(it["kind"].getStr == "notice" and it["code"].getStr == "stopped")
+    check not turnRunning("ship") and turnRunning("pong")
+    check working() == @["pong"]
+    var p: Chat
+    running.poll(p, "pong")
+    check p.running and not p.kinds.contains("done")
+    check not stopGame("ship") # nothing left to stop there
+    # the stopped game takes a new message, while pong's turn still runs
+    putEnv("FAKE_CLAUDE_MODE", "normal")
+    check running.send("ship, again", "ship").status == 200
+    running.waitFor(s, proc (c: Chat): bool = c.kinds.count("done") >= 2, 20, "ship")
+    check turnRunning("pong")
+    check running.send("pong, more", "pong").status == 409
+    check stopGame("pong")
+    running.waitFor(p, finished, 20, "pong")
+    check working().len == 0
+
+  test "Stop with no game named ends the only running turn, and none when two run":
+    begin("hang", games = @["pong", "ship"])
+    check running.send("go", "pong").status == 200
+    waitCalls(1)
+    check jsonOf(running.post("/api/chat/stop", %*{}))["stopped"].getBool
+    var p: Chat
+    running.waitFor(p, finished, 20, "pong")
+    check running.send("go", "pong").status == 200
+    check running.send("go", "ship").status == 200
+    waitCalls(3)
+    check not jsonOf(running.post("/api/chat/stop", %*{}))["stopped"].getBool
+    check turnRunning("pong") and turnRunning("ship")
+    check not jsonOf(running.post("/api/chat/stop", %*{"game": "no such game!"}))["stopped"].getBool
+    check stopGame("pong") and stopGame("ship")
+
+  test "a Check on game two runs while game one's turn runs; its own game's Check waits for its turn":
+    begin("hang", games = @["pong", "ship"])
+    check running.send("go", "pong").status == 200
+    waitCalls(1)
+    # the job child is this program too: `check` just waits a moment, like a long check
+    putEnv("FAKE_CLAUDE_SLEEP_MS", "1500")
+    defer: delEnv("FAKE_CLAUDE_SLEEP_MS")
+    let refused = running.post("/api/check", %*{"game": "pong"})
+    check refused.status == 409 and jsonOf(refused)["error"].getStr == "busy"
+    let started = running.post("/api/check", %*{"game": "ship"})
+    check started.status == 200
+    let id = jsonOf(started)["job"]["id"].getInt
+    # one step at a time, whichever game it is for; and a message for the game it is for waits
+    check running.post("/api/save", %*{"game": "ship", "message": "x"}).status == 409
+    let held = running.send("hi", "ship")
+    check held.status == 409 and "Check" in jsonOf(held)["message"].getStr
+    check turnRunning("pong")
+    let until = epochTime() + 20
+    var ended = false
+    while epochTime() < until:
+      if not jsonOf(running.request("GET", "/api/job?id=" & $id & "&since=0"))["running"].getBool:
+        ended = true
+        break
+      sleep(50)
+    check ended
+    check turnRunning("pong") # the check never touched it
+    check stopGame("pong")
+
+  test "a step for one game does not hold a message to another game":
+    begin("hang", games = @["pong", "ship"])
+    putEnv("FAKE_CLAUDE_SLEEP_MS", "1500")
+    defer: delEnv("FAKE_CLAUDE_SLEEP_MS")
+    let started = running.post("/api/check", %*{"game": "pong"})
+    check started.status == 200
+    let id = jsonOf(started)["job"]["id"].getInt
+    check running.send("go", "ship").status == 200
+    let held = running.send("go", "pong")
+    check held.status == 409 and "Check" in jsonOf(held)["message"].getStr
+    waitCalls(1)
+    check turnRunning("ship")
+    let until = epochTime() + 20
+    while epochTime() < until and jsonOf(running.request("GET", "/api/job?id=" & $id & "&since=0"))["running"].getBool:
+      sleep(50)
+    check stopGame("ship")
+
+  test "a step that never ends is stopped at its time limit with a plain line, and nothing else is held":
+    begin("hang", games = @["pong", "ship"], jobSeconds = 1)
+    putEnv("FAKE_CLAUDE_SLEEP_MS", "60000") # the check would take a minute
+    defer: delEnv("FAKE_CLAUDE_SLEEP_MS")
+    let t0 = epochTime()
+    let started = running.post("/api/check", %*{"game": "pong"})
+    check started.status == 200
+    let id = jsonOf(started)["job"]["id"].getInt
+    # while it is stuck, another game's producer works, and a second step is refused plainly
+    check running.send("go", "ship").status == 200
+    check running.post("/api/save", %*{"game": "ship", "message": "x"}).status == 409
+    var job: JsonNode
+    let until = epochTime() + 30
+    while epochTime() < until:
+      job = jsonOf(running.request("GET", "/api/job?id=" & $id & "&since=0"))
+      if not job["running"].getBool: break
+      sleep(50)
+    check not job["running"].getBool
+    check epochTime() - t0 < 30 # stopped by the clock, not left to run its minute
+    check job["code"].getInt == 124
+    check "ran longer than 1 second" in job["output"].getStr and "other games are not held up" in job["output"].getStr
+    check turnRunning("ship") # the other game's turn was never touched
+    # the next step is accepted at once
+    putEnv("FAKE_CLAUDE_SLEEP_MS", "200")
+    let again = running.post("/api/check", %*{"game": "pong"})
+    check again.status == 200
+    let id2 = jsonOf(again)["job"]["id"].getInt
+    var job2: JsonNode
+    while epochTime() < until:
+      job2 = jsonOf(running.request("GET", "/api/job?id=" & $id2 & "&since=0"))
+      if not job2["running"].getBool: break
+      sleep(50)
+    check not job2["running"].getBool and job2["code"].getInt == 0
+    check stopGame("ship")
+
+  test "a helper's lane is live only in the game whose turn runs":
+    begin("hang", games = @["pong", "ship"])
+    ownRepos("pong", "ship")
+    check runLaneIn(root, @["start", "pong", "--for", "builder", "--ticket", "pong things"]).code == 0
+    check runLaneIn(root, @["start", "ship", "--for", "builder", "--ticket", "ship things"]).code == 0
+    let live = proc (game: string): bool =
+      jsonOf(running.request("GET", "/api/lanes?game=" & game))["lanes"][0]["live"].getBool
+    check not live("pong") and not live("ship")
+    check running.send("go", "pong").status == 200
+    check live("pong") and not live("ship")
+    check jsonOf(running.request("GET", "/api/state?game=ship"))["lanes"][0]["live"].getBool == false
+    # landing in ship is not held by pong's turn (it fails on its own terms, but it starts)
+    check running.post("/api/lane/land", %*{"game": "pong", "id": "builder"}).status == 409
+    check stopGame("pong")
+
+  test "a third game is refused while two games have helpers building, and accepted when one ends":
+    begin("hang", games = @["pong", "ship", "maze"])
+    ownRepos("pong", "ship", "maze")
+    check runLaneIn(root, @["start", "pong", "--for", "builder", "--ticket", "pong things"]).code == 0
+    check runLaneIn(root, @["start", "ship", "--for", "builder", "--ticket", "ship things"]).code == 0
+    check running.send("go", "pong").status == 200
+    check running.send("go", "ship").status == 200
+    waitCalls(2)
+    let third = running.send("go", "maze")
+    check third.status == 409 and jsonOf(third)["error"].getStr == "too-busy"
+    check "pong" in jsonOf(third)["message"].getStr and "ship" in jsonOf(third)["message"].getStr
+    sleep(300)
+    check calls().len == 2 # nothing was started for it
+    check not turnRunning("maze")
+    # a game that already has its turn gets the plain "busy", not this
+    check jsonOf(running.send("again", "pong"))["error"].getStr == "busy"
+    check stopGame("pong")
+    var p: Chat
+    running.waitFor(p, finished, 20, "pong")
+    check running.send("go", "maze").status == 200
+    # no pause on purpose: stopping a game's turn as another game's turn starts must not stall
+    check stopGame("ship") and stopGame("maze")
+
+  test "two games with turns running but no helpers building do not hold a third back":
+    begin("hang", games = @["pong", "ship", "maze"])
+    check running.send("go", "pong").status == 200
+    check running.send("go", "ship").status == 200
+    check running.send("go", "maze").status == 200
+    waitCalls(3)
+    check working() == @["maze", "pong", "ship"]
+    for g in ["pong", "ship", "maze"]: check stopGame(g)
+
+  test "closing the studio ends every game's turn":
+    begin("hang", games = @["pong", "ship"])
+    check running.send("go", "pong").status == 200
+    check running.send("go", "ship").status == 200
+    waitCalls(2)
+    let t0 = epochTime()
+    running.st.shutdownStudio()
+    check epochTime() - t0 < 15
+    check not turnRunning("pong") and not turnRunning("ship")
+
 suite "para studio chat: when things go wrong":
   teardown: finish()
 
@@ -738,3 +970,14 @@ suite "para studio chat: what the page shows can never run":
     let page = running.request("GET", "/?token=" & running.srv.token, withToken = false)
     check "script-src 'nonce-" in page.headers["content-security-policy"]
     check "unsafe-inline" notin page.headers["content-security-policy"] and "unsafe-eval" notin page.headers["content-security-policy"]
+
+  test "the page stops, and shows, the producer game by game":
+    begin()
+    defer: finish()
+    let page = running.request("GET", "/?token=" & running.srv.token, withToken = false).body
+    check "api(\"POST\", \"/api/chat/stop\", { game })" in page # Stop names the game it is on
+    check "api(\"POST\", \"/api/chat/stop\", {})" notin page
+    check "markWorking(d.working)" in page and "workingTag(g)" in page # the games list says where the producer works
+    check "let jobGame" in page and "(busy && jobGame === game)" in page # a step holds only its own game's chat
+    check """$("new-btn").disabled = busy;""" in page # a new game does not wait for the producer on this one
+    check "chatRunning = false; // the other game's turn" in page # switching games drops the other game's running state

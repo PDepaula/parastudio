@@ -61,8 +61,10 @@ proc fakeClaudeMain*() =
     else:
       emit "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"email\":\"friend@example.com\",\"subscriptionType\":\"pro\"}"
     quit 0
-  if mode == "sleep":
-    sleep(parseInt(getEnv("FAKE_CLAUDE_SLEEP_MS", "120000")))
+  if mode == "sleep" or (args.len > 0 and args[0] == "check"):
+    # `check` is the studio's own step run as a child of this same program: it only waits, whatever
+    # mode a turn started in a moment ago (the job child may be spawned after a test changes the mode)
+    sleep(parseInt(getEnv("FAKE_CLAUDE_SLEEP_MS", if mode == "sleep": "120000" else: "2000")))
     quit 0
   let input = stdin.readAll()
   let logPath = getEnv("FAKE_CLAUDE_LOG")
