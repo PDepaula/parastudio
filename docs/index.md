@@ -42,7 +42,9 @@ zip from GitHub)? Open Para Studio with the launcher for your computer:
 - **Linux:** run `./paraloop-studio.sh` in the folder ([Linux guide](linux.md)).
 
 On Windows there is also a portable zip with Nim and the C compiler inside: extract it and
-double-click `Paraloop-Studio.exe` (not signed yet; [Windows guide](windows.md#the-portable-zip)).
+double-click `Paraloop-Studio.exe` (not signed yet, so Windows shows a warning screen once:
+[Windows guide](windows.md#the-portable-zip)). If anything goes wrong on Windows, start at
+[Windows troubleshooting](windows.md#windows-troubleshooting).
 
 The launchers need nothing installed first: when Nim, a C compiler or git is missing they say
 exactly what they would install, from where and into which folder, and install it only after you

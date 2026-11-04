@@ -14,9 +14,21 @@ git clone https://github.com/PDepaula/parastudio.git
 ```
 
 - **Mac:** double-click `Paraloop-Studio.command` in the folder ([Mac](mac.md)).
-- **Windows:** double-click `Paraloop-Studio.bat` in the folder ([Windows](windows.md), not yet
-  tried on a real Windows PC).
+- **Windows:** the easiest way is the portable zip, which carries Nim and the C compiler: extract it
+  and double-click `Paraloop-Studio.exe` ([Windows](windows.md#the-portable-zip)). Or, in a folder
+  you cloned, double-click `Paraloop-Studio.bat` ([Windows](windows.md)). Neither has been tried on a
+  real Windows PC yet, and Windows shows a warning screen the first time (the program is not signed
+  yet): [Windows](windows.md#the-blue-windows-protected-your-pc-screen) shows what to click.
 - **Linux:** run `./paraloop-studio.sh` in the folder ([Linux](linux.md)).
+
+## If something goes wrong
+
+The steps above are the smooth path; a first run on a new PC often is not. For Windows, see
+[Windows troubleshooting](windows.md#windows-troubleshooting): the "Windows protected your PC" screen,
+Defender, PowerShell's "running scripts is disabled", a compiler that is "not found", administrator
+prompts and the Codex setup step. For Mac and Linux, see [Mac](mac.md) and [Linux](linux.md). When a
+launcher stops, it prints a block of text and writes `tmp/launcher.log`: send both to whoever helps
+you.
 
 ## Every command by hand
 
@@ -42,7 +54,11 @@ That line is normal: nothing is wrong, and it usually downloads nothing.
 Do this once: install [Claude Code](https://code.claude.com/docs/en/setup)
 (or Codex), open a terminal **in this folder**, run `claude`, sign in, and answer **Yes, I trust this
 folder** (the highlighted choice is "No, exit", so move down first). The Studio page checks all of this
-when it opens, says "Ready" or what is missing in one line each, and never blocks Play.
+when it opens, says "Ready" or what is missing in one line each, and never blocks Play. If Claude
+does not work for you, the checklist can switch to Codex (and back) with one button. On Windows,
+Codex also needs a one-time sandbox step that you do in Codex yourself: see
+[the setup checklist](windows.md#the-setup-checklist-claude-or-codex) and
+[the Codex sandbox step](windows.md#the-codex-sandbox-step).
 
 ## Talking to the producer from a terminal
 

@@ -23,6 +23,10 @@ Windows window at all (opening the game window on Windows has never been checked
 [platforms.md](platforms.md)). The other route, typing commands in Git Bash, is
 [windows-first-game.md](windows-first-game.md); it is also not fully checked.
 
+Something went wrong? Go to [Windows troubleshooting](#windows-troubleshooting): it has the
+Windows warning screens, the antivirus, the PowerShell "running scripts is disabled" message, a
+compiler that is "not found", administrator prompts and the Codex setup step, each with what to do.
+
 Starting from nothing and want the batch file? The one-line installer ([Install with one
 line](install.md)) makes the `parastudio` folder and runs the same launcher for you. Testing the
 zip for the captain? [The zip test](windows-friend-test.md) is a short checklist for what to
@@ -44,19 +48,123 @@ folder, `Paraloop-Studio`:
 
 **What you do.**
 
-1. Download the zip the captain sent. **Do not** "Unblock" it first if the captain asked you to time
-   the warnings (see [the zip test](windows-friend-test.md)); otherwise unblock it (right-click the zip,
-   Properties, tick **Unblock** at the bottom, OK) to skip Windows' warning.
-2. Right-click the zip, **Extract All**, and extract into a **short folder** such as
-   `C:\ParaStudio` (a long path can make a build fail; the launcher warns when yours is long).
-   Do not double-click from inside the zip: it will not find the rest.
-3. Open `C:\ParaStudio\Paraloop-Studio` and double-click **`Paraloop-Studio.exe`**. If Windows shows
-   **"Windows protected your PC"**, click **More info**, then **Run anyway**. The program is not
-   signed yet (the captain is arranging that); that is the only reason for the warning.
-4. A black window prints seven numbered steps. The first start fetches the game libraries and builds
-   Studio, which takes several minutes; it says so and is working even when nothing moves. Later
-   starts take seconds. Studio opens in your browser. Keep the black window open while you use Studio;
-   press **Ctrl+C** in it or close it to stop Studio.
+1. **Download the zip.** See [Where the zip comes from](#where-the-zip-comes-from). It is about
+   135 MB. If you were asked to time the warnings (see [the zip test](windows-friend-test.md)), do
+   not unblock it. Otherwise you may right-click the zip, choose Properties, tick **Unblock** at the
+   bottom and click OK: that removes Windows' "from the internet" mark, so most of the warnings
+   below do not appear.
+2. **Extract it to a short folder.** Right-click the zip, **Extract All**, and extract into a short
+   folder such as `C:\ParaStudio` (a long path can make a build fail; the launcher warns when the
+   folder's path is longer than 90 characters). Not into Downloads, and not into a folder in a
+   folder in a folder. Do not double-click from inside the zip: it will not find the rest.
+3. **First run.** Open `C:\ParaStudio\Paraloop-Studio` and double-click **`Paraloop-Studio.exe`**. If
+   Windows shows a blue **"Windows protected your PC"** screen, see
+   [The blue "Windows protected your PC" screen](#the-blue-windows-protected-your-pc-screen).
+4. **Wait for the first start.** A black window prints seven numbered steps. The first start fetches
+   the game libraries and builds Studio, which takes several minutes; it says so and is working even
+   when nothing moves. Later starts take seconds. Studio opens in your browser. Keep the black window
+   open while you use Studio; press **Ctrl+C** in it or close it to stop Studio.
+5. **Do the setup checklist** in Studio's top bar: see
+   [The setup checklist](#the-setup-checklist-claude-or-codex).
+
+### Where the zip comes from
+
+The zip is published on the project's GitHub **Releases** page,
+<https://github.com/PDepaula/parastudio/releases>, as `Paraloop-Studio-<version>-windows-x64.zip`
+with a `.sha256` file beside it. A release is created as a draft by the `portable` workflow when a
+person pushes a tag called `portable-v...`, and a person publishes it by hand. **No release had been
+published when this page was written**, so the Releases page may be empty: until it is not, the
+person who invited you sends you the zip. (The workflow also keeps every build for 14 days as a
+workflow artifact, which only people with access to the repository can download.)
+
+To check that a download is the one that was built, open PowerShell and run
+`Get-FileHash .\Paraloop-Studio-<version>-windows-x64.zip -Algorithm SHA256`; the hash must equal the
+one in the `.sha256` file. This is optional, and the commands have not been tried on a real PC.
+
+### The blue "Windows protected your PC" screen
+
+The program is **not signed yet**, so Windows' SmartScreen may stop it the first time with a blue
+screen titled **Windows protected your PC** and "Microsoft Defender SmartScreen prevented an
+unrecognized app from starting". That is the only reason for it; it does not mean the zip is
+damaged. To go on:
+
+1. Click the small words **More info** on that screen. (Until you do, there is no way to run it.)
+2. A **Run anyway** button appears. Click it.
+
+You see this once per copy of the program. If you unblocked the zip before extracting it, you may
+not see it at all. If there is no **More info**, or **Run anyway** is missing, your PC is managed by
+an organization or Smart App Control is on: see
+[Windows blocks it with no Run anyway](#windows-blocks-it-with-no-run-anyway).
+
+**Signing will remove this screen later.** The project plans to sign the launcher, and the build
+already has a marked place for it (`SIGNING HOOK` in `.github/workflows/portable.yml`), but there is
+**no date**, and nothing is promised. Even a signed program may show the screen for a while, until
+Windows has seen enough people run it. Until then, More info, then Run anyway is the way in.
+
+### Windows Security (Defender) may scan or flag it
+
+Windows Security (Microsoft Defender) may scan the zip when you download it and the program when you
+first run it, and an unsigned program from a new place is flagged more often than most. What you
+may see:
+
+- A short **scan** the first time, which delays the black window by a few seconds. Wait.
+- A notice that something was **blocked or removed** ("Threats found", "Virus & threat protection").
+  The zip is made by a public build on GitHub, so do not assume it is a real threat, but only you
+  decide. If you trust it, see [Defender removed or blocked a file](#defender-removed-or-blocked-a-file).
+
+Which of these appears on a real PC has **not been checked**: nobody has run the zip on a real
+Windows PC yet.
+
+### The setup checklist: Claude or Codex
+
+Studio's chat needs one of two programs installed on your PC and signed in by you: **Claude Code**
+(`claude`) or **Codex** (`codex`). Studio never installs them and never asks for a login. The
+checks run before any chat (the pill in Studio's top bar; the black window prints the same lines at
+step 6 and never stops Studio from opening):
+
+| Check | For | What it means | What to do if it fails |
+|---|---|---|---|
+| installed | Claude, Codex | The program is on your PC | Install it from its own page (<https://code.claude.com/docs/en/setup> or <https://developers.openai.com/codex/cli>), then press **Check** again |
+| signed in | Claude, Codex | You are signed in | Open a terminal, run `claude` (or `codex`) and follow its sign-in, then **Check** |
+| trusts this folder | Claude, Codex | You answered "Yes, I trust this folder" in that program, in this folder | Open a terminal in the `parastudio` folder, run `claude` (or `codex`) and choose **Yes, I trust this folder** (the highlighted choice is "No, exit": move down first) |
+| may change files in `games/` | Claude only | The project's `.claude/settings.json` lets it | Put the file back with `git checkout -- .claude/settings.json` |
+
+Claude is the default. **To choose Codex instead**, or Claude when Claude does not work for you: if
+the one in use is not installed or not signed in and the other is installed, the checklist shows a
+**Use Codex instead** (or **Use Claude instead**) button right there, before you have a game. That
+pick is for the whole Studio; each game can still pick its own later. Using either costs your own
+plan or credit. A small line under Pip's name shows the model and effort it reported for the last
+message ([The Studio page](studio.md)).
+
+On Windows the "trusts this folder" check for Claude cannot answer "no" (the key format in
+Claude's settings file has not been checked on a real PC), so a missing trust shows as amber
+**Could not check**, not red. For Codex it is always amber unless trust is recorded. Treat amber as a
+reason to do the trust step once. **If one of the two fails** and you do not want to fix it, use
+the other one. **If both fail**, you can still press **Play** and use Check and Save; only the
+producer's chat is unavailable.
+
+**Codex on Windows needs one more step, which Studio does not show yet.** On Windows, Codex only
+lets its helper change files after it has set up its own safety sandbox once. Studio does not
+trigger that setup and does not yet show the step: you do it in Codex yourself, see
+[The Codex sandbox step](#the-codex-sandbox-step). This is the likely reason for a Codex producer that
+says it cannot edit anything. Claude has no such step.
+
+### How long until the first game
+
+**Unverified.** Nobody has timed the zip on a real Windows PC; [the zip test](windows-friend-test.md)
+is how it gets timed, and this page will say the number once there is one. What the code says:
+
+- Download and extract: depends on your connection; the zip is about 135 MB.
+- First start of `Paraloop-Studio.exe`: "several minutes" (the launcher's own words), because it
+  fetches the game libraries and builds Studio. Later starts take seconds.
+- Setting up Claude or Codex: a few minutes if you have to install and sign in.
+- Pressing **Play** the first time builds the game, which takes "a few minutes on Windows" per
+  [the step-by-step page](windows-first-game.md); later builds are quick.
+- A producer turn that makes a game depends on the model and effort; a big model on high effort is
+  the usual reason a turn is slow ([The Studio page](studio.md)).
+
+The first start is the long wait. If it seems stuck, or stops with a block of text, see
+[Windows troubleshooting](#windows-troubleshooting).
 
 **What it asks, and what it never does.**
 
@@ -100,6 +208,149 @@ person pushes a tag called `portable-v...`, and then only as a draft that a pers
 **Signing** is a marked hook in that workflow (`SIGNING HOOK`): once the captain has an Azure
 Artifact Signing account it signs the launcher before the zip is made, and the workflow can be set
 to fail on an unsigned build.
+
+## Windows troubleshooting
+
+Find your message, do what is under it. Everything here is tied to what the launcher and Studio do
+in code and in their tests; **nothing has been run on a real Windows PC yet**, so each entry says
+what is known and what is not. When you send a report, send the block the launcher prints between
+the `====` lines and the file `tmp\launcher.log` (see [If something fails](#if-something-fails)).
+
+### Windows blocks it with no Run anyway
+
+You see "Windows protected your PC" with no **More info**, or **More info** shows no **Run anyway**,
+or a box says an administrator or your organization blocked the app.
+
+- **Your organization manages the PC** (work or school): an administrator set the rule, and you
+  cannot change it. Ask them to allow `Paraloop-Studio.exe` (a SmartScreen or app-control
+  exception for the file, or for the folder you extracted it to).
+- **Smart App Control is on** (Windows 11, Settings, Privacy & security, Windows Security, App &
+  browser control): it blocks apps that are not signed, with no override. Turning it off is
+  permanent on that Windows install, so do not do it casually; asking for the signed version later
+  is the other way. Unverified: whether it blocks this program has not been tried.
+- **Extracted from the wrong place:** extract with **Extract All** to a normal folder such as
+  `C:\ParaStudio`, not from inside the zip.
+
+### Defender removed or blocked a file
+
+Windows Security shows "Threats found", or the black window says `gcc.exe`, `nim.exe` or
+`Paraloop-Studio.exe` is missing after you extracted everything.
+
+1. Open **Windows Security**, **Virus & threat protection**, **Protection history**, and find the
+   item that names the file. If it is from the folder you extracted, and you trust where the zip
+   came from, choose **Actions**, then **Restore** (or **Allow on device**).
+2. To stop it happening again, under **Virus & threat protection settings**, **Manage settings**,
+   **Exclusions**, **Add or remove exclusions**, add the folder `C:\ParaStudio`. Opening these
+   settings may ask for an administrator's OK. On a PC an organization manages, an administrator has
+   to do this for you.
+3. Extract the zip again (Extract All, into a fresh folder), because a removed file stays missing.
+
+Unverified: which files, if any, Defender flags in this zip has not been seen on a real PC. If it
+flags one, send the captain or the person who invited you the exact name it shows.
+
+### "running scripts is disabled on this system" (PowerShell)
+
+PowerShell's execution policy refuses to run a **saved** `.ps1` file; the Windows default
+(Restricted) allows individual commands but no script files. You can hit it by saving
+`install.ps1` and running `.\install.ps1`, or from another program's own installer.
+
+- **With the zip, it does not apply:** `Paraloop-Studio.exe` is a native program that does not use
+  cmd or PowerShell, so there is no policy to change. Use the zip.
+- **The one-line installer** ([Install with one line](install.md)) pastes the script as text:
+  `irm https://pdepaula.github.io/parastudio/install.ps1 | iex` needs no policy change. If you
+  downloaded it first, run it the way that page shows (`Get-Content -Raw .\install.ps1 | iex`), not
+  by file name.
+- **The Claude Code or Codex installer** may hit the same message. Run the exact line their page
+  gives (<https://code.claude.com/docs/en/setup>, <https://developers.openai.com/codex/cli>), which
+  is a pasted command, not a saved file. If you must change the policy, do it for one window only:
+  `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` lasts until you close that window.
+  Do not change it for the whole PC, and an organization's policy may forbid even this.
+
+### A script or `.bat` is blocked ("Security Warning", "blocked")
+
+The zip does not need any script. If you are on the batch file (`Paraloop-Studio.bat`) and Windows
+shows a "Security Warning" box, click **Run**; to stop it for good, right-click the file,
+Properties, tick **Unblock**, OK. A `.bat` or `.cmd` that came from the internet is blocked with no
+override when Smart App Control is on (see
+[Windows blocks it with no Run anyway](#windows-blocks-it-with-no-run-anyway)); the zip's `.exe` is
+the way around that. Never run a script file you were not expecting.
+
+### "No C compiler was found", or the producer says it cannot find the compiler
+
+- **With the zip,** the compiler is `mingw64\bin\gcc.exe` inside the `Paraloop-Studio` folder, and
+  the launcher uses it ahead of anything on your PATH. If it says no compiler was found, the zip was
+  not fully extracted, or Defender removed a file: extract again (Extract All) and see
+  [Defender removed or blocked a file](#defender-removed-or-blocked-a-file). If it says the Nim folder
+  is missing, the same.
+- **With the batch file,** the launcher looks for `gcc`, `cc` or `clang` on PATH and in a few usual
+  folders, and offers `winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e --source winget`. Any
+  MinGW-w64 `gcc` works. Visual Studio's `cl.exe` is not used. After installing, close the window,
+  restart the PC once and try again.
+- **The producer's chat says "no compiler" although the launcher found one.** The producer no
+  longer runs its own compiler check: `tmp\para.exe producer-context` looks for `gcc`, then `cc`,
+  then `clang` (Windows compilers such as WinLibs have `gcc.exe` and no `cc.exe`) and tells the
+  producer which it found. If it still says it cannot find one, start Studio from the launcher
+  again, since the launcher puts the zip's compiler on PATH for the programs it starts, and send
+  the report. Unverified on Windows.
+
+### Administrator prompts ("Do you want to allow this app to make changes?")
+
+The launcher never asks for an administrator password and the zip needs none. Three other programs
+can, and each is a prompt you can say no to:
+
+- **Git for Windows,** if you have no git and answer `y` to the launcher's question. Its winget
+  package says it elevates itself even with `--scope user`, so an administrator prompt can appear
+  once. If you cannot approve it, install git by hand from <https://git-scm.com/download/win> (ask an
+  administrator if you cannot), then start the launcher again.
+- **winget** may need elevation for some packages and asks you first.
+- **Codex's Windows sandbox setup** (next entry). This is the one most often hit.
+
+Only approve a prompt that names a program you were expecting. A person trying the zip for the
+captain should write each prompt down ([the zip test](windows-friend-test.md)).
+
+### The Codex sandbox step
+
+**Symptom:** you picked Codex as the producer, it answers, and then says it cannot change any file
+or run any command, or every action is refused. **Cause (from Codex's source and documentation,
+not yet reproduced on a real PC):** on Windows, Codex only lets itself write files and run commands
+after a Windows sandbox is set up; Studio runs Codex without its own screen where that happens, so
+nothing ever asks you.
+
+**What to do** (in Codex, not in Studio; Studio does not trigger this setup, and Studio does not
+show the step yet, a later version will):
+
+1. Open a terminal in the `parastudio` folder and run `codex`.
+2. If Codex offers to set up its Windows sandbox, follow it. Codex documents three modes
+   (<https://learn.chatgpt.com/docs/windows/windows-sandbox>): `mxc`, the recommended one on newer
+   Windows 11, which needs no administrator-approved setup; `elevated`, a fallback whose setup needs
+   an **administrator's OK** (the Windows prompt "Do you want to allow this app to make changes to
+   your device?"); and `unelevated`, a weaker last fallback. Choose what Codex recommends for your
+   PC. Your organization's rules may decide for you.
+3. If you are not an administrator and the mode you need asks for one, ask an administrator to
+   approve it or to provision it for your user. Codex's page describes the command and settings; read
+   it there, since they change with Codex's versions.
+4. Close Codex, then in Studio press **Check** and try the producer again.
+
+If you cannot or do not want to set up Codex's sandbox, use **Use Claude instead** in the setup
+checklist, which has no such step.
+
+### Studio does not open in my browser
+
+The black window prints a link starting `http://127.0.0.1:`. Copy it into your browser yourself. If
+Windows Firewall asks whether to let the program through, Studio only listens on your own computer:
+**Cancel** or **Allow** should both work; tell the person you are working with which prompt you
+saw.
+
+### "Windows can stop a build when a path gets too long"
+
+You extracted into a deeply nested folder. Delete it and extract again to a short folder such as
+`C:\ParaStudio`.
+
+### I closed the black window and now Studio is gone
+
+That stops Studio. Double-click `Paraloop-Studio.exe` again; it takes seconds the second time.
+
+If your problem is not here, [If something fails](#if-something-fails) says exactly what to send.
 
 ## The batch file
 
