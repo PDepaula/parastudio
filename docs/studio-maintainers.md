@@ -78,7 +78,7 @@ to **Keep it**) and only its **Yes, delete it** sends `POST /api/chat/delete` wi
 ## Start a game (route)
 
 The studio runs `para new <name>` as a step, like Check and Save (`POST /api/new`, refused while
-another step or a chat turn runs), then opens the new game. The name is normalised (spaces and
+another step runs), then opens the new game. The name is normalised (spaces and
 dashes become `_`, capitals become small letters) and checked first: small letters, digits and `_`,
 starting with a letter, at most 40 characters, and not taken.
 

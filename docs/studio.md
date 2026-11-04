@@ -173,7 +173,7 @@ small letters, so "Space Frogs" is `space_frogs`) and Studio makes the game and 
 problem with the name is said in plain words: it has to be small letters, digits and `_`, start
 with a letter, be at most 40 characters, and not be taken. You get the same thing as `para new` in
 a terminal: a copy of `template/` in `games/<name>/`, a git repository of its own. Starting a game
-is refused while a Check, Save or chat turn is running.
+is refused while another Check, Save or Backup step is running.
 
 ![Start a game: a name, then the studio makes it](img/studio-start-game.png)
 
@@ -369,10 +369,10 @@ makes); a game without one is saved in the repository that contains `games/`, as
 
 ## Two copies, two studios
 
-One studio runs one chat turn at a time (Check, Save and Backup wait for it), because the producer
-changes files in the folder. Inside that one turn the producer's helpers already work at the same
-time, each in its own copy (see "Helpers work in their own copy"). To hold two conversations at
-once, keep two copies of the folder and run a studio in each. They share nothing: each has its own
+One studio runs one chat turn at a time for each game (that game's Check, Save and Backup wait for
+it), because the producer changes files in the game's folder. Inside that one turn the producer's
+helpers already work at the same time, each in its own copy (see "Helpers work in their own copy").
+To hold two conversations about the same game, keep two copies of the folder and run a studio in each. They share nothing: each has its own
 files, `tmp/` and save points, so they cannot step on each other.
 
 ```
