@@ -146,6 +146,12 @@ code { font-size: .88em; overflow-wrap: anywhere; }
 .agent-opt:hover:not(:disabled) { background: rgba(255, 255, 255, .22); }
 .agent-opt[aria-checked="true"] { background: var(--gold); color: var(--purple); }
 .agent-opt:disabled { opacity: .6; }
+.speed-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 13px; color: #CFC6E2; }
+.speed-row label { font-weight: 800; }
+.speed-row select { font: inherit; font-weight: 800; color: #EFEAF7; background: rgba(255, 255, 255, .12); border: 0; border-radius: 999px; padding: 3px 8px; min-height: 30px; max-width: 100%; }
+.speed-row select option { color: #1b1230; background: #fff; }
+.speed-row select:disabled { opacity: .6; }
+.speed-about { display: block; flex-basis: 100%; overflow-wrap: anywhere; }
 .agent-ran { display: block; margin-top: 6px; font-size: 13px; color: #CFC6E2; overflow-wrap: anywhere; }
 .newchat { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; border-radius: 16px; background: var(--accent); color: var(--on-accent); font-weight: 800; flex: none;
   box-shadow: 0 3px 0 color-mix(in srgb, var(--accent) 55%, #000); }
@@ -480,6 +486,11 @@ dd { margin: 0; overflow-wrap: anywhere; }
         <b id="pip-name">Pip</b><small>your producer</small>
         <div class="agents" id="agents" role="radiogroup" aria-label="Who is the producer for this game" aria-describedby="agent-about" hidden></div>
         <span class="agent-one" id="agent-one" hidden></span>
+        <div class="speed-row" id="speed-row" hidden>
+          <label for="speed">Speed</label>
+          <select id="speed" aria-describedby="speed-about"></select>
+          <span class="speed-about" id="speed-about"></span>
+        </div>
         <span class="agent-ran" id="agent-ran" aria-live="polite"></span>
       </div>
     </div>
@@ -1059,6 +1070,7 @@ function syncButtons() {
   for (const b of $("chats-list").querySelectorAll("button")) b.disabled = chatRunning;
   $("chat-del-yes").disabled = chatRunning;
   for (const b of $("agents").children) b.disabled = chatRunning || stepHere;
+  $("speed").disabled = chatRunning || stepHere || !game;
   $("play-btn").disabled = busy || playBusy;
   $("shot-btn").disabled = shotBusy;
   $("plus-shot").disabled = shotBusy;
@@ -1389,15 +1401,44 @@ function plainLaneText(t) {
 // Each agent keeps its own conversation; the studio refuses a pick while a turn runs (the pills are
 // disabled then). What each one is lives in the help (?) and on each pill's tooltip.
 let agentsNow = [], agentCurrent = null;
-// One small line under the producer's name: which model and effort it last said it ran with. The
-// studio sets neither (the tool's own settings decide), so before the first message there is
-// nothing to show yet. A big model on high effort is the usual reason a turn is slow.
-function showRan(model, effort) {
+// One small line under the producer's name: which model and effort it last said it ran with, and what
+// the studio asked for (the speed picked for this game: Quick, Standard or Deep). Standard asks for
+// nothing, so the tool's own settings decide; before the first message there is nothing to show yet.
+// A big model on high effort is the usual reason a turn is slow.
+let speedNow = "standard";
+function speedLabel(id) { const s = (agentCurrent && agentCurrent.speeds || []).find((x) => x.id === id); return s ? s.label : id; }
+function showRan(r) {
   const x = agentCurrent, el = $("agent-ran");
   if (!x) { el.textContent = ""; el.title = ""; return; }
-  el.textContent = model ? x.label + " · " + model + " · " + (effort ? effort + " effort" : x.name === "codex" ? "default effort" : "effort not reported")
-                         : "Model and effort show after your first message.";
-  el.title = "The studio does not choose the model or the effort: " + x.label + " does, from its own settings. A big model on high effort can make a turn slow.";
+  const ran = r.ran || {};
+  const model = r.model || (ran.askedModel ? ran.askedModel + " (asked for)" : "");
+  const effort = r.effort ? r.effort + " effort"
+               : ran.askedEffort ? ran.askedEffort + " effort (asked for)"
+               : x.name === "codex" ? "default effort" : "effort not reported";
+  let text = model ? x.label + " · " + model + " · " + effort : "Model and effort show after your first message.";
+  if (r.speed && ran.speedRan && r.speed !== ran.speedRan) text += " " + speedLabel(r.speed) + " speed starts with your next message.";
+  el.textContent = text;
+  el.title = !ran.speedRan || ran.speedRan === "standard"
+    ? "At Standard speed the studio asks for no particular model or effort: " + x.label + " decides, from its own settings. A big model on high effort can make a turn slow."
+    : speedLabel(ran.speedRan) + " speed: the studio asked " + x.label + " for " + (ran.askedModel || "its own model") + ", " + (ran.askedEffort ? ran.askedEffort + " effort" : "its own effort") + ". The line shows what " + x.label + " reported back.";
+}
+// The speed picker on Pip's card: how hard the producer thinks, per game. Disabled while this game's turn runs.
+function renderSpeed(a) {
+  const speeds = a.speeds || [], sel = $("speed");
+  $("speed-row").hidden = !game || speeds.length === 0;
+  sel.textContent = "";
+  for (const s of speeds) {
+    const o = document.createElement("option");
+    o.value = s.id; o.textContent = s.label; o.title = s.about;
+    sel.append(o);
+  }
+  speedNow = a.speed || "standard";
+  sel.value = speedNow;
+  speedText();
+}
+function speedText() {
+  const s = (agentCurrent && agentCurrent.speeds || []).find((x) => x.id === speedNow);
+  $("speed-about").textContent = s ? s.about.charAt(0).toUpperCase() + s.about.slice(1) + (s.asks && s.id !== "standard" ? " (" + s.asks + ")." : ".") : "";
 }
 function renderAgents(a) {
   agentsNow = a.agents || [];
@@ -1411,7 +1452,8 @@ function renderAgents(a) {
   $("agent-one").textContent = known.length === 1 ? known[0].label : "";
   const current = known.find((x) => x.name === a.current) || known[0];
   agentCurrent = current || null;
-  showRan(current ? current.model : "", current ? current.effort : "");
+  renderSpeed(Object.assign({}, current || {}, { speed: a.speed }));
+  showRan({ model: current ? current.model : "", effort: current ? current.effort : "", ran: current ? current.ran : null, speed: a.speed });
   for (const x of known) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "agent-opt"; b.setAttribute("role", "radio");
@@ -1426,6 +1468,16 @@ function renderAgents(a) {
     about.append(li);
   }
 }
+$("speed").addEventListener("change", async () => {
+  const want = $("speed").value;
+  if (chatRunning || (busy && jobGame === game) || !game) { $("speed").value = speedNow; return; }
+  try {
+    await api("POST", "/api/speed/pick", { game, speed: want });
+    speedNow = want;
+    speedText();
+    pollChat(); // shows the note the studio added to the chat, and the line under the name
+  } catch (e) { $("speed").value = speedNow; say($("chat-result"), e.message, "bad"); }
+});
 async function pickAgent(name) {
   if (chatRunning || (busy && jobGame === game)) return;
   hideDelete(); // each producer has its own list
@@ -1619,7 +1671,8 @@ async function pollChat() {
         return;
       }
       chatOpen = d.chat;
-      showRan(d.model, d.effort);
+      if (d.speed && d.speed !== speedNow && document.activeElement !== $("speed")) { speedNow = d.speed; $("speed").value = speedNow; speedText(); }
+      showRan(d);
       let turnEnded = false;
       for (const ev of d.events) { if (ev.kind === "done") turnEnded = true; else renderEvent(ev); }
       chatSince = Math.max(chatSince, d.next);

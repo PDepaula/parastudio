@@ -19,7 +19,11 @@
 # agent's id is never handed to another, which could not use it. The agent a game talks to is
 # remembered in `tmp/studio/agent-<game>.txt` (its name and nothing else); a game with no pick uses
 # the studio-wide pick in `tmp/studio/default-agent.txt` (made in the first-run setup checklist,
-# before any game exists), else the first adapter.
+# before any game exists), else the first adapter. How hard the producer thinks is the game's
+# "producer speed" (quick, standard or deep), remembered the same way in `tmp/studio/speed-<game>.txt`
+# (default standard, which passes no model and no effort); each turn takes the speed in force when
+# it starts, and the adapter turns it into its agent's own model and effort flags. What was asked
+# for and what the agent then reported are kept for each game and agent, for the line on the page.
 #
 # Every line the page shows is also added to its chat's file (chatstore.nim:
 # `tmp/studio/chat-<game>-<agent>-<number>.jsonl`, keys taken out), so a chat opened again, or the
@@ -48,6 +52,13 @@ type
     you: bool
     ev: UiEvent
 
+  RanWith* = object
+    ## What a game's producer (one agent) did its last turn with.
+    started*: bool         ## a turn has run (the fields below mean something)
+    speed*: Speed          ## the speed that turn started with
+    askedModel*, askedEffort*: string ## what the studio passed ("" = left to the agent)
+    model*, effort*: string ## what the agent reported ("" = it did not say)
+
   Turn = object
     ## One game's turn: made by `startTurn`, kept (finished) until that game's next turn or the end.
     chat: ptr ChatState
@@ -55,6 +66,7 @@ type
     key: ChatKey
     text: string
     session: string
+    speed: Speed
     startedAt: float
     running: bool
     stopping: int ## stop requests currently inside `cancel`
@@ -74,7 +86,7 @@ type
     entries: seq[ChatEntry]
     nextSeq: int
     infos: Table[string, tuple[info: AgentInfo, at: float]]
-    models: Table[string, tuple[model, effort: string]] ## by agent: what its last turn said it ran with (under `lock`)
+    models: Table[string, RanWith] ## by "<game>/<agent>": what its last turn asked for and said it ran with (under `lock`)
     bookLock: Lock ## the chat lists below and their files; never held together with `lock`
     books: Table[string, ChatBook] ## by "<game>/<agent>", read from disk the first time
     storeLock: Lock ## held while a line is added to memory and its chat's file, or a chat is read back, so the two keep the same order
@@ -160,6 +172,22 @@ proc agentOf*(c: ptr ChatState, game: string): string =
   let studioWide = pickedIn(c, defaultPickPath(c.root))
   if studioWide.len > 0: return studioWide
   c.adapters[0].name
+
+# --- the producer's speed for a game -------------------------------------------------
+
+proc speedPath(root, game: string): string =
+  root / "tmp" / "studio" / ("speed-" & game & ".txt")
+
+proc speedOf*(c: ptr ChatState, game: string): Speed =
+  ## The speed `game`'s next turn runs at: the one the friend picked for it, else standard. A game
+  ## with no name (or a file that says something else) is standard.
+  if validGameName(game):
+    try:
+      let (ok, sp) = parseSpeed(readFile(speedPath(c.root, game)).strip)
+      if ok: return sp
+    except IOError, OSError:
+      discard
+  spStandard
 
 proc currentKey(c: ptr ChatState, game: string): ChatKey =
   ## The chat `game`'s page shows now: its producer's current chat.
@@ -259,15 +287,27 @@ proc turnMain(t: ptr Turn) {.thread.} =
   acquire(c.lock)
   adapter = c.adapterFor(t.key.agent)
   key = t.key
-  req = TurnRequest(text: t.text, sessionId: t.session, workDir: c.root)
+  req = TurnRequest(text: t.text, sessionId: t.session, workDir: c.root, speed: t.speed)
   ctl = t.ctl
   timeoutSec = c.timeoutSec
   release(c.lock)
   {.cast(gcsafe).}:
     req.onSession = proc (id: string) = c.setChatSession(key, id)
+    let ranKey = key.game & "/" & key.agent
+    let speed = req.speed
+    req.onAsked = proc (model, effort: string) =
+      acquire(c.lock)
+      # a new turn: what it asked for is known now; what the agent says follows
+      c.models[ranKey] = RanWith(started: true, speed: speed, askedModel: model, askedEffort: effort)
+      release(c.lock)
     req.onModel = proc (model, effort: string) =
       acquire(c.lock)
-      c.models[key.agent] = (model, effort)
+      var r = c.models.getOrDefault(ranKey)
+      r.started = true
+      r.speed = speed
+      r.model = model
+      r.effort = effort
+      c.models[ranKey] = r
       release(c.lock)
     var res: TurnResult
     try:
@@ -391,6 +431,7 @@ proc startTurn*(c: ptr ChatState, game, text: string): Started =
   t.key = key
   t.text = text
   t.session = session
+  t.speed = speedOf(c, game)
   t.startedAt = epochTime()
   t.ctl = newTurnControl()
   t.running = true
@@ -538,6 +579,8 @@ type
     next*: int
     chat*: int ## the chat these lines are from
     model*, effort*: string ## what the producer of this chat said it ran its last turn with; "" until it has run one
+    speed*: string ## the speed the game's next turn runs at
+    ran*: RanWith ## the game's producer's last turn: the speed it started with, what was asked for, what it reported
     entries*: seq[tuple[seq: int, you: bool, ev: UiEvent]]
 
 proc view*(c: ptr ChatState, game: string, since: int): ChatView =
@@ -553,8 +596,11 @@ proc view*(c: ptr ChatState, game: string, since: int): ChatView =
     if other.running: result.working.add g
   result.working.sort()
   result.next = c.nextSeq - 1
+  result.speed = $speedOf(c, game)
   result.chat = key.chat
-  (result.model, result.effort) = c.models.getOrDefault(key.agent)
+  result.ran = c.models.getOrDefault(key.game & "/" & key.agent)
+  result.model = result.ran.model
+  result.effort = result.ran.effort
   for e in c.entries:
     if e.seq > since and e.key == key: result.entries.add (e.seq, e.you, e.ev)
 
@@ -581,13 +627,45 @@ proc agentPreflight*(c: ptr ChatState, name: string): seq[PreflightCheck] =
   {.cast(gcsafe).}:
     result = adapter.preflight(adapter, c.root)
 
-proc agentModel*(c: ptr ChatState, name: string): tuple[model, effort: string] =
-  ## The model and reasoning effort `name` reported for its last turn in this run of the studio, or
-  ## empty strings (nothing is known before the first message; the studio does not set either).
+proc agentModel*(c: ptr ChatState, game, name: string): RanWith =
+  ## What `name` did `game`'s last turn in this run of the studio with: the speed it started at, the
+  ## model and effort the studio asked for, and the ones the agent reported. Empty before the first
+  ## message.
   let adapter = c.adapterFor(name)
   acquire(c.lock)
-  result = c.models.getOrDefault(adapter.name)
+  result = c.models.getOrDefault(game & "/" & adapter.name)
   release(c.lock)
+
+proc speedAbout*(c: ptr ChatState, name: string, speed: Speed): string =
+  ## What `speed` asks of agent `name`, in a few plain words ("" for an agent with no speeds).
+  let adapter = c.adapterFor(name)
+  if adapter.speedAbout.isNil: "" else: adapter.speedAbout(speed)
+
+proc pickSpeed*(c: ptr ChatState, game, name: string): Started =
+  ## Makes `name` ("quick", "standard" or "deep") the speed of `game`'s producer, from the next
+  ## message on. Refused while this game's turn runs (it keeps the speed it started with).
+  if not validGameName(game):
+    return Started(status: 400, code: "which-game", message: "Say which game this is about.")
+  let (ok, speed) = parseSpeed(name)
+  if not ok:
+    return Started(status: 400, code: "which-speed", message: "That is not one of the speeds: Quick, Standard or Deep.")
+  acquire(c.startLock)
+  defer: release(c.startLock)
+  if isRunning(c, game):
+    return Started(status: 409, code: "busy", message: "The producer is working on this game's last message. Wait for it, or press Stop, then pick again.")
+  if speedOf(c, game) == speed: return Started(ok: true, status: 200)
+  let path = speedPath(c.root, game)
+  try:
+    createDir(path.parentDir)
+    writeFile(path & ".new", $speed)
+    moveFile(path & ".new", path)
+  except IOError, OSError:
+    return Started(status: 500, code: "cannot-save", message: "I could not remember that pick (is the disk full?).")
+  let agent = agentOf(c, game)
+  let about = c.speedAbout(agent, speed)
+  c.add(c.currentKey(game), UiEvent(kind: ukNotice, code: "speed-picked",
+    text: "From your next message on, the producer runs at " & speedLabels[speed] & " speed" & (if about.len > 0: ": " & about else: "") & "."))
+  Started(ok: true, status: 200)
 
 proc agentLabel*(c: ptr ChatState, name: string): string = c.adapterFor(name).label
 proc agentCost*(c: ptr ChatState, name: string): string = c.adapterFor(name).cost

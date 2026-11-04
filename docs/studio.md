@@ -202,11 +202,19 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
   the producer in use is not installed or not signed in and the other one is installed, the
   checklist offers **Use Codex instead** (or **Use Claude instead**). That pick is for the whole
   studio, and a game with no pick of its own starts with it; you can still pick per game later.
-- **Which model and how hard it thinks.** A small line under Pip's name says which model and
-  effort the producer reported for its last message ("Claude · claude-opus-5-5 · high effort").
-  Studio does not choose either: the tool's own settings do (for Codex `default effort` means the model's own default; Claude does
-  not report its effort, so it shows `effort not reported`). Until the first message there is nothing to show. A big model on high effort is the
-  usual reason a turn is slow.
+- **Which model and how hard it thinks.** Under Pip's name, with a game open, a **Speed** menu
+  picks how hard that game's producer thinks: **Quick** (a cheaper model on medium effort),
+  **Standard** (the default: Studio asks for nothing and the tool's own settings decide) or **Deep**
+  (the strongest model on high effort, slowest). It is remembered for each game, applies from the
+  next message, and is greyed out while that game's producer is working. Helpers keep following the
+  producer's playbook either way. A small line below says which model and effort the producer
+  reported for its last message ("Claude · claude-opus-5-5 · high effort"), with "(asked for)" where
+  the tool did not report back what Studio asked it for (for Codex `default effort` means the
+  model's own default; Claude does not report its effort). Until the first message there is nothing
+  to show. If a turn feels slow, Quick is the first thing to try. Where the models come from: Claude
+  gets its own `sonnet` and `opus` aliases (`speedTiers` in `tools/para/claudeagent.nim`); Codex's
+  are picked from the models it lists itself, and if it lists none Studio says so and uses Codex's
+  own settings.
 - **One turn at a time for each game.** Two games can each have the producer working at once
   (the games list says "Working" beside them). A game's Check, Save and Backup wait while the
   producer is working on that game, and the other way round; another game's do not. Only one

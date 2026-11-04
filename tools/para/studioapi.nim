@@ -35,6 +35,11 @@
 #   POST /api/terminal          {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
 #   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation);
 #                               no game: the studio-wide pick, which games without their own pick follow
+#   POST /api/speed/pick        {game, speed}: how hard this game's producer thinks, "quick", "standard" or "deep", from the next message on
+#                               (kept for the game; refused with 409 while that game's turn runs). `GET /api/agent` and `GET /api/chat` return
+#                               `speed` (the pick), `speeds` (each one's words and what it asks of the producer) and `ran`: the speed
+#                               the producer's last turn started with, the model and effort the studio passed (`askedModel`, `askedEffort`)
+#                               and the ones it reported (`model`, `effort`)
 #   GET  /api/chat?game=&since= the open chat's lines after number `since`, which chat that is, whether a turn is running for this game, `working`: every game with a turn running, and the `model` and `effort` its producer last reported ("" until it has run a turn)
 #   GET  /api/chats?game=       the game's past chats with its producer, the one used last first: number, title, times, which one is open
 #   POST /api/chat/send         {game, text}: one turn with the producer in the open chat (one at a time for each game; refused while two other games have helpers building)
@@ -444,24 +449,37 @@ proc entryJson(seqNo: int, you: bool, ev: UiEvent): JsonNode =
     result["name"] = %ev.text
   else: discard
 
-proc agentRow(st: ptr Studio, name: string): JsonNode =
+proc ranJson(ran: RanWith): JsonNode =
+  ## What the game's producer did its last turn with, for the line under the producer's name.
+  %*{"model": ran.model, "effort": ran.effort, "speedRan": (if ran.started: $ran.speed else: ""),
+     "askedModel": ran.askedModel, "askedEffort": ran.askedEffort}
+
+proc speedsJson(st: ptr Studio, name: string): JsonNode =
+  ## The three speeds for producer `name`: what each is called and what it asks of that producer.
+  result = newJArray()
+  for sp in speedChoices:
+    result.add %*{"id": $sp, "label": speedLabels[sp], "about": speedWords[sp],
+                  "asks": speedAbout(addr st.chat, name, sp)}
+
+proc agentRow(st: ptr Studio, name, game: string): JsonNode =
   let info = agentInfo(addr st.chat, name)
-  let ran = agentModel(addr st.chat, name)
+  let ran = agentModel(addr st.chat, game, name)
   %*{"name": info.name, "label": info.label, "installed": info.installed,
      "version": info.version, "note": info.note, "url": info.url,
      "cost": agentCost(addr st.chat, name), "about": agentAbout(addr st.chat, name),
-     "model": ran.model, "effort": ran.effort}
+     "model": ran.model, "effort": ran.effort, "ran": ranJson(ran), "speeds": speedsJson(st, name)}
 
 proc agentJson(st: ptr Studio, req: Request): Response =
   ## The first fields describe the agent this game talks to (what the page showed before there was
   ## a choice); `agents` lists everyone the page may pick from.
   let asked = req.queryValue("game")
   let current = agentOf(addr st.chat, asked) # no (or no valid) game: the studio-wide pick
-  var node = agentRow(st, current)
+  var node = agentRow(st, current, asked)
   node["timeoutMinutes"] = %timeoutMinutes(addr st.chat)
   node["current"] = %current
+  node["speed"] = %(if validGameName(asked): $speedOf(addr st.chat, asked) else: "")
   var rows = newJArray()
-  for name in agentNames(addr st.chat): rows.add agentRow(st, name)
+  for name in agentNames(addr st.chat): rows.add agentRow(st, name, asked)
   node["agents"] = rows
   jsonResponse(200, node)
 
@@ -536,6 +554,18 @@ proc agentPickJson(st: ptr Studio, body: JsonNode): Response =
   if not r.ok: return fail(r.status, r.message, r.code)
   jsonResponse(200, %*{"current": agentOf(addr st.chat, game)})
 
+proc speedPickJson(st: ptr Studio, body: JsonNode): Response =
+  ## {game, speed}: the game's producer speed, from its next message on. Needs a game: the speed is
+  ## remembered for one game, so another game's choice is its own.
+  var game: string
+  let picked = pickGame(st, body.fieldString("game"), game)
+  if picked.status != 0: return picked
+  acquire(st.startGate)
+  defer: release(st.startGate)
+  let r = pickSpeed(addr st.chat, game, body.fieldString("speed"))
+  if not r.ok: return fail(r.status, r.message, r.code)
+  jsonResponse(200, %*{"speed": $speedOf(addr st.chat, game)})
+
 proc chatJson(st: ptr Studio, req: Request): Response =
   let sinceText = req.queryValue("since")
   if sinceText.len > 9 or not sinceText.allCharsInSet(Digits):
@@ -547,7 +577,7 @@ proc chatJson(st: ptr Studio, req: Request): Response =
   var rows = newJArray()
   for (n, you, ev) in v.entries: rows.add entryJson(n, you, ev)
   jsonResponse(200, %*{"game": game, "chat": v.chat, "running": v.running, "working": v.working, "turn": v.turnId, "next": v.next,
-                        "model": v.model, "effort": v.effort, "events": rows})
+                        "model": v.model, "effort": v.effort, "speed": v.speed, "ran": ranJson(v.ran), "events": rows})
 
 proc stopChat(st: ptr Studio, body: JsonNode): bool =
   ## Ends the turn of the game asked for and no other. With no game named and exactly one turn
@@ -709,6 +739,7 @@ proc handle(st: ptr Studio, req: Request): Response =
     jsonResponse(200, %*{"stopped": stopPlay(addr st.play)})
   of "/api/play/shot": shotRoute(st, body)
   of "/api/agent/pick": agentPickJson(st, body)
+  of "/api/speed/pick": speedPickJson(st, body)
   of "/api/chat/send": sendJson(st, body)
   of "/api/chat/stop":
     jsonResponse(200, %*{"stopped": stopChat(st, body)})
