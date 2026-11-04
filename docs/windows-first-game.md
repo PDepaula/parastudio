@@ -4,6 +4,10 @@ Prefer a double-click? `Paraloop-Studio.bat` does the checks and builds below fo
 install a missing C compiler, git or Nim (it says what and from where, and asks first) and
 starts Studio: see [windows.md](windows.md). This page is the same route typed by hand in Git Bash.
 
+Not working, or not sure where to start? The easiest way is the portable zip
+([windows.md](windows.md#the-portable-zip)), and every Windows problem we know about, with
+what to do, is in [Windows troubleshooting](windows.md#windows-troubleshooting).
+
 A short checklist to go from nothing to a game window on a Windows PC. Do the
 steps in order and stop at the first one that fails (see "If a step fails" at the
 end).

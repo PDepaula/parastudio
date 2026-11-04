@@ -16,7 +16,14 @@ curl -fsSL https://pdepaula.github.io/parastudio/install.sh | sh
 irm https://pdepaula.github.io/parastudio/install.ps1 | iex
 ```
 
-You do not need to change any Windows setting first (no "execution policy" change).
+You do not need to change any Windows setting first (no "execution policy" change), as long as you
+paste the line. If PowerShell says "running scripts is disabled on this system", you ran a saved
+file instead; see [Windows troubleshooting](windows.md#running-scripts-is-disabled-on-this-system-powershell).
+On Windows there is also a [portable zip](windows.md#the-portable-zip) that carries Nim and the C
+compiler, needs no PowerShell at all and is the easier first try. It is not signed yet, so Windows
+shows a blue "Windows protected your PC" screen once: click **More info**, then **Run anyway**
+([what to click](windows.md#the-blue-windows-protected-your-pc-screen)). When something goes wrong
+on Windows, start at [Windows troubleshooting](windows.md#windows-troubleshooting).
 
 **Status:** the installers have been run start to finish on GitHub's own test machines for Linux,
 Mac and Windows (the `installer` check; see [What was checked](#what-was-checked)). Nobody has run
