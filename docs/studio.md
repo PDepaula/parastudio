@@ -204,8 +204,8 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
   studio, and a game with no pick of its own starts with it; you can still pick per game later.
 - **Which model and how hard it thinks.** A small line under Pip's name says which model and
   effort the producer reported for its last message ("Claude · claude-opus-5-5 · high effort").
-  Studio does not choose either: the tool's own settings do (`default effort` means the tool did
-  not say). Until the first message there is nothing to show. A big model on high effort is the
+  Studio does not choose either: the tool's own settings do (for Codex `default effort` means the model's own default; Claude does
+  not report its effort, so it shows `effort not reported`). Until the first message there is nothing to show. A big model on high effort is the
   usual reason a turn is slow.
 - **One turn at a time.** Check, Save and Backup wait while the producer is working, and the
   other way round. **Stop** ends the turn and everything it started. A turn is stopped after

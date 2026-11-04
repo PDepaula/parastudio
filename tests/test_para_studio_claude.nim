@@ -35,12 +35,9 @@ proc ofKind(events: seq[UiEvent], k: UiKind): seq[UiEvent] =
   events.filterIt(it.kind == k)
 
 suite "claude events: the model and effort the init line reports":
-  test "model comes from the init line, effort when it has one; neither is guessed":
+  test "model comes from the init line; effort is not guessed":
     var (_, m) = mapFile("helper_ok.jsonl")
     check m.model == "claude-haiku-5-5" and m.effort == "" # the recorded run's init has a model and no effort
-    var withEffort = newClaudeMapper("/work/repo")
-    discard withEffort.mapLine("""{"type":"system","subtype":"init","session_id":"11111111-2222-4333-8444-555555555555","model":"claude-opus-5-5[1m]","effort":"high","claude_code_version":"2.1.306"}""")
-    check withEffort.model == "claude-opus-5-5[1m]" and withEffort.effort == "high"
     var odd = newClaudeMapper("/work/repo")
     discard odd.mapLine("""{"type":"system","subtype":"init","model":"<script>alert(1)</script>","effort":{"level":"high"}}""")
     check odd.model == "" and odd.effort == "" # anything but a plain name is left out, an object is not an effort

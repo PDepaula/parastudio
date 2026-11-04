@@ -1374,7 +1374,7 @@ let agentsNow = [], agentCurrent = null;
 function showRan(model, effort) {
   const x = agentCurrent, el = $("agent-ran");
   if (!x) { el.textContent = ""; el.title = ""; return; }
-  el.textContent = model ? x.label + " · " + model + " · " + (effort ? effort + " effort" : "default effort")
+  el.textContent = model ? x.label + " · " + model + " · " + (effort ? effort + " effort" : x.name === "codex" ? "default effort" : "effort not reported")
                          : "Model and effort show after your first message.";
   el.title = "The studio does not choose the model or the effort: " + x.label + " does, from its own settings. A big model on high effort can make a turn slow.";
 }

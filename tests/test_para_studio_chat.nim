@@ -408,7 +408,7 @@ suite "para studio chat: two agents, each with its own conversation":
   test "the page shows the model and effort under the producer card":
     let page = readFile(currentSourcePath.parentDir.parentDir / "tools" / "para" / "studio" / "index.html")
     check "id=\"agent-ran\"" in page and "showRan(d.model, d.effort)" in page and "showRan(current ? current.model" in page
-    check "default effort" in page and "after your first message" in page
+    check "default effort" in page and "effort not reported" in page and "after your first message" in page
 
   test "a pick with no game is the studio-wide default: games without their own pick follow it":
     beginBoth(games = @[])
