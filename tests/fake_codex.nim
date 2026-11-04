@@ -29,6 +29,10 @@
 #   sleep           wait FAKE_CODEX_SLEEP_MS (default two minutes), then exit 0: the grandchild of `deaf`
 #   noversion       `--version` prints something that is not a version
 #
+# `model/list` (asked only for a Quick or Deep turn) is answered with tests/fixtures/codex-appserver/
+# model_list.json, by FAKE_CODEX_MODELS: "normal" (the default), "error" (a JSON-RPC error) or "empty"
+# (no models).
+#
 # `login status` (the startup check) answers by FAKE_CODEX_LOGIN, whatever the mode: "in" (the
 # default; "Logged in using ChatGPT", exit 0), "out" ("Not logged in", exit 1) or "garbage".
 #
@@ -116,6 +120,14 @@ proc fakeCodexMain*() =
       var r = hs[0]
       r["result"]["codexHome"] = %getEnv("FAKE_CODEX_HOME", "/home/friend/.codex")
       emit answer(r, id)
+    of "model/list":
+      case getEnv("FAKE_CODEX_MODELS", "normal")
+      of "error":
+        emit $(%*{"id": id, "error": {"code": -32601, "message": "model/list is not available"}})
+      of "empty":
+        emit $(%*{"id": id, "result": {"data": [], "nextCursor": nil}})
+      else:
+        emit answer(parseJson(readFile(threadFixtureDir / "model_list.json")), id)
     of "thread/start":
       emit answer(hs[1], id)
     of "thread/resume":

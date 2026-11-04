@@ -1,0 +1,5 @@
+{"result":{"data":[
+ {"id":"gpt-6-luna","model":"gpt-6-luna","displayName":"GPT-6 Luna","description":"The default model","hidden":false,"isDefault":true,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast"},{"reasoningEffort":"medium","description":"Balanced"},{"reasoningEffort":"high","description":"Deep"},{"reasoningEffort":"xhigh","description":"Deepest"}]},
+ {"id":"gpt-6-luna-mini","model":"gpt-6-luna-mini","displayName":"GPT-6 Luna Mini","description":"Smaller","hidden":false,"isDefault":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast"},{"reasoningEffort":"medium","description":"Balanced"}]},
+ {"id":"gpt-5-old-mini","model":"gpt-5-old-mini","displayName":"Old mini","description":"Hidden from the picker","hidden":true,"isDefault":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast"}]}
+],"nextCursor":null}}

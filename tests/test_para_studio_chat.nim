@@ -126,7 +126,7 @@ suite "para studio chat: the new routes keep every B1 check":
   teardown: finish()
 
   const getRoutes = ["/api/agent", "/api/chat?game=pong&since=0"]
-  const postRoutes = ["/api/chat/send", "/api/chat/stop", "/api/chat/new", "/api/agent/pick"]
+  const postRoutes = ["/api/chat/send", "/api/chat/stop", "/api/chat/new", "/api/agent/pick", "/api/speed/pick"]
 
   test "no token and a wrong token are a 403, and nothing is started":
     for path in getRoutes:
@@ -359,7 +359,7 @@ suite "para studio chat: two agents, each with its own conversation":
 
   teardown:
     finish()
-    for k in ["PARA_FAKE_CODEX", "FAKE_CODEX_MODE", "FAKE_CODEX_FIXTURE", "FAKE_CODEX_LOG"]: delEnv(k)
+    for k in ["PARA_FAKE_CODEX", "FAKE_CODEX_MODE", "FAKE_CODEX_FIXTURE", "FAKE_CODEX_LOG", "FAKE_CODEX_MODELS"]: delEnv(k)
 
   test "the agent route lists both producers, the default first, with who pays and what to expect":
     beginBoth()
@@ -421,8 +421,160 @@ suite "para studio chat: two agents, each with its own conversation":
 
   test "the page shows the model and effort under the producer card":
     let page = readFile(currentSourcePath.parentDir.parentDir / "tools" / "para" / "studio" / "index.html")
-    check "id=\"agent-ran\"" in page and "showRan(d.model, d.effort)" in page and "showRan(current ? current.model" in page
+    check "id=\"agent-ran\"" in page and "showRan(d)" in page and "showRan({ model: current ? current.model" in page
     check "default effort" in page and "effort not reported" in page and "after your first message" in page
+    check "(asked for)" in page and "starts with your next message" in page
+
+  test "the page has a speed select in the producer card, disabled while the game's turn runs":
+    let page = readFile(currentSourcePath.parentDir.parentDir / "tools" / "para" / "studio" / "index.html")
+    check "<select id=\"speed\"" in page and "id=\"speed-row\"" in page
+    check "/api/speed/pick" in page and "renderSpeed(" in page
+    check "$(\"speed\").disabled = chatRunning || stepHere || !game" in page
+
+  proc claudeArgs(): seq[seq[string]] =
+    ## The argument list of every turn the stand-in `claude` was started for.
+    for c in calls(): result.add c["args"].getElems.mapIt(it.getStr)
+
+  const baseArgs = @["-p", "--output-format", "stream-json", "--verbose", "--setting-sources", "project,local"]
+
+  proc pickSpeed(speed: string, game = "pong"): Reply =
+    running.post("/api/speed/pick", %*{"game": game, "speed": speed})
+
+  test "a game starts at Standard, which passes neither --model nor --effort":
+    beginBoth()
+    let a = jsonOf(running.request("GET", "/api/agent?game=pong"))
+    check a["speed"].getStr == "standard" and a["speeds"].mapIt(it["id"].getStr) == @["quick", "standard", "deep"]
+    check a["speeds"].mapIt(it["label"].getStr) == @["Quick", "Standard", "Deep"]
+    check "sonnet" in a["speeds"][0]["asks"].getStr and "medium" in a["speeds"][0]["asks"].getStr
+    check a["speeds"][1]["asks"].getStr == "Claude's own model and effort"
+    check jsonOf(running.request("GET", "/api/agent?game="))["speed"].getStr == "" # no game, no speed
+    turn("hello")
+    check claudeArgs() == @[baseArgs]
+    let ran = jsonOf(running.request("GET", "/api/chat?game=pong"))["ran"]
+    check ran["speedRan"].getStr == "standard" and ran["askedModel"].getStr == "" and ran["askedEffort"].getStr == ""
+    check not fileExists(root / "tmp" / "studio" / "speed-pong.txt")
+
+  test "Quick and Deep reach the spawned claude as --model and --effort flags, and Standard takes them away again":
+    beginBoth()
+    check pickSpeed("quick").status == 200
+    check readFile(root / "tmp" / "studio" / "speed-pong.txt") == "quick"
+    turn("one")
+    check pickSpeed("deep").status == 200
+    turn("two")
+    check pickSpeed("standard").status == 200
+    turn("three")
+    let args = claudeArgs()
+    check args.len == 3
+    check args[0] == baseArgs & @["--model", "sonnet", "--effort", "medium"]
+    check args[1] == baseArgs & @["--model", "opus", "--effort", "high", "--resume", sessionId] # the flags and the resumed conversation go together
+    check args[2] == baseArgs & @["--resume", sessionId]
+    # the studio never sets the environment variables that would pin the helpers too
+    check getEnv("CLAUDE_CODE_EFFORT_LEVEL") == "" and getEnv("CLAUDE_CODE_SUBAGENT_MODEL") == ""
+
+  test "what the line shows is what was passed and what the agent reported":
+    beginBoth()
+    check pickSpeed("quick").status == 200
+    var c: Chat
+    running.poll(c)
+    check c.events.len == 1 and c.events[0]["code"].getStr == "speed-picked"
+    check "Quick speed" in c.events[0]["text"].getStr and "sonnet, medium effort" in c.events[0]["text"].getStr
+    let before = jsonOf(running.request("GET", "/api/chat?game=pong"))
+    check before["speed"].getStr == "quick" and before["ran"]["speedRan"].getStr == "" # nothing has run at Quick yet
+    turn("go")
+    let d = jsonOf(running.request("GET", "/api/chat?game=pong"))
+    check d["ran"]["speedRan"].getStr == "quick" and d["ran"]["askedModel"].getStr == "sonnet" and d["ran"]["askedEffort"].getStr == "medium"
+    check d["model"].getStr == "claude-haiku-5-5" # what the (stand-in) agent reported, whatever was asked
+    check pickSpeed("deep").status == 200
+    let after = jsonOf(running.request("GET", "/api/chat?game=pong"))
+    check after["speed"].getStr == "deep" and after["ran"]["speedRan"].getStr == "quick" # the line still tells what the last turn used
+    check pickSpeed("quick").status == 200
+    check pickSpeed("quick").status == 200 # the same pick again says nothing more
+    var all: Chat
+    running.poll(all)
+    check all.events.filterIt(it{"code"}.getStr == "speed-picked").len == 3
+
+  test "each game keeps its own speed":
+    beginBoth(games = @["pong", "tetris"])
+    check pickSpeed("deep", "pong").status == 200
+    check jsonOf(running.request("GET", "/api/agent?game=pong"))["speed"].getStr == "deep"
+    check jsonOf(running.request("GET", "/api/agent?game=tetris"))["speed"].getStr == "standard"
+    check not fileExists(root / "tmp" / "studio" / "speed-tetris.txt")
+    check pickSpeed("quick", "tetris").status == 200
+    var t: Chat
+    check running.send("for tetris", "tetris").status == 200
+    running.waitFor(t, finished, game = "tetris")
+    turn("for pong")
+    let args = claudeArgs()
+    check args.len == 2
+    check args[0].anyIt(it == "sonnet") and not args[0].anyIt(it == "opus")
+    check args[1].anyIt(it == "opus") and not args[1].anyIt(it == "sonnet")
+    check jsonOf(running.request("GET", "/api/chat?game=tetris"))["ran"]["askedModel"].getStr == "sonnet"
+    check jsonOf(running.request("GET", "/api/chat?game=pong"))["ran"]["askedModel"].getStr == "opus"
+    # a studio started again on the same folder remembers both
+    running.stop()
+    let claude = adapterNamed("claude", getAppFilename())
+    running = startStudio(root, getAppFilename(), "", claude, others = @[adapterNamed("codex", getAppFilename())])
+    check jsonOf(running.request("GET", "/api/agent?game=pong"))["speed"].getStr == "deep"
+    check jsonOf(running.request("GET", "/api/agent?game=tetris"))["speed"].getStr == "quick"
+
+  test "a speed pick needs a game and a real speed, and is refused while that game's turn runs; another game's is not":
+    beginBoth(games = @["pong", "tetris"])
+    check running.post("/api/speed/pick", %*{"game": "", "speed": "quick"}).status == 400
+    check running.post("/api/speed/pick", %*{"game": "nothere", "speed": "quick"}).status == 404
+    let bad = pickSpeed("warp")
+    check bad.status == 400 and jsonOf(bad)["error"].getStr == "which-speed"
+    putEnv("FAKE_CLAUDE_MODE", "hang")
+    putEnv("FAKE_CLAUDE_PIDFILE", root / "tmp" / "pids.txt")
+    check running.send("go").status == 200
+    let until = epochTime() + 20
+    while not fileExists(root / "tmp" / "pids.txt") and epochTime() < until: sleep(50)
+    let r = pickSpeed("quick")
+    check r.status == 409 and jsonOf(r)["error"].getStr == "busy"
+    check jsonOf(running.request("GET", "/api/agent?game=pong"))["speed"].getStr == "standard"
+    check pickSpeed("quick", "tetris").status == 200 # tetris has no turn of its own
+    check running.post("/api/chat/stop", %*{"game": "pong"}).status == 200
+    var c: Chat
+    running.waitFor(c, finished, 20)
+    check pickSpeed("quick").status == 200
+
+  test "Codex gets its model on thread/start and its effort on turn/start, picked from model/list":
+    beginBoth("codex")
+    check pickSpeed("quick").status == 200
+    turn("hello codex")
+    var sent = codexCalls().filterIt(it.hasKey("method"))
+    check sent.mapIt(it["method"].getStr) == @["initialize", "initialized", "model/list", "thread/start", "turn/start"]
+    check sent[3]["params"]["model"].getStr == "gpt-6-luna-mini" # a listed model with "mini" in it
+    check sent[4]["params"]["effort"].getStr == "medium"
+    let q = jsonOf(running.request("GET", "/api/chat?game=pong"))
+    check q["ran"]["askedModel"].getStr == "gpt-6-luna-mini" and q["ran"]["askedEffort"].getStr == "medium"
+    check q["model"].getStr == "gpt-6-luna" # what the stand-in app-server says it ran with
+    check pickSpeed("deep").status == 200
+    turn("again")
+    sent = codexCalls().filterIt(it.hasKey("method"))
+    let resume = sent.filterIt(it["method"].getStr == "thread/resume")[0]
+    check resume["params"]["model"].getStr == "gpt-6-luna"
+    check sent.filterIt(it["method"].getStr == "turn/start")[1]["params"]["effort"].getStr == "high"
+    check pickSpeed("standard").status == 200
+    turn("and again")
+    sent = codexCalls().filterIt(it.hasKey("method"))
+    check sent.filterIt(it["method"].getStr == "model/list").len == 2 # Standard asks for nothing
+    let last = sent.filterIt(it["method"].getStr == "turn/start")[2]["params"]
+    check not last.hasKey("effort")
+    check not sent.filterIt(it["method"].getStr == "thread/resume")[1]["params"].hasKey("model")
+
+  test "Codex with no usable model list runs with its own settings and says so":
+    beginBoth("codex")
+    putEnv("FAKE_CODEX_MODELS", "error")
+    check pickSpeed("deep").status == 200
+    var c: Chat
+    running.poll(c)
+    c.events = @[]
+    check running.send("hello").status == 200
+    running.waitFor(c, finished)
+    check c.events.anyIt(it{"code"}.getStr == "speed-unavailable" and "Codex's own model and effort" in it["text"].getStr)
+    let sent = codexCalls().filterIt(it.hasKey("method"))
+    check not sent.filterIt(it["method"].getStr == "thread/start")[0]["params"].hasKey("model")
+    check not sent.filterIt(it["method"].getStr == "turn/start")[0]["params"].hasKey("effort")
 
   test "a pick with no game is the studio-wide default: games without their own pick follow it":
     beginBoth(games = @[])

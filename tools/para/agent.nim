@@ -58,12 +58,21 @@ type
   SessionProc* = proc (sessionId: string) {.closure, gcsafe.}
   ModelProc* = proc (model, effort: string) {.closure, gcsafe.}
 
+  Speed* = enum
+    ## How hard the producer thinks, in the friend's words. One choice per game, the same three for
+    ## every agent; each adapter turns them into its own model and effort (see its tier table).
+    spStandard = "standard" ## whatever the agent would do on its own: nothing is passed (first, so it is the zero value: a request that says nothing passes nothing)
+    spQuick = "quick"       ## a cheaper model, medium effort
+    spDeep = "deep"         ## the strongest model, high effort
+
   TurnRequest* = object
     text*: string        ## what the friend typed (untrusted; never put on a command line)
     sessionId*: string   ## "" on the first turn
     workDir*: string     ## the repository root
     onSession*: SessionProc ## called as soon as the agent reports its session id
     onModel*: ModelProc  ## called when the agent reports the model and reasoning effort it runs the turn with ("" for what it does not say)
+    speed*: Speed        ## the game's "producer speed"; `spStandard` passes no model and no effort
+    onAsked*: ModelProc  ## called with the model and effort the adapter really passed to the agent ("" for what it left to the agent), before the agent reports back
 
   TurnResult* = object
     ok*: bool            ## the agent ended without an error (an error has been emitted otherwise)
@@ -109,6 +118,10 @@ type
       ## before it kept them). Empty when there is no such record or it cannot be read; never raises.
       ## Nil for an agent whose records are not that simple to find.
     historyDir*: string  ## where `pastTurns` looks; "" = the agent's own folder. Set by tests
+    speedAbout*: proc (speed: Speed): string {.nimcall, gcsafe.}
+      ## One plain phrase for what `speed` asks of this agent ("sonnet, medium effort"), shown beside
+      ## the picker; nil for an agent with no speed to pick. Not a promise about the model the agent
+      ## then reports.
     cost*: string        ## one plain sentence about who pays, shown beside the chat
     about*: string       ## one plain sentence for the agent picker: what to expect from this one
 
@@ -125,6 +138,19 @@ type
 
 const
   termGraceMs = 2000
+
+const
+  speedChoices* = [spQuick, spStandard, spDeep]
+  speedLabels*: array[Speed, string] = ["Standard", "Quick", "Deep"]
+  speedWords*: array[Speed, string] = [
+    "the tool's own settings: the studio asks for no particular model or effort",
+    "a cheaper model on medium effort: fastest and lightest on your plan",
+    "the strongest model on high effort: slowest, best for hard questions"]
+
+proc parseSpeed*(s: string): (bool, Speed) =
+  ## The speed named `s` ("quick", "standard", "deep"), and whether `s` named one.
+  for sp in speedChoices:
+    if $sp == s: return (true, sp)
 
 # --- stopping a turn -------------------------------------------------------------
 

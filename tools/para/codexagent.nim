@@ -20,6 +20,14 @@
 # with a shell metacharacter. The environment passes through unchanged, with one addition,
 # PARALOOP_UI=studio.
 #
+# Producer speed: the game's Quick / Standard / Deep choice (agent.nim `Speed`). Standard changes
+# nothing above. Quick and Deep add one `model/list` request after `initialize` (it only lists, no
+# model runs), pick a model and an effort from the answer (`chooseTier`), and send the model in
+# `thread/start` or `thread/resume` and the effort in `turn/start`. Efforts are only ever ones the
+# chosen model lists as supported; when the list is missing or unusable nothing is passed, a notice
+# says so and the turn runs with Codex's own settings. The words that steer the choice are the named
+# constants `quickModelHints` and the efforts in `tierEffort`; no model id is written in this file.
+#
 # Permissions: `approvalPolicy: "never"` with `sandbox: "workspace-write"`. Codex then never asks;
 # a command outside its sandbox fails inside Codex (it does not hang) and an item it was not allowed
 # to run is shown here in plain words. Should a server ask anyway (an approval request), the answer
@@ -43,12 +51,16 @@
 # exists on a paid plan only) lands under `<codexHome>/generated_images/<thread>/<item>.png`. The
 # adapter copies it into the studio's own folder (`importPicture`) and sends a `ukShot` card.
 
-import std/[json, os, osproc, streams, strutils, tables, sets, times, locks]
+import std/[json, os, osproc, streams, sequtils, strutils, tables, sets, times, locks]
 import agent
 import agentjson
 import nimutil
 import preflight
 import studioshot
+
+const
+  quickModelHints* = ["mini", "spark", "flash", "lite"] ## Quick: a listed model whose id holds one of these is the cheaper one
+  tierEffort*: array[Speed, string] = ["", "medium", "high"] ## the effort each speed asks for, when the chosen model lists it
 
 const
   testedCodexVersion* = "0.159.2"
@@ -76,7 +88,7 @@ const
 
 type
   Stage = enum
-    stStart, stInit, stThread, stTurn, stRunning, stEnded
+    stStart, stInit, stModels, stThread, stTurn, stRunning, stEnded
 
   Helper = object
     role, text, status: string
@@ -88,6 +100,8 @@ type
     workDir: string       ## the repository root as given, for paths we hand out
     text: string          ## what the friend typed
     resumeId: string      ## "" for a new conversation
+    speed: Speed
+    askModel, askEffort: string ## what this turn passes ("" = left to Codex), once `askedKnown`
     stage: Stage
     nextId: int
     pending: Table[int, string] ## request id -> method
@@ -98,6 +112,7 @@ type
     version*: string
     model*, effort*: string ## from the thread/start (or resume) answer; "" when it did not say
     modelKnown*: bool       ## that answer has arrived
+    askedKnown*: bool       ## `askModel` and `askEffort` are settled (the thread request has been built)
     sawInit*: bool
     completed*: bool      ## `turn/completed` arrived
     status*: string       ## the turn's status then: completed, interrupted or failed
@@ -113,9 +128,11 @@ type
     nearLimitTold: bool
     stray*: seq[string]
 
-proc newCodexMapper*(root = "", text = "", resumeId = ""): CodexMapper =
+proc newCodexMapper*(root = "", text = "", resumeId = "", speed = spStandard): CodexMapper =
   CodexMapper(root: root.replace('\\', '/').strip(leading = false, chars = {'/'}), workDir: root,
-              text: text, resumeId: validUuid(resumeId), nextId: 1)
+              text: text, resumeId: validUuid(resumeId), nextId: 1, speed: speed)
+
+proc asked*(m: CodexMapper): tuple[model, effort: string] = (m.askModel, m.askEffort)
 
 proc validThread*(s: string): string =
   ## `s` when it is shaped like a Codex thread id (a UUID), else "". The id travels inside JSON, not
@@ -435,6 +452,52 @@ proc fail(m: var CodexMapper, name, message: string): seq[UiEvent] =
   m.stage = stEnded
   @[m.failureEvent(name, message)]
 
+proc chooseTier*(items: JsonNode, speed: Speed): tuple[model, effort: string] =
+  ## The model and effort `speed` asks for, out of the `data` array of a `model/list` answer; both ""
+  ## when nothing usable is there or for Standard. Quick: a listed model whose id holds one of
+  ## `quickModelHints` (else the default model) on `tierEffort`; Deep: the default model on
+  ## `tierEffort`. A model name that is not a plain word is skipped, and an effort the chosen model
+  ## does not list is left out.
+  if speed == spStandard or items == nil or items.kind != JArray: return
+  var visible: seq[JsonNode]
+  for it in items:
+    if it.kind != JObject or modelWord(it.str("model")).len == 0: continue
+    if it.at("hidden") != nil and it["hidden"].kind == JBool and it["hidden"].getBool: continue
+    visible.add it
+  if visible.len == 0: return
+  var pick = visible[0]
+  for it in visible:
+    if it.at("isDefault") != nil and it["isDefault"].kind == JBool and it["isDefault"].getBool:
+      pick = it
+      break
+  if speed == spQuick:
+    for it in visible:
+      let name = it.str("model").toLowerAscii
+      if quickModelHints.anyIt(it in name):
+        pick = it
+        break
+  result.model = modelWord(pick.str("model"))
+  let want = tierEffort[speed]
+  let efforts = pick.at("supportedReasoningEfforts")
+  if want.len > 0 and efforts != nil and efforts.kind == JArray:
+    for o in efforts:
+      if o.kind == JObject and o.str("reasoningEffort") == want:
+        result.effort = want
+        break
+
+proc startThread(m: var CodexMapper) =
+  ## Sends `thread/start` (or `thread/resume`), with the chosen model when there is one.
+  let policy = %*{"cwd": m.workDir, "approvalPolicy": "never", "sandbox": "workspace-write"}
+  if m.askModel.len > 0: policy["model"] = %m.askModel
+  m.askedKnown = true
+  m.stage = stThread
+  if m.resumeId.len > 0:
+    policy["threadId"] = %m.resumeId
+    policy["excludeTurns"] = %true
+    m.outbox.add m.request("thread/resume", policy)
+  else:
+    m.outbox.add m.request("thread/start", policy)
+
 proc onResponse(m: var CodexMapper, id: int, e: JsonNode): seq[UiEvent] =
   if id notin m.pending: return # the answer to our interrupt, say
   let meth = m.pending[id]
@@ -453,14 +516,19 @@ proc onResponse(m: var CodexMapper, id: int, e: JsonNode): seq[UiEvent] =
       let v = userAgent[slash + 1 .. ^1].splitWhitespace()
       if v.len > 0 and v[0].allCharsInSet({'0'..'9', '.'}): m.version = v[0]
     m.outbox.add notification("initialized")
-    let policy = %*{"cwd": m.workDir, "approvalPolicy": "never", "sandbox": "workspace-write"}
-    m.stage = stThread
-    if m.resumeId.len > 0:
-      policy["threadId"] = %m.resumeId
-      policy["excludeTurns"] = %true
-      m.outbox.add m.request("thread/resume", policy)
+    if m.speed == spStandard:
+      m.startThread()
     else:
-      m.outbox.add m.request("thread/start", policy)
+      m.stage = stModels
+      m.outbox.add m.request("model/list", %*{"includeHidden": false, "limit": 100})
+  of "model/list":
+    let (model, effort) = if isError: ("", "") else: chooseTier(e.at("result", "data"), m.speed)
+    m.askModel = model
+    m.askEffort = effort
+    m.startThread()
+    if model.len == 0:
+      return @[UiEvent(kind: ukNotice, code: "speed-unavailable",
+        text: "Codex didn't list the models it offers, so this message ran with Codex's own model and effort instead of " & speedLabels[m.speed] & ".")]
   of "thread/start", "thread/resume":
     if isError:
       let name = err.at("data").errorName
@@ -478,7 +546,9 @@ proc onResponse(m: var CodexMapper, id: int, e: JsonNode): seq[UiEvent] =
     m.effort = modelWord(e.str("result", "reasoningEffort"))
     m.modelKnown = true
     m.stage = stTurn
-    m.outbox.add m.request("turn/start", %*{"threadId": thread, "input": [{"type": "text", "text": m.text}]})
+    let turn = %*{"threadId": thread, "input": [{"type": "text", "text": m.text}]}
+    if m.askEffort.len > 0: turn["effort"] = %m.askEffort
+    m.outbox.add m.request("turn/start", turn)
   of "turn/start":
     if isError: return m.fail(err.at("data").errorName, message)
     let tid = e.str("result", "turn", "id")
@@ -655,11 +725,15 @@ proc attemptTurn(exe: string, req: TurnRequest, ctl: ptr TurnControl, emit: Emit
   var line: string
   var lastSession = ""
   var told = false
+  var askedTold = false
   try:
     while p.outputStream.readLine(line):
       for ev in m.mapLine(line):
         emit ev
       link.sendLines(m.takeOutbox())
+      if m.askedKnown and not askedTold:
+        askedTold = true
+        if not req.onAsked.isNil: req.onAsked(m.askModel, m.askEffort)
       if m.modelKnown and not told:
         told = true
         if not req.onModel.isNil: req.onModel(m.model, m.effort)
@@ -696,7 +770,7 @@ proc codexRunTurn(a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl, emit:
     return TurnResult(exitCode: 127)
   var session = validThread(req.sessionId)
   for attempt in 0 .. 1:
-    var m = newCodexMapper(req.workDir, req.text, session)
+    var m = newCodexMapper(req.workDir, req.text, session, req.speed)
     let r = attemptTurn(exe, req, ctl, emit, m)
     result.exitCode = r.exitCode
     result.sessionId = if m.sessionId.len > 0: m.sessionId else: session
@@ -712,7 +786,13 @@ proc codexRunTurn(a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl, emit:
                 not m.errorEmitted
     return
 
+proc codexSpeedAbout(speed: Speed): string =
+  case speed
+  of spQuick: "a smaller model from Codex's own list, medium effort"
+  of spStandard: "Codex's own model and effort"
+  of spDeep: "Codex's default model from its own list, high effort"
+
 proc newCodexAdapter*(exe = ""): AgentAdapter =
   ## `exe` is for tests (a stand-in program); left out, `codex` is looked up on PATH each time.
   AgentAdapter(name: "codex", label: "Codex", exe: exe, describe: codexDescribe, preflight: codexPreflight,
-               runTurn: codexRunTurn, cost: costSentence, about: aboutSentence)
+               runTurn: codexRunTurn, speedAbout: codexSpeedAbout, cost: costSentence, about: aboutSentence)

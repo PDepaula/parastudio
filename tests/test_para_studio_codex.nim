@@ -704,3 +704,65 @@ suite "codex adapter: stopping a turn":
       joinThread(jobThread) # returns because attach() sees the cancel and ends the child
       check done and cancelled
       freeTurnControl(ctl)
+
+suite "codex conversation: producer speed":
+  proc modelListAnswer(id: int): string =
+    var r = parseJson(readFile(fixtures / "model_list.json"))
+    r["id"] = %id
+    $r
+
+  proc speedFeed(speed: Speed, resumeId = "", list = ""): Feed =
+    ## initialize, then model/list (answered with `list`, the fixture's by default), then the thread and turn answers.
+    result.m = newCodexMapper("/work/repo", "hi", resumeId, speed)
+    result.sent.add result.m.begin().parsed
+    let hs = fixtureLines("handshake.jsonl")
+    result.feed(hs[0])
+    result.feed(if list.len > 0: list else: modelListAnswer(2))
+    var thread = parseJson(hs[1])
+    thread["id"] = %3
+    result.feed($thread)
+    var turn = parseJson(hs[2])
+    turn["id"] = %4
+    result.feed($turn)
+
+  test "Standard sends exactly what it always did: no model/list, no model, no effort":
+    var f = started()
+    check f.sent.methods == @["initialize", "initialized", "thread/start", "turn/start"]
+    check not f.sent[2]["params"].hasKey("model") and not f.sent[3]["params"].hasKey("effort")
+    check f.m.askedKnown and f.m.asked == ("", "")
+
+  test "Quick lists the models, starts the thread on the listed smaller one and asks medium effort on the turn":
+    let f = speedFeed(spQuick)
+    check f.sent.methods == @["initialize", "initialized", "model/list", "thread/start", "turn/start"]
+    check f.sent[2]["params"]["includeHidden"].getBool == false
+    check f.sent[3]["params"]["model"].getStr == "gpt-6-luna-mini"
+    check f.sent[4]["params"]["effort"].getStr == "medium"
+    check not f.sent[4]["params"].hasKey("model")
+    check f.m.asked == ("gpt-6-luna-mini", "medium")
+    check f.events.len == 0
+
+  test "Deep uses the default model with high effort; a resumed thread gets the model too":
+    let f = speedFeed(spDeep, resumeId = threadId)
+    check f.sent.methods == @["initialize", "initialized", "model/list", "thread/resume", "turn/start"]
+    check f.sent[3]["params"]["model"].getStr == "gpt-6-luna" and f.sent[3]["params"]["threadId"].getStr == threadId
+    check f.sent[4]["params"]["effort"].getStr == "high"
+
+  test "no list, an error or nothing usable: nothing is passed and a notice says so":
+    var errored = parseJson("""{"id":2,"error":{"code":-32601,"message":"no such method"}}""")
+    for list in [$errored, """{"id":2,"result":{"data":[],"nextCursor":null}}""", """{"id":2,"result":{}}"""]:
+      let f = speedFeed(spDeep, list = list)
+      check not f.sent[3]["params"].hasKey("model") and not f.sent[4]["params"].hasKey("effort")
+      check f.events.len == 1 and f.events[0].kind == ukNotice and f.events[0].code == "speed-unavailable"
+      check f.m.asked == ("", "")
+
+  test "chooseTier: hidden and odd models are skipped, and an effort the model does not list is left out":
+    let data = parseJson("""[
+      {"model":"hidden-mini","hidden":true,"isDefault":false,"supportedReasoningEfforts":[{"reasoningEffort":"medium"}]},
+      {"model":"bad name; reboot","hidden":false,"isDefault":false,"supportedReasoningEfforts":[]},
+      {"model":"big","hidden":false,"isDefault":true,"supportedReasoningEfforts":[{"reasoningEffort":"low"}]},
+      {"model":"small-mini","hidden":false,"isDefault":false,"supportedReasoningEfforts":[{"reasoningEffort":"medium"}]}]""")
+    check chooseTier(data, spQuick) == ("small-mini", "medium")
+    check chooseTier(data, spDeep) == ("big", "") # high is not listed for it
+    check chooseTier(data, spStandard) == ("", "")
+    check chooseTier(parseJson("[]"), spQuick) == ("", "")
+    check chooseTier(newJNull(), spDeep) == ("", "")

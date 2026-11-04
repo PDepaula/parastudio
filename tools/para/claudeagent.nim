@@ -7,7 +7,7 @@
 #
 # How a turn runs:
 #
-#   claude -p --output-format stream-json --verbose --setting-sources project,local [--resume ID]
+#   claude -p --output-format stream-json --verbose --setting-sources project,local [--model M] [--effort E] [--resume ID]
 #
 # in the repository root, with the friend's message on the child's standard input. The message is
 # never part of the command line: it is untrusted text, and on Windows a `.cmd` shim would hand a
@@ -18,6 +18,13 @@
 # session-start hook) and its permission allow-list still apply. The environment passes through
 # unchanged, with one addition, PARALOOP_UI=studio, which is how the producer learns it is talking
 # through a page with buttons instead of a terminal.
+#
+# Producer speed: the game's Quick / Standard / Deep choice (agent.nim `Speed`) becomes `--model` and
+# `--effort` flags on the producer's own process, the only place that sets them (never the
+# CLAUDE_CODE_EFFORT_LEVEL or CLAUDE_CODE_SUBAGENT_MODEL environment variables, which would pin every
+# helper too; the helpers keep following the producer playbook). Standard passes neither flag. The
+# models are Claude's own aliases ("sonnet", "opus": Claude resolves each to its latest), kept in
+# `speedTiers` below, the one place to change when a tier should move to another model.
 #
 # What it never does: `--bare`, `--dangerously-skip-permissions`, any `--permission-mode`. Headless
 # permissions come from the allow-list in .claude/settings.json (Bash for `tmp/para ...`, and Edit
@@ -47,6 +54,14 @@ import agent
 import agentjson
 import nimutil
 import preflight
+
+type Tier = tuple[model, effort: string] ## "" = pass no flag
+
+const
+  speedTiers*: array[Speed, Tier] = [
+    (model: "", effort: ""),             # Standard: Claude's own settings
+    (model: "sonnet", effort: "medium"), # Quick: a cheaper model, medium effort
+    (model: "opus", effort: "high")]     # Deep: the strongest alias this account is likely to have, high effort
 
 const
   testedClaudeVersion* = "2.1.296"
@@ -428,9 +443,22 @@ type Attempt = object
   exitCode: int
   started: bool
 
+proc speedArgs*(speed: Speed): seq[string] =
+  ## The flags that ask for `speed`'s model and effort ("--model sonnet --effort medium"); none for Standard.
+  let t = speedTiers[speed]
+  if t.model.len > 0: result.add ["--model", t.model]
+  if t.effort.len > 0: result.add ["--effort", t.effort]
+
+proc claudeSpeedAbout(speed: Speed): string =
+  let t = speedTiers[speed]
+  if t.model.len == 0 and t.effort.len == 0: return "Claude's own model and effort"
+  result = (if t.model.len > 0: t.model else: "Claude's own model")
+  if t.effort.len > 0: result.add ", " & t.effort & " effort"
+
 proc attemptTurn(exe: string, req: TurnRequest, session: string, ctl: ptr TurnControl,
                  emit: EmitProc, m: var ClaudeMapper): Attempt =
   var args = @["-p", "--output-format", "stream-json", "--verbose", "--setting-sources", "project,local"]
+  args.add speedArgs(req.speed)
   if session.len > 0: args.add ["--resume", session]
   if isShim(exe) and not shimSafe(args):
     emit UiEvent(kind: ukError, code: "cannot-start", text: "I couldn't start Claude safely on this computer.")
@@ -445,6 +473,7 @@ proc attemptTurn(exe: string, req: TurnRequest, session: string, ctl: ptr TurnCo
     return Attempt(exitCode: 127)
   result.started = true
   ctl.attach(p.processID)
+  if not req.onAsked.isNil: req.onAsked(speedTiers[req.speed].model, speedTiers[req.speed].effort)
   try:
     p.inputStream.write(req.text)
     p.inputStream.close()
@@ -567,4 +596,4 @@ proc claudePastTurns(a: AgentAdapter, root, sessionId: string): seq[ChatLine] =
 proc newClaudeAdapter*(exe = ""): AgentAdapter =
   ## `exe` is for tests (a stand-in program); left out, `claude` is looked up on PATH each time.
   AgentAdapter(name: "claude", label: "Claude", exe: exe, describe: claudeDescribe, preflight: claudePreflight,
-               runTurn: claudeRunTurn, pastTurns: claudePastTurns, cost: costSentence, about: aboutSentence)
+               runTurn: claudeRunTurn, pastTurns: claudePastTurns, speedAbout: claudeSpeedAbout, cost: costSentence, about: aboutSentence)
