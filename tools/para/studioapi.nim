@@ -374,12 +374,23 @@ proc startJob(st: ptr Studio, kind, game: string, args: seq[string]): Response =
   st.jobArgs = args
   st.jobRunning = true
   st.jobWatch = newWatch(st.jobSeconds)
+  var watchStarted = false
   try:
     createThread(st.jobWatch.thread, watchMain, st.jobWatch)
+    watchStarted = true
     createThread(st.jobThread, jobMain, st)
     st.jobThreadStarted = true
   except CatchableError:
     st.jobRunning = false
+    let w = st.jobWatch
+    st.jobWatch = nil
+    if watchStarted:
+      acquire(w.lock)
+      w.done = true
+      release(w.lock)
+      joinThread(w.thread)
+    deinitLock(w.lock)
+    dealloc(w)
     return fail(500, "The studio could not start that step.", "spawn")
   jsonResponse(200, %*{"job": jobSummary(st)})
 
