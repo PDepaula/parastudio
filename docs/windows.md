@@ -133,8 +133,8 @@ Claude is the default. **To choose Codex instead**, or Claude when Claude does n
 the one in use is not installed or not signed in and the other is installed, the checklist shows a
 **Use Codex instead** (or **Use Claude instead**) button right there, before you have a game. That
 pick is for the whole Studio; each game can still pick its own later. Using either costs your own
-plan or credit. A small line under Pip's name shows the model and effort it reported for the last
-message ([The Studio page](studio.md)).
+plan or credit. A **Speed** menu under Pip's name picks how hard the producer thinks, and a small line shows the
+model and effort it reported for the last message ([The Studio page](studio.md)).
 
 On Windows the "trusts this folder" check for Claude cannot answer "no" (the key format in
 Claude's settings file has not been checked on a real PC), so a missing trust shows as amber
@@ -161,7 +161,8 @@ is how it gets timed, and this page will say the number once there is one. What 
 - Pressing **Play** the first time builds the game, which takes "a few minutes on Windows" per
   [the step-by-step page](windows-first-game.md); later builds are quick.
 - A producer turn that makes a game depends on the model and effort; a big model on high effort is
-  the usual reason a turn is slow ([The Studio page](studio.md)).
+  the usual reason a turn is slow, and the **Speed** menu's Quick is the first thing to try
+  ([The Studio page](studio.md)).
 
 The first start is the long wait. If it seems stuck, or stops with a block of text, see
 [Windows troubleshooting](#windows-troubleshooting).
