@@ -47,8 +47,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 NIM_VERSION = "2.2.10"
 NIM_ZIP_URL = f"https://nim-lang.org/download/nim-{NIM_VERSION}_x64.zip"
-# SHA-256 of that zip, from the .sha256 file nim-lang.org publishes next to it (the same value pinned
-# in tools/launcher/launch.bat; tests/test_portable.nim checks the two stay equal).
+# SHA-256 of that zip, from the .sha256 file nim-lang.org publishes next to it.
 NIM_ZIP_SHA256 = "fe0686a9b298e5b13d0a983df37e002a8c6320f8b16cc45a51d15cf4046a109f"
 MINGW_URL = "https://nim-lang.org/download/mingw64.7z"
 # SHA-256 of that archive, from mingw64.7z.sha256 on nim-lang.org (checked 2026-11-03): the winlibs

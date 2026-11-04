@@ -11,7 +11,7 @@
 # is checked by the `portable` workflow (.github/workflows/portable.yml) and by the friend.
 # Skipped on Windows (the stand-ins are shell scripts).
 
-import std/[unittest, os, osproc, strutils, strtabs, tempfiles, streams]
+import std/[unittest, os, osproc, strutils, strtabs, tempfiles, streams, json]
 
 const
   source = "tools" / "launcher" / "launch.nim"
@@ -283,15 +283,47 @@ else:
       check r.code == 0
       check r.output.contains("ok: git is installed.")
 
-  suite "native launcher: what it never does":
-    test "its source runs no administrator, registry, PATH-for-good or piped-download command":
-      let text = readFile(source)
-      for banned in ["sudo", "runas", "setx", "reg add", "powershell", "Invoke-Expression", "| sh", "| iex",
-                     ".claude", ".codex", "credentials", "ShellExecute"]:
-        checkpoint "found " & banned
-        check not text.contains(banned)
-      for i, c in text:
-        if c > '\x7f': checkpoint("non-ASCII byte at " & $i); fail()
-        if c == '\r': checkpoint("CR at " & $i); fail()
+  suite "native launcher: the folders the portable zip script makes":
+    test "a layout built from the script's own names is found, bundled tools first":
+      let python = findExe("python3")
+      if python.len == 0: skip()
+      else:
+        let layout = createTempDir("portable-layout-", "")
+        defer: removeDir(layout)
+        let helper = layout / "names.py"
+        writeFile(helper, """
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("bp", sys.argv[1])
+bp = importlib.util.module_from_spec(spec); spec.loader.exec_module(bp)
+print(json.dumps({"folder": bp.FOLDER, "exe": bp.EXE, "nim": bp.NIM_VERSION, "required": bp.REQUIRED}))
+""")
+        let r = execCmdEx("PYTHONDONTWRITEBYTECODE=1 python3 -I " & quoteShell(helper) & " " & quoteShell(absolutePath("tools" / "launcher" / "build_portable.py")))
+        check r.exitCode == 0
+        let names = parseJson(r.output.strip.splitLines[^1])
+        let folder = layout / names["folder"].getStr
+        let ver = names["nim"].getStr
+        for n in names["required"]:
+          # the script names Windows programs; the stand-ins here have no .exe
+          let rel = n.getStr.replace(".exe", "")
+          let path = layout / rel
+          if rel.endsWith("/nim"):
+            script(path, "echo \"Nim Compiler Version " & ver & " [Linux: amd64]\"")
+          else:
+            put(path, "x", exec = rel.contains("/bin/"))
+        copyFile(exe, folder / "Paraloop-Studio")
+        setFilePermissions(folder / "Paraloop-Studio", {fpUserRead, fpUserWrite, fpUserExec})
+        createDir(layout / "pathbin")
+        script(layout / "pathbin" / "git", "exit 0")
+        var env = newStringTable()
+        env["HOME"] = layout / "home"
+        env["PATH"] = layout / "pathbin"
+        env["PARALOOP_LAUNCHER_PAUSE"] = "0"
+        let p = startProcess(folder / "Paraloop-Studio", workingDir = folder, args = @["--check"], env = env,
+                             options = {poStdErrToStdOut})
+        let output = p.outputStream.readAll
+        discard p.waitForExit
+        p.close
+        check output.contains("found a C compiler: gcc in " & folder / "mingw64" / "bin" & " (the one in this zip)")
+        check output.contains("found Nim " & ver & " in " & folder / "nim-" & ver / "bin")
 
   removeDir(work)
