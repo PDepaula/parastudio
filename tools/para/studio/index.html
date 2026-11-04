@@ -157,6 +157,7 @@ button.row:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 7%, 
 .row:disabled { opacity: .55; }
 .row.sel { background: var(--selected); box-shadow: inset 3px 0 0 var(--focus); font-weight: 800; }
 .row .tx { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.row .wk { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 800; line-height: 16px; }
 .row .when { color: var(--mute); font-size: 12.5px; flex: none; }
 .row .n { min-width: 28px; height: 28px; padding: 0 4px; border-radius: 10px; background: var(--surface-2); color: var(--mute); display: grid; place-items: center; font-size: 13px; font-weight: 800; flex: none; }
 .row .ic { color: var(--mute); }
@@ -924,6 +925,17 @@ function helloFacts(f) {
   return bits.join(" · ");
 }
 
+// "Working" beside a game the producer has a turn running on, so a second game's page says so too.
+function workingTag(g) {
+  const t = textEl("span", "wk", "Working");
+  t.dataset.game = g;
+  t.hidden = !workingGames.includes(g);
+  return t;
+}
+function markWorking(list) {
+  workingGames = Array.isArray(list) ? list : [];
+  for (const t of document.querySelectorAll(".wk")) t.hidden = !workingGames.includes(t.dataset.game);
+}
 function renderGames(games) {
   const list = $("games-list"), menu = $("game-menu");
   list.textContent = ""; menu.textContent = "";
@@ -932,14 +944,14 @@ function renderGames(games) {
   for (const g of games) {
     const row = document.createElement("button");
     row.type = "button"; row.className = "row" + (g === game ? " sel" : "");
-    row.append(thumb(g), textEl("span", "tx", g));
+    row.append(thumb(g), textEl("span", "tx", g), workingTag(g));
     if (g === game) row.setAttribute("aria-current", "true");
     row.addEventListener("click", () => pickGame(g));
     list.append(row);
     const item = document.createElement("button");
     item.type = "button"; item.className = "row"; item.setAttribute("role", "menuitemradio"); item.setAttribute("aria-checked", g === game ? "true" : "false");
     const mark = textEl("span", "mk", ""); mark.append(svgIcon("M20 6L9 17l-5-5"));
-    item.append(mark, thumb(g), textEl("span", "tx", g));
+    item.append(mark, thumb(g), textEl("span", "tx", g), workingTag(g));
     item.addEventListener("click", () => { closeMenus(); $("picker-btn").focus(); pickGame(g); });
     menu.append(item);
   }
@@ -952,6 +964,9 @@ function pickGame(g) {
   game = g;
   for (const id of ["check-result", "save-result", "backup-result"]) say($(id), "", "");
   $("check-details").hidden = true;
+  chatRunning = false; // this game's own state comes with the next poll, started now
+  syncButtons();
+  pollChat();
   refresh();
   loadAgent().catch((e) => say($("chat-result"), e.message, "bad")); // each game remembers its own producer
 }
@@ -960,6 +975,7 @@ async function loadState() {
   const s = await api("GET", "/api/state" + gameQuery());
   game = s.game || "";
   const none = s.games.length === 0, has = !!game;
+  workingGames = s.working || [];
   renderGames(s.games);
   $("game-title").textContent = game || (none ? "Para Studio" : "Pick a game");
   $("game-thumb").textContent = game ? game.slice(0, 1).toUpperCase() : "";
@@ -1018,16 +1034,21 @@ async function loadBackup() {
   btn.hidden = false;
 }
 
-let chatRunning = false;
+let chatRunning = false; // the producer is working on the game the page shows (another game's turn does not count)
+let workingGames = []; // every game the producer is working on right now
+let jobGame = ""; // the game the running Check, Save, Land, Backup or new-game step is for
 let playBusy = false, shotBusy = false, playOn = false;
-function setBusy(on) {
+function setBusy(on, forGame) {
   busy = on;
+  jobGame = on ? (forGame === undefined ? game : forGame) : "";
   syncButtons();
 }
-// Check, Save, Backup and a new game do not run while the producer is working (and the other way round).
+// Check, Save and Backup do not run while the producer works on that game (and the other way round), and only one step runs at a time; a step for another game, or a new game, does not wait for the producer on this one.
 function syncButtons() {
-  for (const id of ["check-btn", "save-btn", "backup-yes", "new-btn"]) $(id).disabled = busy || chatRunning;
-  const canTalk = !busy && !chatRunning && agentReady;
+  const stepHere = busy && jobGame === game; // a step for this game holds its chat
+  for (const id of ["check-btn", "save-btn", "backup-yes"]) $(id).disabled = busy || chatRunning;
+  $("new-btn").disabled = busy;
+  const canTalk = !stepHere && !chatRunning && agentReady;
   $("chat-send").disabled = !canTalk || !$("chat-input").value.trim();
   $("chat-send").hidden = chatRunning;
   $("chat-hello").disabled = !canTalk;
@@ -1037,7 +1058,7 @@ function syncButtons() {
   $("chat-new").disabled = chatRunning;
   for (const b of $("chats-list").querySelectorAll("button")) b.disabled = chatRunning;
   $("chat-del-yes").disabled = chatRunning;
-  for (const b of $("agents").children) b.disabled = chatRunning || busy;
+  for (const b of $("agents").children) b.disabled = chatRunning || stepHere;
   $("play-btn").disabled = busy || playBusy;
   $("shot-btn").disabled = shotBusy;
   $("plus-shot").disabled = shotBusy;
@@ -1059,7 +1080,7 @@ async function follow(job, out, label) {
 
 async function startStep(path, body, resultEl, workingWords) {
   say(resultEl, workingWords, "busy");
-  setBusy(true);
+  setBusy(true, body.game || body.name || game);
   try {
     const r = await api("POST", path, body);
     return await follow(r.job, (j, t) => { if (j.running) say(resultEl, workingWords + (t.trim() ? " " + t.trim().split("\n").slice(-1)[0] : ""), "busy"); });
@@ -1315,7 +1336,7 @@ function landWords(code, text) {
 async function landLane(l) {
   const out = $("lanes-result");
   say(out, "Putting the helper's work into your game…", "busy");
-  setBusy(true);
+  setBusy(true, game);
   try {
     const r = await api("POST", "/api/lane/land", { game, id: l.id });
     const { job, text } = await follow(r.job, () => {});
@@ -1406,7 +1427,7 @@ function renderAgents(a) {
   }
 }
 async function pickAgent(name) {
-  if (chatRunning || busy) return;
+  if (chatRunning || (busy && jobGame === game)) return;
   hideDelete(); // each producer has its own list
   try { await api("POST", "/api/agent/pick", { game, agent: name }); await loadAgent(); await loadChats(); pollChat(); }
   catch (e) { say($("chat-result"), e.message, "bad"); }
@@ -1581,6 +1602,7 @@ function resetChatView() {
   unanswered = "";
   chatGame = game;
   chatOpen = 0;
+  chatRunning = false; // the other game's turn is not this one's; the next poll says whether this game has one
 }
 
 async function pollChat() {
@@ -1604,6 +1626,7 @@ async function pollChat() {
       chatSeeded = true;
       const was = chatRunning;
       chatRunning = d.running;
+      markWorking(d.working);
       syncEmpty();
       updatePip();
       syncButtons();
@@ -1623,7 +1646,7 @@ async function pollChat() {
 }
 
 async function sendChat(text) {
-  if (!text.trim() || chatRunning || busy || !agentReady) return;
+  if (!text.trim() || chatRunning || (busy && jobGame === game) || !agentReady) return;
   say($("chat-result"), "", "");
   gaveBack = false;
   try {
@@ -1653,7 +1676,7 @@ $("chat-hello").addEventListener("click", () => sendChat("Hello, producer! Where
 $("chat-next").addEventListener("click", () => sendChat("What should we work on next?"));
 $("chat-stop").addEventListener("click", async () => {
   $("chat-stop").disabled = true;
-  try { await api("POST", "/api/chat/stop", {}); } catch (e) { say($("chat-result"), e.message, "bad"); }
+  try { await api("POST", "/api/chat/stop", { game }); } catch (e) { say($("chat-result"), e.message, "bad"); }
   $("chat-stop").disabled = false;
   pollChat();
 });
@@ -1873,7 +1896,7 @@ async function refresh() {
     if (s.job && s.job.running) {
       const kind = s.job.kind;
       const el = { save: "save-result", backup: "backup-result", new: "new-result", land: "lanes-result" }[kind] || "check-result";
-      setBusy(true);
+      setBusy(true, s.job.game);
       say($(el), kind === "land" ? "Still putting a helper's work into your game…" : "A " + (kind === "new" ? "new game" : kind) + " is still running…", "busy");
       await follow(s.job, () => {}); setBusy(false); say($(el), "That step finished.", "ok"); refresh();
     }

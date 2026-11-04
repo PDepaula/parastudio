@@ -11,8 +11,11 @@
 # public repository. The child is started with an argument list (no shell, nothing quoted by
 # hand), in the repository root, and its output is collected for the page to poll.
 #
-# One such job runs at a time (a second one is refused, not queued). The job runs on its own
-# thread so the server stays responsive; the page polls `GET /api/job?id=N&since=K`.
+# One such job runs at a time (a second one is refused, not queued), whichever game it is for. The
+# job runs on its own thread so the server stays responsive; the page polls
+# `GET /api/job?id=N&since=K`. A job that runs past the time limit (30 minutes unless told
+# otherwise) is stopped with everything it started and ends with a plain line saying so, so one stuck
+# step can never hold every game's Check, Save and Backup (and that game's chat) for good.
 #
 # Routes (all JSON; the page is `GET /`):
 #   GET  /api/state?game=NAME   games, the chosen game and the resume facts, the helpers' lanes, the current job
@@ -32,10 +35,10 @@
 #   POST /api/terminal          {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
 #   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation);
 #                               no game: the studio-wide pick, which games without their own pick follow
-#   GET  /api/chat?game=&since= the open chat's lines after number `since`, which chat that is, whether a turn is running, and the `model` and `effort` its producer last reported ("" until it has run a turn)
+#   GET  /api/chat?game=&since= the open chat's lines after number `since`, which chat that is, whether a turn is running for this game, `working`: every game with a turn running, and the `model` and `effort` its producer last reported ("" until it has run a turn)
 #   GET  /api/chats?game=       the game's past chats with its producer, the one used last first: number, title, times, which one is open
-#   POST /api/chat/send         {game, text}: one turn with the producer in the open chat (one at a time)
-#   POST /api/chat/stop         {}: end the running turn and everything it started
+#   POST /api/chat/send         {game, text}: one turn with the producer in the open chat (one at a time for each game; refused while two other games have helpers building)
+#   POST /api/chat/stop         {game}: end that game's running turn and everything it started; other games' turns go on
 #   POST /api/chat/new          {game}: the next message starts a new chat; the earlier ones stay in the list
 #   POST /api/chat/open         {game, id}: open an earlier chat, its lines read back; the next message continues its conversation
 #   POST /api/chat/delete       {game, id, confirm: true}: forget a chat (its title, times, session id and kept lines); nothing in the game's folder changes
@@ -46,8 +49,12 @@
 #   GET  /api/shot?name=        one of the studio's own pictures (image/png); only names the studio made, only from its folder
 #
 # The chat is studiochat.nim (turns, the list of chats, stopping) on top of agent.nim's adapter
-# interface; nothing in this file knows which agent it is. A Check, Save or Backup step and a chat
-# turn do not run at the same time: starting one while the other runs is refused with a 409.
+# interface; nothing in this file knows which agent it is. Each game has its own turn, so the
+# producer can work on two games at once (a third is refused while two games have helpers
+# building: each compile can take 3 to 4 GB of memory). A Check, Save, Land or Backup step and a
+# chat turn of the same game do not run at the same time: starting one while the other runs is
+# refused with a 409. A step for one game does not wait for another game's turn, and a turn does
+# not wait for another game's step, but only one step runs at a time.
 #
 # The game window is studioplay.nim (the build, the window's process, stopping it) and the
 # pictures are studioshot.nim (asking the window, keeping the file, serving it back). Play is
@@ -55,15 +62,15 @@
 # for a chat turn, since the producer's helpers change files while the friend watches.
 #
 # A helper's lane (lanecmd.nim: its own copy of the game, next to it) is listed in plain facts: its
-# role, its ticket, how many files it changed, and `live` while a chat turn runs (the helpers are
-# part of a turn, so with no turn running every lane is left over from an earlier one). The page
-# says it in words and never shows a folder or branch name. Landing one is a job like Check, so it
-# is refused while a turn or another step runs.
+# role, its ticket, how many files it changed, and `live` while that game's chat turn runs (the
+# helpers are part of a turn, so with no turn running every lane is left over from an earlier one).
+# The page says it in words and never shows a folder or branch name. Landing one is a job like
+# Check, so it is refused while that game's turn or another step runs.
 #
 # Not here (on purpose, this update): going back to an earlier save point and setting work aside.
 # They are one more child process each and can follow the same way.
 
-import std/[json, os, strutils, locks, sequtils]
+import std/[json, os, strutils, locks, sequtils, times]
 import nimutil
 import savepoint
 import producercmd
@@ -80,6 +87,8 @@ import studiofonts
 import boardcmd
 
 const
+  maxLiveGames = 2 ## games whose helpers may be building at once; a turn for a third is refused
+  defaultJobSeconds* = 1800 ## a Check, Save, Land or Backup step still running after this is stopped
   indexHtml = staticRead("studio" / "index.html").replace("/*__FONTS__*/", fontFaces)
   nonceMarker = "__NONCE__"
   maxGameName = 40
@@ -87,12 +96,21 @@ const
   maxJobOutput = 200_000 ## bytes of a job's output kept; the oldest go first
 
 type
+  JobWatch = object
+    ## A job's clock: a small thread that ends the job's process tree when the time is up.
+    lock: Lock
+    pid: int ## 0 until the process runs
+    done: bool ## the job ended by itself
+    fired: bool ## the clock ended it
+    seconds: int
+    thread: Thread[ptr JobWatch]
+
   Studio* = object
     root*: string ## the repository: every child process runs here
     paraExe*: string ## the para binary the jobs run (the studio's own, unless a test says otherwise)
     defaultGame*: string
     lock: Lock
-    startGate: Lock ## held while deciding whether a job or a chat turn may start: only one of them can win
+    startGate: Lock ## held while deciding whether a job or a chat turn may start: only one of two clashing ones can win
     jobId: int
     jobKind, jobGame: string
     jobRunning: bool
@@ -102,13 +120,15 @@ type
     jobArgs: seq[string]
     jobThread: Thread[ptr Studio]
     jobThreadStarted: bool
+    jobSeconds: int
+    jobWatch: ptr JobWatch ## the running (or last) job's clock
     chat: ChatState
     play: Play
     shotLock: Lock ## one picture at a time
 
 proc newStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapter(),
                 turnSeconds = defaultTurnSeconds, planner: Planner = defaultPlan,
-                others: seq[AgentAdapter] = @[]): ptr Studio =
+                others: seq[AgentAdapter] = @[], jobSeconds = defaultJobSeconds): ptr Studio =
   ## `adapter` is the agent the chat talks to unless a game was given another (tests pass a
   ## stand-in program), `others` are the further agents the page may pick; `turnSeconds` is how
   ## long one chat turn may run before the studio stops it; `planner` says what Play builds and
@@ -117,6 +137,7 @@ proc newStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapte
   result.root = root
   result.paraExe = paraExe
   result.defaultGame = defaultGame
+  result.jobSeconds = jobSeconds
   initLock(result.lock)
   initLock(result.startGate)
   initLock(result.shotLock)
@@ -198,7 +219,7 @@ proc gameFacts(root, game: string): JsonNode =
 proc lanesJson(st: ptr Studio, game: string): JsonNode =
   ## The game's lanes, as the page needs them; a lane git could not read is still listed.
   result = newJArray()
-  let live = isRunning(addr st.chat)
+  let live = isRunning(addr st.chat, game)
   for l in lanesOf(st.root, game, quick = true):
     result.add %*{"id": l.id, "role": l.role, "ticket": cleanValue(l.ticket, maxFact), "started": l.started,
                   "files": changedFiles(l).len, "commits": l.steps, "live": live and not l.landed,
@@ -216,7 +237,8 @@ proc stateJson(st: ptr Studio, asked: string): Response =
   let picked = pickGame(st, asked, game)
   if picked.status == 404: return picked # a game that is not there; "which game?" is just a state
   var node = %*{"games": plans, "game": (if game.len > 0: %game else: newJNull()),
-                "friend": "", "producer": "", "facts": newJNull(), "lanes": newJArray()}
+                "friend": "", "producer": "", "facts": newJNull(), "lanes": newJArray(),
+                "working": runningGames(addr st.chat)}
   if game.len > 0:
     let header = parseHeader(readOrEmpty(gameDirOf(st.root, game) / planFile))
     node["friend"] = %header.friend
@@ -257,13 +279,41 @@ proc backupJson(st: ptr Studio, asked: string): Response =
 
 # --- jobs ----------------------------------------------------------------------
 
+proc watchMain(w: ptr JobWatch) {.thread.} =
+  let until = epochTime() + w.seconds.float
+  while true:
+    sleep(100)
+    acquire(w.lock)
+    let finished = w.done
+    let pid = w.pid
+    release(w.lock)
+    if finished: return
+    if pid != 0 and epochTime() > until:
+      terminateTree(pid, true, descendantsOf(pid))
+      acquire(w.lock)
+      w.fired = true
+      release(w.lock)
+      return
+
+proc newWatch(seconds: int): ptr JobWatch =
+  result = create(JobWatch)
+  initLock(result.lock)
+  result.seconds = seconds
+
+proc freeWatch(w: ptr JobWatch) =
+  joinThread(w.thread)
+  deinitLock(w.lock)
+  dealloc(w)
+
 proc jobMain(st: ptr Studio) {.thread.} =
   var exe, root: string
   var args: seq[string]
+  var watch: ptr JobWatch
   acquire(st.lock)
   exe = st.paraExe
   root = st.root
   args = st.jobArgs
+  watch = st.jobWatch
   release(st.lock)
   var code = 1
   {.cast(gcsafe).}:
@@ -275,11 +325,25 @@ proc jobMain(st: ptr Studio) {.thread.} =
           let cut = st.jobOutput.len - maxJobOutput div 2
           st.jobOutput = st.jobOutput[cut .. ^1]
           st.jobDropped += cut
-        release(st.lock), root)
+        release(st.lock), root, proc (pid: int) =
+          acquire(watch.lock)
+          watch.pid = pid
+          release(watch.lock))
       code = r.exitCode
     except CatchableError as e:
       acquire(st.lock)
       st.jobOutput.add "error: could not run the step: " & e.msg & "\n"
+      release(st.lock)
+    acquire(watch.lock)
+    watch.done = true
+    let timedOut = watch.fired
+    let limit = watch.seconds
+    release(watch.lock)
+    if timedOut:
+      code = 124
+      acquire(st.lock)
+      st.jobOutput.add "error: this step ran longer than " & (if limit >= 120: $(limit div 60) & " minutes" elif limit >= 60: "a minute" else: $limit & (if limit == 1: " second" else: " seconds")) &
+        ", so the studio stopped it. Nothing of yours was lost. The other games are not held up. Try the step again, and if it stops the same way, ask the producer to look into it.\n"
       release(st.lock)
   acquire(st.lock)
   st.jobCode = code
@@ -289,8 +353,8 @@ proc jobMain(st: ptr Studio) {.thread.} =
 proc startJob(st: ptr Studio, kind, game: string, args: seq[string]): Response =
   acquire(st.startGate)
   defer: release(st.startGate)
-  if isRunning(addr st.chat):
-    return fail(409, "The producer is working on your last message. Wait for it, or press Stop in the chat, then try again.", "busy")
+  if game.len > 0 and isRunning(addr st.chat, game):
+    return fail(409, "The producer is working on " & game & " right now. Wait for it, or press Stop in the chat, then try again.", "busy")
   acquire(st.lock)
   defer: release(st.lock)
   if st.jobRunning:
@@ -298,6 +362,9 @@ proc startJob(st: ptr Studio, kind, game: string, args: seq[string]): Response =
   if st.jobThreadStarted:
     joinThread(st.jobThread) # it set jobRunning = false as its last act, so this returns at once
     st.jobThreadStarted = false
+  if st.jobWatch != nil:
+    freeWatch(st.jobWatch) # the job is over, so its clock has returned or is about to
+    st.jobWatch = nil
   inc st.jobId
   st.jobKind = kind
   st.jobGame = game
@@ -306,11 +373,24 @@ proc startJob(st: ptr Studio, kind, game: string, args: seq[string]): Response =
   st.jobDropped = 0
   st.jobArgs = args
   st.jobRunning = true
+  st.jobWatch = newWatch(st.jobSeconds)
+  var watchStarted = false
   try:
+    createThread(st.jobWatch.thread, watchMain, st.jobWatch)
+    watchStarted = true
     createThread(st.jobThread, jobMain, st)
     st.jobThreadStarted = true
   except CatchableError:
     st.jobRunning = false
+    let w = st.jobWatch
+    st.jobWatch = nil
+    if watchStarted:
+      acquire(w.lock)
+      w.done = true
+      release(w.lock)
+      joinThread(w.thread)
+    deinitLock(w.lock)
+    dealloc(w)
     return fail(500, "The studio could not start that step.", "spawn")
   jsonResponse(200, %*{"job": jobSummary(st)})
 
@@ -466,8 +546,16 @@ proc chatJson(st: ptr Studio, req: Request): Response =
   let v = view(addr st.chat, game, if sinceText.len > 0: parseInt(sinceText) else: 0)
   var rows = newJArray()
   for (n, you, ev) in v.entries: rows.add entryJson(n, you, ev)
-  jsonResponse(200, %*{"game": game, "chat": v.chat, "running": v.running, "turn": v.turnId, "next": v.next,
+  jsonResponse(200, %*{"game": game, "chat": v.chat, "running": v.running, "working": v.working, "turn": v.turnId, "next": v.next,
                         "model": v.model, "effort": v.effort, "events": rows})
+
+proc stopChat(st: ptr Studio, body: JsonNode): bool =
+  ## Ends the turn of the game asked for and no other. With no game named and exactly one turn
+  ## running, that one (an old page); with several running and no game named, none.
+  let asked = body.fieldString("game")
+  if asked.len > 0: return validGameName(asked) and stopTurn(addr st.chat, asked)
+  let running = runningGames(addr st.chat)
+  running.len == 1 and stopTurn(addr st.chat, running[0])
 
 proc chatsJson(st: ptr Studio, req: Request): Response =
   var game: string
@@ -491,6 +579,11 @@ proc chatPickJson(st: ptr Studio, body: JsonNode, delete: bool): Response =
   if not r.ok: return fail(r.status, r.message, r.code)
   jsonResponse(200, %*{"ok": true})
 
+proc liveGames(st: ptr Studio, besides: string): seq[string] =
+  ## The games other than `besides` whose turn is running with a helper's copy of the game in play.
+  for g in runningGames(addr st.chat):
+    if g != besides and lanesOf(st.root, g, quick = true).anyIt(not it.landed): result.add g
+
 proc sendJson(st: ptr Studio, body: JsonNode): Response =
   var game: string
   let picked = pickGame(st, body.fieldString("game"), game)
@@ -498,10 +591,14 @@ proc sendJson(st: ptr Studio, body: JsonNode): Response =
   acquire(st.startGate)
   defer: release(st.startGate)
   acquire(st.lock)
-  let jobBusy = st.jobRunning
+  let jobBusy = st.jobRunning and st.jobGame == game
   release(st.lock)
   if jobBusy:
     return fail(409, "A step (Check, Save or Backup) is still running. Wait for it to finish, then send your message.", "busy")
+  if not isRunning(addr st.chat, game):
+    let others = liveGames(st, game)
+    if others.len >= maxLiveGames:
+      return fail(409, "The helpers on " & others.join(" and ") & " are building right now, and a third game at once would be too much for this computer. Wait for one of them to finish, or press Stop on one, then send your message.", "too-busy")
   let started = startTurn(addr st.chat, game, body.fieldString("text"))
   if not started.ok: return fail(started.status, started.message, started.code)
   jsonResponse(200, %*{"turn": started.turnId})
@@ -614,12 +711,12 @@ proc handle(st: ptr Studio, req: Request): Response =
   of "/api/agent/pick": agentPickJson(st, body)
   of "/api/chat/send": sendJson(st, body)
   of "/api/chat/stop":
-    jsonResponse(200, %*{"stopped": stopTurn(addr st.chat)})
+    jsonResponse(200, %*{"stopped": stopChat(st, body)})
   of "/api/chat/new":
     let picked = pickGame(st, body.fieldString("game"), game)
     if picked.status != 0: return picked
     if not newConversation(addr st.chat, game):
-      return fail(409, "The producer is still working. Stop the turn first.", "busy")
+      return fail(409, "The producer is still working on this game. Stop the turn first.", "busy")
     jsonResponse(200, %*{"ok": true})
   of "/api/chat/open": chatPickJson(st, body, delete = false)
   of "/api/chat/delete": chatPickJson(st, body, delete = true)

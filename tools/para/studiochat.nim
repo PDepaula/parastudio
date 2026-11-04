@@ -1,4 +1,6 @@
-# The producer's chat inside `para studio`: any number of chats per game and agent, one turn at a time.
+# The producer's chat inside `para studio`: any number of chats per game and agent, one turn at a
+# time for each game (two games can each have a turn running; a second message to the same game
+# waits for the first).
 #
 # This file knows the agent only through agent.nim's `AgentAdapter`: it hands the adapter the
 # friend's message, collects the `UiEvent`s the adapter emits into a numbered list the page polls
@@ -7,7 +9,8 @@
 # chat again from the list shows the chat as it was and resumes the same conversation, and stops a
 # turn (the Stop button, a timeout, or the studio closing).
 #
-# A turn runs on its own thread, with a second small thread watching the clock. Nothing is sent to
+# A turn runs on its own thread, with a second small thread watching the clock; each game's turn
+# has threads, a control and a clock of its own, so Stop and the time limit act on that game only. Nothing is sent to
 # the agent unless the friend sends a message: opening the page, polling, even a reload start no
 # turn and so cost nothing.
 #
@@ -26,7 +29,7 @@
 # file; with no such record it gets a plain note instead. These files stay on this computer and
 # go when the chat is deleted; no login or key is ever written.
 
-import std/[locks, os, sequtils, strutils, tables, times]
+import std/[algorithm, locks, os, sequtils, strutils, tables, times]
 import agent
 import chatstore
 import savepoint
@@ -45,25 +48,31 @@ type
     you: bool
     ev: UiEvent
 
+  Turn = object
+    ## One game's turn: made by `startTurn`, kept (finished) until that game's next turn or the end.
+    chat: ptr ChatState
+    id: int
+    key: ChatKey
+    text: string
+    session: string
+    startedAt: float
+    running: bool
+    stopping: int ## stop requests currently inside `cancel`
+    ctl: ptr TurnControl
+    turnThread: Thread[ptr Turn]
+    watchThread: Thread[ptr Turn]
+    threadsStarted: bool
+
   ChatState* = object
     lock: Lock
-    startLock: Lock ## one `startTurn` at a time
+    startLock: Lock ## one `startTurn` (or chat change) at a time
     adapters: seq[AgentAdapter] ## the first is the default
     root: string
     timeoutSec: int
-    running: bool
-    turnId: int
-    turnKey: ChatKey
-    turnText: string
-    turnSession: string
-    startedAt: float
-    stopping: int ## stop requests currently inside `cancel`
-    ctl: ptr TurnControl
+    turnId: int ## the number the last turn got, over all games
+    turns: Table[string, ptr Turn] ## by game: the running turn, or the last one that ended
     entries: seq[ChatEntry]
     nextSeq: int
-    turnThread: Thread[ptr ChatState]
-    watchThread: Thread[ptr ChatState]
-    threadsStarted: bool
     infos: Table[string, tuple[info: AgentInfo, at: float]]
     models: Table[string, tuple[model, effort: string]] ## by agent: what its last turn said it ran with (under `lock`)
     bookLock: Lock ## the chat lists below and their files; never held together with `lock`
@@ -240,17 +249,18 @@ proc setChatSession(c: ptr ChatState, key: ChatKey, id: string) =
 
 # --- a turn -------------------------------------------------------------------------
 
-proc turnMain(c: ptr ChatState) {.thread.} =
+proc turnMain(t: ptr Turn) {.thread.} =
+  let c = t.chat
   var adapter: AgentAdapter
   var req: TurnRequest
   var key: ChatKey
   var ctl: ptr TurnControl
   var timeoutSec: int
   acquire(c.lock)
-  adapter = c.adapterFor(c.turnKey.agent)
-  key = c.turnKey
-  req = TurnRequest(text: c.turnText, sessionId: c.turnSession, workDir: c.root)
-  ctl = c.ctl
+  adapter = c.adapterFor(t.key.agent)
+  key = t.key
+  req = TurnRequest(text: t.text, sessionId: t.session, workDir: c.root)
+  ctl = t.ctl
   timeoutSec = c.timeoutSec
   release(c.lock)
   {.cast(gcsafe).}:
@@ -279,46 +289,71 @@ proc turnMain(c: ptr ChatState) {.thread.} =
     else: done.text = "failed"
     c.add(key, done)
   acquire(c.lock)
-  c.running = false
+  t.running = false
   release(c.lock)
 
-proc watchMain(c: ptr ChatState) {.thread.} =
+proc watchMain(t: ptr Turn) {.thread.} =
+  let c = t.chat
   var ctl: ptr TurnControl
   var until: float
   acquire(c.lock)
-  ctl = c.ctl
-  until = c.startedAt + c.timeoutSec.float
+  ctl = t.ctl
+  until = t.startedAt + c.timeoutSec.float
   release(c.lock)
   while true:
     sleep(200)
     acquire(c.lock)
-    let still = c.running
+    let still = t.running
     release(c.lock)
     if not still: return
     if epochTime() > until:
       ctl.cancel("timeout")
       return
 
-proc reap(c: ptr ChatState) =
-  ## Joins the last turn's threads and frees its control. Only called when no turn is running.
+proc reap(t: ptr Turn) =
+  ## Joins an ended turn's threads, frees its control and the turn itself. Only called for a turn
+  ## that is no longer running and no longer in `turns`.
+  let c = t.chat
   while true:
     acquire(c.lock)
-    let busy = c.stopping > 0
+    let busy = t.stopping > 0
     release(c.lock)
     if not busy: break
     sleep(10)
-  if c.threadsStarted:
-    joinThread(c.turnThread)
-    joinThread(c.watchThread)
-    c.threadsStarted = false
-  if c.ctl != nil:
-    freeTurnControl(c.ctl)
-    c.ctl = nil
+  if t.threadsStarted:
+    joinThread(t.turnThread)
+    joinThread(t.watchThread)
+    t.threadsStarted = false
+  if t.ctl != nil:
+    freeTurnControl(t.ctl)
+    t.ctl = nil
+  t.text = ""
+  t.session = ""
+  t.key = (game: "", agent: "", chat: 0)
+  dealloc(t)
 
-proc isRunning*(c: ptr ChatState): bool =
+proc takeEnded(c: ptr ChatState, game: string): ptr Turn =
+  ## The ended turn `game` last had, taken out of the list (nil when it has none). Called with `lock`
+  ## held and no turn of `game` running.
+  result = c.turns.getOrDefault(game, nil)
+  if result != nil: c.turns.del(game)
+
+proc isRunning*(c: ptr ChatState, game: string): bool =
+  ## Whether `game` has a turn running.
   acquire(c.lock)
-  result = c.running
+  let t = c.turns.getOrDefault(game, nil)
+  result = t != nil and t.running
   release(c.lock)
+
+proc runningGames*(c: ptr ChatState): seq[string] =
+  ## The games that have a turn running, by name.
+  acquire(c.lock)
+  for game, t in c.turns:
+    if t.running: result.add game
+  release(c.lock)
+  result.sort()
+
+proc isRunning*(c: ptr ChatState): bool = c.runningGames.len > 0
 
 proc validMessage*(text: string): string =
   ## "" when `text` can be sent, else the plain reason it cannot.
@@ -337,11 +372,13 @@ proc startTurn*(c: ptr ChatState, game, text: string): Started =
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.lock)
-  if c.running:
+  let was = c.turns.getOrDefault(game, nil)
+  if was != nil and was.running:
     release(c.lock)
-    return Started(status: 409, code: "busy", message: "The producer is still working on your last message. Wait for it, or press Stop.")
+    return Started(status: 409, code: "busy", message: "The producer is still working on this game's last message. Wait for it, or press Stop.")
+  discard c.takeEnded(game)
   release(c.lock)
-  reap(c)
+  if was != nil: reap(was)
   let agentName = agentOf(c, game)
   acquire(c.bookLock)
   var b = c.bookOf(game, agentName)
@@ -349,57 +386,72 @@ proc startTurn*(c: ptr ChatState, game, text: string): Started =
   c.keep(game, agentName, b)
   release(c.bookLock)
   let key: ChatKey = (game, agentName, b.current)
+  let t = create(Turn)
+  t.chat = c
+  t.key = key
+  t.text = text
+  t.session = session
+  t.startedAt = epochTime()
+  t.ctl = newTurnControl()
+  t.running = true
   acquire(c.lock)
-  c.running = true
   inc c.turnId
-  c.turnKey = key
-  c.turnText = text
-  c.turnSession = session
-  c.startedAt = epochTime()
-  c.ctl = newTurnControl()
-  result = Started(ok: true, status: 200, turnId: c.turnId)
+  t.id = c.turnId
+  c.turns[game] = t
+  result = Started(ok: true, status: 200, turnId: t.id)
   release(c.lock)
   c.add(key, UiEvent(kind: ukSay, text: text.strip), you = true)
   try:
-    createThread(c.turnThread, turnMain, c)
-    createThread(c.watchThread, watchMain, c)
-    c.threadsStarted = true
+    createThread(t.turnThread, turnMain, t)
+    createThread(t.watchThread, watchMain, t)
+    t.threadsStarted = true
   except CatchableError:
     acquire(c.lock)
-    c.running = false
+    t.running = false
+    discard c.takeEnded(game)
     release(c.lock)
+    reap(t)
     return Started(status: 500, code: "spawn", message: "The studio could not start that turn.")
 
-proc stopTurn*(c: ptr ChatState): bool =
-  ## True when there was a turn to stop. Returns once the child is gone (or after a short grace).
+proc stopTurn*(c: ptr ChatState, game: string): bool =
+  ## True when `game` had a turn to stop (other games' turns go on). Returns once the child is gone
+  ## (or after a short grace).
   var ctl: ptr TurnControl
+  var t: ptr Turn
   acquire(c.lock)
-  if c.running and c.ctl != nil:
-    ctl = c.ctl
-    inc c.stopping
+  t = c.turns.getOrDefault(game, nil)
+  if t != nil and t.running and t.ctl != nil:
+    ctl = t.ctl
+    inc t.stopping
   release(c.lock)
   if ctl == nil: return false
   ctl.cancel("stop")
   acquire(c.lock)
-  dec c.stopping
+  dec t.stopping
   release(c.lock)
   true
 
 proc shutdownChat*(c: ptr ChatState) =
-  ## The studio is closing: end a running turn so no claude is left behind.
-  discard stopTurn(c)
-  for _ in 0 ..< 100: # up to 10 s for the turn thread to wind down
+  ## The studio is closing: end every running turn so no claude is left behind.
+  for game in c.runningGames: discard stopTurn(c, game)
+  for _ in 0 ..< 100: # up to 10 s for the turn threads to wind down
     if not isRunning(c): break
     sleep(100)
-  if not isRunning(c): reap(c)
+  if not isRunning(c):
+    acquire(c.lock)
+    var ended: seq[ptr Turn]
+    for game, t in c.turns: ended.add t
+    c.turns.clear()
+    release(c.lock)
+    for t in ended: reap(t)
 
 proc newConversation*(c: ptr ChatState, game: string): bool =
   ## The next message in `game` starts a new chat with its producer; the earlier ones stay in the
-  ## list. False while a turn runs.
+  ## list. False while this game's turn runs.
   if not validGameName(game): return false
   acquire(c.startLock)
   defer: release(c.startLock)
-  if isRunning(c): return false
+  if isRunning(c, game): return false
   let agent = agentOf(c, game)
   acquire(c.bookLock)
   var b = c.bookOf(game, agent)
@@ -410,13 +462,13 @@ proc newConversation*(c: ptr ChatState, game: string): bool =
 
 proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   ## The next message in `game` goes to chat `id` and resumes its conversation, and the page shows
-  ## its earlier lines, read back from its file. Refused while a turn runs.
+  ## its earlier lines, read back from its file. Refused while this game's turn runs.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.startLock)
   defer: release(c.startLock)
-  if isRunning(c):
-    return Started(status: 409, code: "busy", message: "The producer is working on your last message. Wait for it, or press Stop, then open the chat.")
+  if isRunning(c, game):
+    return Started(status: 409, code: "busy", message: "The producer is working on this game's last message. Wait for it, or press Stop, then open the chat.")
   let agent = agentOf(c, game)
   acquire(c.bookLock)
   var b = c.bookOf(game, agent)
@@ -434,13 +486,13 @@ proc openChat*(c: ptr ChatState, game: string, id: int): Started =
 proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
   ## Forgets chat `id` from `game`'s list (its title, times and session id) and its lines, on the
   ## page and in its file. Nothing in the game's folder is touched, nor the agent's own record of
-  ## the conversation. Refused while a turn runs.
+  ## the conversation. Refused while this game's turn runs.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.startLock)
   defer: release(c.startLock)
-  if isRunning(c):
-    return Started(status: 409, code: "busy", message: "The producer is working on your last message. Wait for it, or press Stop, then delete the chat.")
+  if isRunning(c, game):
+    return Started(status: 409, code: "busy", message: "The producer is working on this game's last message. Wait for it, or press Stop, then delete the chat.")
   let agent = agentOf(c, game)
   acquire(c.bookLock)
   var b = c.bookOf(game, agent)
@@ -480,8 +532,9 @@ proc listChats*(c: ptr ChatState, game: string): ChatList =
 
 type
   ChatView* = object
-    running*: bool
-    turnId*: int
+    running*: bool ## whether the asked game has a turn running
+    working*: seq[string] ## every game with a turn running
+    turnId*: int ## the asked game's last turn (0 before its first)
     next*: int
     chat*: int ## the chat these lines are from
     model*, effort*: string ## what the producer of this chat said it ran its last turn with; "" until it has run one
@@ -493,8 +546,12 @@ proc view*(c: ptr ChatState, game: string, since: int): ChatView =
   c.flushNotes()
   acquire(c.lock)
   defer: release(c.lock)
-  result.running = c.running
-  result.turnId = c.turnId
+  let t = c.turns.getOrDefault(game, nil)
+  result.running = t != nil and t.running
+  result.turnId = if t != nil: t.id else: 0
+  for g, other in c.turns:
+    if other.running: result.working.add g
+  result.working.sort()
   result.next = c.nextSeq - 1
   result.chat = key.chat
   (result.model, result.effort) = c.models.getOrDefault(key.agent)
@@ -539,8 +596,8 @@ proc timeoutMinutes*(c: ptr ChatState): int = c.timeoutSec div 60
 
 proc pickAgent*(c: ptr ChatState, game, name: string): Started =
   ## Makes `name` the agent `game`'s chat talks to, from the next message on. Each agent keeps its
-  ## own chats, so switching back later picks up where that agent left off. Refused while a turn
-  ## runs (it would be talking to the other one).
+  ## own chats, so switching back later picks up where that agent left off. Refused while this game's
+  ## turn runs (it would be talking to the other one).
   let wide = game.len == 0 # no game: the pick for the whole studio, used until a game has its own
   if not wide and not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
@@ -548,8 +605,8 @@ proc pickAgent*(c: ptr ChatState, game, name: string): Started =
     return Started(status: 400, code: "which-agent", message: "That is not one of the producers this studio knows.")
   acquire(c.startLock)
   defer: release(c.startLock)
-  if isRunning(c):
-    return Started(status: 409, code: "busy", message: "The producer is working on your last message. Wait for it, or press Stop, then pick again.")
+  if (if wide: isRunning(c) else: isRunning(c, game)):
+    return Started(status: 409, code: "busy", message: "The producer is working on this game's last message. Wait for it, or press Stop, then pick again.")
   if agentOf(c, game) == name: return Started(ok: true, status: 200)
   let path = if wide: defaultPickPath(c.root) else: pickPath(c.root, game)
   try:

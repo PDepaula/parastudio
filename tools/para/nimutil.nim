@@ -65,10 +65,12 @@ proc runCaptured*(cmd: string, args: seq[string], workDir = "", timeoutMs = 0): 
   result.exitCode = p.waitForExit()
 
 proc runStreamed*(cmd: string, args: seq[string], onLine: proc (line: string),
-                  workDir = ""): ProcResult =
+                  workDir = "", onStart: proc (pid: int) = nil): ProcResult =
   ## `runCaptured`, but calls `onLine` with each output line (no newline) as
   ## the process prints it, so a caller can show progress while a long run is
   ## still going. `output` is the same whole output `runCaptured` returns.
+  ## `onStart` gets the process id once it runs, so another thread can end it
+  ## (the read below returns when the process and everything it started is gone).
   var p: Process
   try:
     p = startLocked(cmd, workingDir = workDir, args = args,
@@ -76,6 +78,7 @@ proc runStreamed*(cmd: string, args: seq[string], onLine: proc (line: string),
   except OSError as e:
     return ProcResult(output: "cannot run " & cmd & ": " & e.msg & "\n", exitCode: 127)
   defer: p.close()
+  if not onStart.isNil: onStart(p.processID)
   var line: string
   while p.outputStream.readLine(line):
     result.output.add line & "\n"

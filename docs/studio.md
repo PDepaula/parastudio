@@ -173,14 +173,14 @@ small letters, so "Space Frogs" is `space_frogs`) and Studio makes the game and 
 problem with the name is said in plain words: it has to be small letters, digits and `_`, start
 with a letter, be at most 40 characters, and not be taken. You get the same thing as `para new` in
 a terminal: a copy of `template/` in `games/<name>/`, a git repository of its own. Starting a game
-is refused while a Check, Save or chat turn is running.
+is refused while another Check, Save or Backup step is running.
 
 ![Start a game: a name, then the studio makes it](img/studio-start-game.png)
 
 ## Talking to the producer
 
 The chat is the same producer you get in a terminal, in a page. It runs the `claude` program
-**you** installed and signed in to (or `codex`), one turn at a time, in your paraloop folder.
+**you** installed and signed in to (or `codex`), one turn at a time for each game, in your paraloop folder.
 
 - **Accounts.** Studio never reads, asks for, stores, logs, forwards or shows a login, a token or
   an API key, and has no sign-in screen. It only starts the unmodified program you installed and
@@ -207,9 +207,14 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
   Studio does not choose either: the tool's own settings do (for Codex `default effort` means the model's own default; Claude does
   not report its effort, so it shows `effort not reported`). Until the first message there is nothing to show. A big model on high effort is the
   usual reason a turn is slow.
-- **One turn at a time.** Check, Save and Backup wait while the producer is working, and the
-  other way round. **Stop** ends the turn and everything it started. A turn is stopped after
-  `--turn-timeout` minutes (default 60; long builds are normal).
+- **One turn at a time for each game.** Two games can each have the producer working at once
+  (the games list says "Working" beside them). A game's Check, Save and Backup wait while the
+  producer is working on that game, and the other way round; another game's do not. Only one
+  Check, Save or Backup step runs at a time. A third game waits while two others have helpers
+  building, to keep your computer from running out of memory. **Stop** ends the turn of the game
+  you are on, and everything it started. A turn is stopped after `--turn-timeout` minutes
+  (default 60; long builds are normal). A Check, Save or Backup step that is still running after
+  30 minutes is stopped too, with a line saying so, so one stuck step never holds the others.
 - **Chats.** Each game keeps every chat you had with its producer, and a restart or a reopened
   page picks up the one you were in. **New chat** starts a fresh one; see "Your chats" below.
 - **Helpers** (builder, checker, scout) show as cards in the chat.
@@ -364,10 +369,10 @@ makes); a game without one is saved in the repository that contains `games/`, as
 
 ## Two copies, two studios
 
-One studio runs one chat turn at a time (Check, Save and Backup wait for it), because the producer
-changes files in the folder. Inside that one turn the producer's helpers already work at the same
-time, each in its own copy (see "Helpers work in their own copy"). To hold two conversations at
-once, keep two copies of the folder and run a studio in each. They share nothing: each has its own
+One studio runs one chat turn at a time for each game (that game's Check, Save and Backup wait for
+it), because the producer changes files in the game's folder. Inside that one turn the producer's
+helpers already work at the same time, each in its own copy (see "Helpers work in their own copy").
+To hold two conversations about the same game, keep two copies of the folder and run a studio in each. They share nothing: each has its own
 files, `tmp/` and save points, so they cannot step on each other.
 
 ```

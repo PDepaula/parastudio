@@ -464,7 +464,8 @@ proc runOpen(t: BoardTools, root: string, args: seq[string]): Run =
     "url: " & url & "\n" &
     "opened: " & (if opened: "yes, in the friend's browser" else: "no: give the friend the url above to open") & "\n" &
     "next_step: \"Tell the friend the board is open in their browser: click the choices, add a note if they want, " &
-    "then press the button at the bottom, and tell you here when they have. Then run: tmp/para board answers " & bf.rel & "\"\n"
+    "then press the button at the bottom, and tell you when they have. Then end your turn (do not wait here: the chat is held while a turn runs). " &
+    "When they say they have, run: tmp/para board answers " & bf.rel & "\"\n"
 
 # --- answers, end ------------------------------------------------------------------
 

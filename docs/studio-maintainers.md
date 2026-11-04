@@ -78,7 +78,7 @@ to **Keep it**) and only its **Yes, delete it** sends `POST /api/chat/delete` wi
 ## Start a game (route)
 
 The studio runs `para new <name>` as a step, like Check and Save (`POST /api/new`, refused while
-another step or a chat turn runs), then opens the new game. The name is normalised (spaces and
+another step runs), then opens the new game. The name is normalised (spaces and
 dashes become `_`, capitals become small letters) and checked first: small letters, digits and `_`,
 starting with a letter, at most 40 characters, and not taken.
 
@@ -186,7 +186,7 @@ leaves notes; the answer comes back to the producer (producer playbook, "Visual 
 ## The chat
 
 The chat runs the `claude` program the friend installed and signed in to (or `codex`; see "Claude
-or Codex" below), one turn at a time, in the paraloop folder:
+or Codex" below), one turn at a time for each game, in the paraloop folder:
 
 ```
 claude -p --output-format stream-json --verbose --setting-sources project,local [--resume ID]
@@ -230,11 +230,22 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   signed in, or out of credit the chat says so and what to do. The studio sends nothing
   until the friend presses one of the suggestions or sends a message; the startup checks
   and the help (?) say so.
-- **One turn at a time.** Check, Save and Backup wait while the producer is working,
-  and the other way round. **Stop** ends the turn and everything it started (the
+- **One turn at a time for each game.** `ChatState.turns` holds a turn per game (its own
+  `TurnControl`, threads and clock), so two games can have the producer working at once: a
+  second message to the same game, its Check, Save, Land, Backup, New chat, chat list and
+  producer pick get a 409, another game's do not. Only one job runs at a time, whichever
+  game it is for, and a turn for a third game is refused (`too-busy`) while two other games'
+  turns are running with helpers' lanes (each compile can take 3 to 4 GB). `GET /api/chat`
+  reports `running` for the game asked and `working` for all of them; **Stop** (`POST
+  /api/chat/stop {game}`) ends that game's turn and everything it started (the
   whole process tree: its process group and descendants on macOS and Linux, `taskkill /T` on Windows).
   A turn is stopped after `--turn-timeout` minutes (default 60; long builds are
-  normal). Closing the studio (Ctrl+C) ends a running turn too.
+  normal). Closing the studio (Ctrl+C) ends every running turn. A job (Check, Save, Land, Backup,
+  new game) has a clock too (`defaultJobSeconds`, 30 minutes): past it the studio ends the job's
+  whole process tree and the job finishes with code 124 and a plain line, so a stuck step cannot
+  hold the one-job-at-a-time gate for good.
+  A visual board does not need a turn: the producer opens it, says so and ends the turn; the
+  friend's next message is the cue to read the answers.
 - **Conversations.** Any number per game and agent, in `chatstore.nim`'s
   `tmp/studio/chats-<game>-<agent>.json`: for each chat its number, title (the start of its first
   message: one line, at most 60 letters, anything key-like taken out by `redactSecrets`), when it
