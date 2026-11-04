@@ -134,20 +134,21 @@ proc ruleList(settingsText, list: string): seq[string] =
 
 type EditRules* = enum
   erAllowed  ## both rules are there and nothing denies them
-  erMissing  ## the allow list lacks Edit or Write for games/** (or the file is gone or broken)
+  erMissing  ## the allow list lacks Edit for games/** (or the file is gone or broken)
   erBlocked  ## a deny rule covers edits in games/
 
 proc editRulesIn*(projectSettings, localSettings: string): EditRules =
   ## What the folder's `.claude/settings.json` (and the friend's `.claude/settings.local.json`)
   ## say about changing files in games/. A headless `claude -p` turn cannot ask, so without
-  ## `Edit(/games/**)` and `Write(/games/**)` every file write is refused. No model is called.
+  ## `Edit(/games/**)` every file write is refused. Claude Code checks writes of new files against
+  ## `Edit(path)` rules too and never matches a `Write(path)` rule, so only the Edit rule is asked
+  ## for (a settings file from before that, with both, still passes). No model is called.
   let allow = ruleList(projectSettings, "allow") & ruleList(localSettings, "allow")
   let deny = ruleList(projectSettings, "deny") & ruleList(localSettings, "deny")
   for d in deny:
     for tool in ["Edit", "Write", "MultiEdit"]:
       if d == tool or (d.startsWith(tool & "(") and "games" in d): return erBlocked
-  for tool in ["Edit", "Write"]:
-    if tool notin allow and tool & editRule notin allow: return erMissing
+  if "Edit" notin allow and "Edit" & editRule notin allow: return erMissing
   erAllowed
 
 # --- where the files are --------------------------------------------------------------

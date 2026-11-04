@@ -26,11 +26,13 @@
 #   POST /api/new               {name}: run `para new NAME` (a new game from template/, with its own git repository)
 #   POST /api/lane/land         {game, id}: run `para lane land GAME ID` (a helper's work goes into the game, unsaved)
 #   GET  /api/agent?game=       the producer's tool for this game (installed? version?), who pays, the turn time
-#                               limit, and `agents`: every producer the page may pick, with `current` named
+#                               limit, `model` and `effort` the producer last reported ("" until it has run a turn;
+#                               the studio sets neither), and `agents`: every producer the page may pick, with `current` named
 #   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line; the optional programs (Lavish, for visual boards: `ok` or `absent`, never in `ready`) with the command that adds one; also this folder and whether the page may offer to open a terminal in it
 #   POST /api/terminal          {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
-#   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation)
-#   GET  /api/chat?game=&since= the open chat's lines after number `since`, which chat that is, and whether a turn is running
+#   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation);
+#                               no game: the studio-wide pick, which games without their own pick follow
+#   GET  /api/chat?game=&since= the open chat's lines after number `since`, which chat that is, whether a turn is running, and the `model` and `effort` its producer last reported ("" until it has run a turn)
 #   GET  /api/chats?game=       the game's past chats with its producer, the one used last first: number, title, times, which one is open
 #   POST /api/chat/send         {game, text}: one turn with the producer in the open chat (one at a time)
 #   POST /api/chat/stop         {}: end the running turn and everything it started
@@ -364,16 +366,17 @@ proc entryJson(seqNo: int, you: bool, ev: UiEvent): JsonNode =
 
 proc agentRow(st: ptr Studio, name: string): JsonNode =
   let info = agentInfo(addr st.chat, name)
+  let ran = agentModel(addr st.chat, name)
   %*{"name": info.name, "label": info.label, "installed": info.installed,
      "version": info.version, "note": info.note, "url": info.url,
-     "cost": agentCost(addr st.chat, name), "about": agentAbout(addr st.chat, name)}
+     "cost": agentCost(addr st.chat, name), "about": agentAbout(addr st.chat, name),
+     "model": ran.model, "effort": ran.effort}
 
 proc agentJson(st: ptr Studio, req: Request): Response =
   ## The first fields describe the agent this game talks to (what the page showed before there was
   ## a choice); `agents` lists everyone the page may pick from.
   let asked = req.queryValue("game")
-  let current = if asked.len > 0 and validGameName(asked): agentOf(addr st.chat, asked)
-                else: agentNames(addr st.chat)[0]
+  let current = agentOf(addr st.chat, asked) # no (or no valid) game: the studio-wide pick
   var node = agentRow(st, current)
   node["timeoutMinutes"] = %timeoutMinutes(addr st.chat)
   node["current"] = %current
@@ -393,8 +396,7 @@ proc preflightJson(st: ptr Studio, req: Request): Response =
   ## Read-only and free: nothing here calls a model, writes a file or returns anything the agent
   ## program keeps secret (see preflight.nim). Works with no game picked yet, for the default producer.
   let asked = req.queryValue("game")
-  let current = if asked.len > 0 and validGameName(asked): agentOf(addr st.chat, asked)
-                else: agentNames(addr st.chat)[0]
+  let current = agentOf(addr st.chat, asked) # no (or no valid) game: the studio-wide pick
   let checks = agentPreflight(addr st.chat, current)
   var rows = newJArray()
   for c in checks:
@@ -440,9 +442,14 @@ proc newGameRoute(st: ptr Studio, body: JsonNode): Response =
   startJob(st, "new", name, @["new", name])
 
 proc agentPickJson(st: ptr Studio, body: JsonNode): Response =
-  var game: string
-  let picked = pickGame(st, body.fieldString("game"), game)
-  if picked.status != 0: return picked
+  ## With a game: that game's producer. With none (`""`): the studio-wide pick the setup checklist
+  ## makes before any game exists, which every game without its own pick follows.
+  var game = body.fieldString("game")
+  if game.len > 0:
+    var found: string
+    let picked = pickGame(st, game, found)
+    if picked.status != 0: return picked
+    game = found
   acquire(st.startGate)
   defer: release(st.startGate)
   let r = pickAgent(addr st.chat, game, body.fieldString("agent"))
@@ -459,7 +466,8 @@ proc chatJson(st: ptr Studio, req: Request): Response =
   let v = view(addr st.chat, game, if sinceText.len > 0: parseInt(sinceText) else: 0)
   var rows = newJArray()
   for (n, you, ev) in v.entries: rows.add entryJson(n, you, ev)
-  jsonResponse(200, %*{"game": game, "chat": v.chat, "running": v.running, "turn": v.turnId, "next": v.next, "events": rows})
+  jsonResponse(200, %*{"game": game, "chat": v.chat, "running": v.running, "turn": v.turnId, "next": v.next,
+                        "model": v.model, "effort": v.effort, "events": rows})
 
 proc chatsJson(st: ptr Studio, req: Request): Response =
   var game: string

@@ -388,6 +388,54 @@ suite "para studio chat: two agents, each with its own conversation":
     running = startStudio(root, getAppFilename(), "", adapterNamed("claude", getAppFilename()), others = @[adapterNamed("codex", getAppFilename())])
     check currentAgent() == "codex"
 
+  test "the model and effort each producer reported are shown by /api/agent and /api/chat after its turn, and not before":
+    beginBoth()
+    let before = jsonOf(running.request("GET", "/api/agent?game=pong"))
+    check before["model"].getStr == "" and before["effort"].getStr == ""
+    check jsonOf(running.request("GET", "/api/chat?game=pong"))["model"].getStr == ""
+    turn("one with claude")
+    let a = jsonOf(running.request("GET", "/api/agent?game=pong"))
+    check a["model"].getStr == "claude-haiku-5-5" and a["effort"].getStr == "" # the fixture's init names a model and no effort
+    check a["agents"][0]["model"].getStr == "claude-haiku-5-5" and a["agents"][1]["model"].getStr == "" # codex has not run
+    check jsonOf(running.request("GET", "/api/chat?game=pong"))["model"].getStr == "claude-haiku-5-5"
+    check pick("codex").status == 200
+    check jsonOf(running.request("GET", "/api/chat?game=pong"))["model"].getStr == "" # each producer's own
+    turn("two with codex")
+    let c = jsonOf(running.request("GET", "/api/chat?game=pong"))
+    check c["model"].getStr == "gpt-6-luna" and c["effort"].getStr == ""
+    check jsonOf(running.request("GET", "/api/agent?game=pong"))["agents"][0]["model"].getStr == "claude-haiku-5-5" # still remembered
+
+  test "the page shows the model and effort under the producer card":
+    let page = readFile(currentSourcePath.parentDir.parentDir / "tools" / "para" / "studio" / "index.html")
+    check "id=\"agent-ran\"" in page and "showRan(d.model, d.effort)" in page and "showRan(current ? current.model" in page
+    check "default effort" in page and "after your first message" in page
+
+  test "a pick with no game is the studio-wide default: games without their own pick follow it":
+    beginBoth(games = @[])
+    check currentAgent("") == "claude"
+    let r = pick("codex", "")
+    check r.status == 200 and jsonOf(r)["current"].getStr == "codex"
+    check readFile(root / "tmp" / "studio" / "default-agent.txt") == "codex"
+    check currentAgent("") == "codex"
+    check jsonOf(running.request("GET", "/api/agent"))["current"].getStr == "codex"
+    check calls().len == 0 and codexCalls().len == 0
+    # a game made afterwards starts with it; its own pick still wins, and a game named "default" is just a game
+    createDir(root / "games" / "pong")
+    createDir(root / "games" / "default")
+    writeFile(root / "games" / "pong" / "PLAN.md", "# Pong\n")
+    writeFile(root / "games" / "default" / "PLAN.md", "# Default\n")
+    check currentAgent("pong") == "codex" and currentAgent("default") == "codex"
+    check pick("claude", "pong").status == 200
+    check currentAgent("pong") == "claude" and currentAgent("default") == "codex" and currentAgent("") == "codex"
+    check readFile(root / "tmp" / "studio" / "agent-pong.txt") == "claude"
+    # a studio started again remembers it; junk in the file is ignored
+    running.stop()
+    running = startStudio(root, getAppFilename(), "", adapterNamed("claude", getAppFilename()), others = @[adapterNamed("codex", getAppFilename())])
+    check currentAgent("") == "codex"
+    for junk in ["gemini", "codex; reboot", "", "../claude"]:
+      writeFile(root / "tmp" / "studio" / "default-agent.txt", junk)
+      check currentAgent("") == "claude"
+
   test "a pick that cannot be made is refused in plain words":
     beginBoth()
     for (body, status) in [(%*{"game": "pong", "agent": "gemini"}, 400), (%*{"game": "pong"}, 400), (%*{"game": "pong", "agent": "../etc"}, 400),

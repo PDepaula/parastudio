@@ -16,7 +16,11 @@
 # out terminal commands. Absent or any other value, nothing is added. And one
 # line says whether Lavish (`lavish-axi`, the optional program behind live
 # visual boards, boardcmd.nim) is on this computer's PATH: it is only looked
-# up, never run, so the hook stays fast.
+# up, never run, so the hook stays fast. One more line names the C compiler
+# (the first of `gcc`, `cc`, `clang` on the PATH, asked for its version with a
+# short timeout), so the producer never has to run a compiler check itself:
+# the check that used to be in the playbook, `cc --version`, failed on a
+# working Windows PC, where WinLibs has `gcc.exe` and no `cc.exe`.
 #
 # The resume digest is what lets the producer pick up where the last session
 # stopped without the friend explaining: one plain line per fact, read from
@@ -45,6 +49,7 @@
 
 import std/[os, strutils, times]
 import art/clihelpers
+import nimutil
 import savepoint
 import boardcmd
 import lanecmd
@@ -57,7 +62,8 @@ const
     "  unsaved changes, open choices, last playtest note) for a session-start hook; nothing at all when this\n" &
     "  checkout is not a friend's game folder (games/ holds only the shipped sample) or on any error\n" &
     "  PARALOOP_UI=studio (exactly) adds one line: the friend has Play / Check / Save buttons, so say \"press Play\"\n" &
-    "  one line says whether Lavish (lavish-axi, optional, for live visual boards) is installed; it is only looked up, never run\n"
+    "  one line says whether Lavish (lavish-axi, optional, for live visual boards) is installed; it is only looked up, never run\n" &
+    "  one line names the C compiler (gcc, cc or clang, the first found) with its version, or says none was found\n"
   voiceCoreFile* = ".agents/skills/producer/voice-core.md"
   playbookFile* = ".agents/skills/producer/SKILL.md"
   choicesFile* = "CHOICES.md"
@@ -80,6 +86,9 @@ const
   noBoardsLine* = "Visual boards: Lavish (lavish-axi, optional) is not installed. When a choice is visual, make a board with `tmp/para board new` " &
     "and open it with `tmp/para board open`: a page the friend picks on and copies the picks from (producer playbook, Visual boards); never install Lavish yourself."
 
+  compilerNames* = ["gcc", "cc", "clang"] ## in the order the producer would try them; Windows has gcc and no cc
+  compilerBudgetMs = 2000 ## asking one for its version; the hook has 10 s
+
 type
   PlanHeader* = object
     speed*, friend*, producer*: string
@@ -91,6 +100,30 @@ proc cleanValue*(v: string, cap = maxName): string =
     if c >= ' ' and c != '\x7f': result.add c
   result = result.strip()
   if result.len > cap: result = result[0 ..< cap].strip()
+
+type CCompiler* = tuple[name, version: string] ## `name` "" when none was found
+
+proc compilerFact*(): CCompiler =
+  ## The first of `compilerNames` that is on the PATH, and the first line it prints for `--version`
+  ## ("" when it would not say). Nothing is built.
+  for name in compilerNames:
+    let exe = findExe(name)
+    if exe.len == 0: continue
+    result.name = name
+    let r = runCaptured(exe, @["--version"], timeoutMs = compilerBudgetMs)
+    if r.exitCode == 0:
+      let first = r.output.strip.splitLines()[0]
+      result.version = first.cleanValue(80)
+    return
+
+proc compilerLine*(c: CCompiler): string =
+  ## One sentence for the producer: which compiler is there, or that none was found.
+  if c.name.len == 0:
+    "C compiler: none of " & compilerNames.join(", ") & " is on this computer's PATH. Do not run a compiler check yourself; " &
+      "if a build fails for want of one, show the Install help line for this computer (producer playbook) and ask before running it."
+  else:
+    "C compiler: " & c.name & " is on this computer" & (if c.version.len > 0: " (it reports: " & c.version & ")" else: "") &
+      ". Do not run a compiler check yourself."
 
 proc parseHeader*(plan: string): PlanHeader =
   ## The header lines of a PLAN.md (the three names and the in-progress marker); anything missing, empty or not in
@@ -312,10 +345,11 @@ proc resumeDigest*(root: string, plans: seq[string]): string =
       result.add "- ...and " & $(plans.len - maxGamesListed) & " more games\n"
   result = capDigest(result)
 
-proc producerContext*(root: string, ui = getEnv(uiEnvVar), boards = lavishExe().len > 0): string =
+proc producerContext*(root: string, ui = getEnv(uiEnvVar), boards = lavishExe().len > 0,
+                      compiler = compilerFact()): string =
   ## The hook text, or "" when there is nothing to say. Never raises. `ui` is
   ## the PARALOOP_UI value; only exactly "studio" adds a line. `boards`: Lavish
-  ## is installed.
+  ## is installed. `compiler`: the C compiler found on the PATH.
   try:
     if root.len == 0 or not isFriendCheckout(root): return ""
     let core = readFile(root / voiceCoreFile).strip()
@@ -338,6 +372,7 @@ proc producerContext*(root: string, ui = getEnv(uiEnvVar), boards = lavishExe().
         "): ask which one, then read its PLAN.md header for Speed and the names.\n"
     if ui == studioUi: result.add "\n" & studioLine & "\n"
     result.add "\n" & (if boards: boardsLine else: noBoardsLine) & "\n"
+    result.add "\n" & compilerLine(compiler) & "\n"
     try:
       result.add resumeDigest(root, plans)
     except CatchableError:

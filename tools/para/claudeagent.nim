@@ -20,8 +20,8 @@
 # through a page with buttons instead of a terminal.
 #
 # What it never does: `--bare`, `--dangerously-skip-permissions`, any `--permission-mode`. Headless
-# permissions come from the allow-list in .claude/settings.json (Bash for `tmp/para ...`, and Edit/Write
-# for `games/**` only, so the playbooks, settings and engine stay read-only here); a call that list
+# permissions come from the allow-list in .claude/settings.json (Bash for `tmp/para ...`, and Edit
+# for `games/**` only, which covers Write too, so the playbooks, settings and engine stay read-only here); a call that list
 # does not cover is refused by claude (it does not hang) and shown here in plain words. It never
 # reads, asks for, keeps or shows a login or an API key: those stay with the claude program the
 # friend signed in to themselves, and when it says it is not signed in the studio only tells the
@@ -83,6 +83,7 @@ type
     root: string
     sessionId*: string
     version*: string
+    model*, effort*: string ## from the init line; "" when it did not say
     sawInit*, sawResult*: bool
     shapeProblems*: int
     errorEmitted*: bool
@@ -207,6 +208,8 @@ proc onSystem(m: var ClaudeMapper, e: JsonNode): seq[UiEvent] =
     if sid.len > 0: m.sessionId = sid
     let v = e.str("claude_code_version")
     if v.len > 0: m.version = v
+    m.model = modelWord(e.str("model"))
+    m.effort = modelWord(e.str("effort"))
   of "task_started":
     let id = e.str("tool_use_id")
     let key = if id.len > 0: id else: e.str("task_id")
@@ -449,10 +452,14 @@ proc attemptTurn(exe: string, req: TurnRequest, session: string, ctl: ptr TurnCo
     discard # the child already left; its exit code tells the story
   var line: string
   var lastSession = ""
+  var told = false
   try:
     while p.outputStream.readLine(line):
       for ev in m.mapLine(line):
         emit ev
+      if m.sawInit and not told:
+        told = true
+        if not req.onModel.isNil: req.onModel(m.model, m.effort)
       if m.sessionId.len > 0 and m.sessionId != lastSession:
         lastSession = m.sessionId
         if not req.onSession.isNil: req.onSession(lastSession)

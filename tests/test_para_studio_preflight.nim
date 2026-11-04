@@ -136,13 +136,15 @@ suite "preflight: the rules that let the producer change files in games/":
   test "this repository's own .claude/settings.json passes":
     check editRulesIn(readFile(repoSettings), "") == erAllowed
 
-  test "both rules, from either settings file":
+  test "the Edit rule is the one asked for, from either settings file; a leftover Write rule is harmless":
     check editRulesIn(settingsOk, "") == erAllowed
-    check editRulesIn("""{"permissions":{"allow":["Edit(/games/**)"]}}""", """{"permissions":{"allow":["Write(/games/**)"]}}""") == erAllowed
-    check editRulesIn("""{"permissions":{"allow":["Edit","Write"]}}""", "") == erAllowed
+    check editRulesIn("""{"permissions":{"allow":["Edit(/games/**)"]}}""", "") == erAllowed
+    check editRulesIn("{}", """{"permissions":{"allow":["Edit(/games/**)","Write(/games/**)"]}}""") == erAllowed
+    check editRulesIn("""{"permissions":{"allow":["Edit"]}}""", "") == erAllowed
+    # Claude Code never matches a Write(path) rule, so it cannot stand in for the Edit rule
+    check editRulesIn("""{"permissions":{"allow":["Write(/games/**)"]}}""", "") == erMissing
 
   test "a missing rule, a rule for another folder, no file or a broken file is missing":
-    check editRulesIn("""{"permissions":{"allow":["Edit(/games/**)"]}}""", "") == erMissing
     check editRulesIn("""{"permissions":{"allow":["Edit(/docs/**)","Write(/docs/**)"]}}""", "") == erMissing
     check editRulesIn("""{"permissions":{"allow":["Bash(tmp/para check)"]}}""", "") == erMissing
     check editRulesIn("""{"permissions":{}}""", "") == erMissing
@@ -395,6 +397,25 @@ suite "preflight: GET /api/preflight":
     check not parseJson(running.request("GET", "/api/preflight").body)["ready"].getBool
     putEnv("FAKE_CLAUDE_AUTH", "in")
     check parseJson(running.request("GET", "/api/preflight").body)["ready"].getBool
+
+  test "a pick with no game switches the checklist before any game exists, and the game-less page follows it":
+    putEnv("FAKE_CLAUDE_AUTH", "out") # Claude is the default and its setup fails
+    check not parseJson(running.request("GET", "/api/preflight").body)["ready"].getBool
+    let r = running.request("POST", "/api/agent/pick", body = """{"game":"","agent":"codex"}""")
+    check r.status == 200 and parseJson(r.body)["current"].getStr == "codex"
+    let d = parseJson(running.request("GET", "/api/preflight").body)
+    check d["agent"].getStr == "codex" and d["ready"].getBool
+    check parseJson(running.request("GET", "/api/agent").body)["current"].getStr == "codex"
+    # and back: Claude is still one click away
+    check running.request("POST", "/api/agent/pick", body = """{"game":"","agent":"claude"}""").status == 200
+    check parseJson(running.request("GET", "/api/preflight").body)["agent"].getStr == "claude"
+
+  test "the page offers 'Use <other> instead' in the checks popover when setup fails and the other is installed":
+    let page = readFile(currentSourcePath.parentDir.parentDir / "tools" / "para" / "studio" / "index.html")
+    check "id=\"switch-agent\"" in page and "\"Use \" + other.label + \" instead\"" in page
+    check "c.id === \"installed\" || c.id === \"signed-in\"" in page # only for the checks a switch can fix
+    check "x.name !== p.agent && x.installed" in page # only to an installed producer
+    check "renderSwitch(p);" in page and "agent: name }" in page # the pick goes through the same route, with no game when there is none
 
   test "the optional row (Lavish, for visual boards) is listed apart and never counted":
     let savedPath = getEnv("PATH")

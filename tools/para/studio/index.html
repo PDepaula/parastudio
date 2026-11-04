@@ -146,6 +146,7 @@ code { font-size: .88em; overflow-wrap: anywhere; }
 .agent-opt:hover:not(:disabled) { background: rgba(255, 255, 255, .22); }
 .agent-opt[aria-checked="true"] { background: var(--gold); color: var(--purple); }
 .agent-opt:disabled { opacity: .6; }
+.agent-ran { display: block; margin-top: 6px; font-size: 13px; color: #CFC6E2; overflow-wrap: anywhere; }
 .newchat { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; border-radius: 16px; background: var(--accent); color: var(--on-accent); font-weight: 800; flex: none;
   box-shadow: 0 3px 0 color-mix(in srgb, var(--accent) 55%, #000); }
 .newchat:hover:not(:disabled) { background: var(--accent-hover); }
@@ -478,6 +479,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
         <b id="pip-name">Pip</b><small>your producer</small>
         <div class="agents" id="agents" role="radiogroup" aria-label="Who is the producer for this game" aria-describedby="agent-about" hidden></div>
         <span class="agent-one" id="agent-one" hidden></span>
+        <span class="agent-ran" id="agent-ran" aria-live="polite"></span>
       </div>
     </div>
     <div class="lanes" id="lanes" aria-label="What the helpers are doing" aria-live="polite" hidden></div>
@@ -533,6 +535,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
       <h3 id="ready-h">Startup checks</h3>
       <div id="preflight-sum" class="result" role="status" aria-live="polite"></div>
       <ul class="pfl" id="preflight-list"></ul>
+      <div class="btns" id="switch-row" hidden><button type="button" class="btn ghost" id="switch-agent"></button><span class="mute" id="switch-why"></span></div>
       <div class="firstrun" id="firstrun" hidden>
         <h4>First time with Claude? A few minutes in a terminal</h4>
         <p>Claude asks its setup questions in a terminal, once. The studio can't answer them for you, and never sees your answers or your login.</p>
@@ -1364,7 +1367,19 @@ function plainLaneText(t) {
 // The producer picker, on Pip's card: one pill per agent the studio knows, the current one checked.
 // Each agent keeps its own conversation; the studio refuses a pick while a turn runs (the pills are
 // disabled then). What each one is lives in the help (?) and on each pill's tooltip.
+let agentsNow = [], agentCurrent = null;
+// One small line under the producer's name: which model and effort it last said it ran with. The
+// studio sets neither (the tool's own settings decide), so before the first message there is
+// nothing to show yet. A big model on high effort is the usual reason a turn is slow.
+function showRan(model, effort) {
+  const x = agentCurrent, el = $("agent-ran");
+  if (!x) { el.textContent = ""; el.title = ""; return; }
+  el.textContent = model ? x.label + " · " + model + " · " + (effort ? effort + " effort" : "default effort")
+                         : "Model and effort show after your first message.";
+  el.title = "The studio does not choose the model or the effort: " + x.label + " does, from its own settings. A big model on high effort can make a turn slow.";
+}
 function renderAgents(a) {
+  agentsNow = a.agents || [];
   const box = $("agents"), about = $("agent-about");
   box.textContent = "";
   about.textContent = "";
@@ -1374,6 +1389,8 @@ function renderAgents(a) {
   $("agent-one").hidden = known.length !== 1;
   $("agent-one").textContent = known.length === 1 ? known[0].label : "";
   const current = known.find((x) => x.name === a.current) || known[0];
+  agentCurrent = current || null;
+  showRan(current ? current.model : "", current ? current.effort : "");
   for (const x of known) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "agent-opt"; b.setAttribute("role", "radio");
@@ -1394,6 +1411,25 @@ async function pickAgent(name) {
   try { await api("POST", "/api/agent/pick", { game, agent: name }); await loadAgent(); await loadChats(); pollChat(); }
   catch (e) { say($("chat-result"), e.message, "bad"); }
 }
+
+// Setup that cannot pass for the producer in use (not installed, or not signed in) but could for
+// the other one: one line in the checks popover that switches the producer, even before any game
+// exists (then the pick is the studio-wide one, which new games start from). Claude stays the default.
+function renderSwitch(p) {
+  const row = $("switch-row");
+  const blocked = p.checks.some((c) => (c.id === "installed" || c.id === "signed-in") && c.state === "fail");
+  const other = blocked ? agentsNow.find((x) => x.name !== p.agent && x.installed) : null;
+  row.hidden = !other;
+  if (!other) return;
+  $("switch-agent").textContent = "Use " + other.label + " instead";
+  $("switch-agent").dataset.agent = other.name;
+  $("switch-why").textContent = other.label + " is installed on this computer. You can switch back any time.";
+}
+$("switch-agent").addEventListener("click", async () => {
+  const name = $("switch-agent").dataset.agent;
+  if (!name || chatRunning || busy) return;
+  await pickAgent(name); // loadAgent() inside reruns the checks for the new producer
+});
 
 // The startup checks (installed, signed in, folder trusted, edits allowed), behind the pill in the
 // header: green "Ready" when all pass, else what is wrong with one plain fix each, and the panel opens
@@ -1485,6 +1521,7 @@ async function loadPreflight() {
   const failed = p.checks.filter((c) => c.state === "fail").length;
   const count = ok + "/" + p.checks.length;
   renderFirstRun(p);
+  renderSwitch(p);
   renderOptional(p);
   if (ok === p.checks.length) {
     say(sum, "Ready: " + p.label + " can work here.", "ok");
@@ -1560,6 +1597,7 @@ async function pollChat() {
         return;
       }
       chatOpen = d.chat;
+      showRan(d.model, d.effort);
       let turnEnded = false;
       for (const ev of d.events) { if (ev.kind === "done") turnEnded = true; else renderEvent(ev); }
       chatSince = Math.max(chatSince, d.next);

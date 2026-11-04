@@ -96,6 +96,8 @@ type
     sessionId*: string    ## the thread id
     turnId*: string
     version*: string
+    model*, effort*: string ## from the thread/start (or resume) answer; "" when it did not say
+    modelKnown*: bool       ## that answer has arrived
     sawInit*: bool
     completed*: bool      ## `turn/completed` arrived
     status*: string       ## the turn's status then: completed, interrupted or failed
@@ -472,6 +474,9 @@ proc onResponse(m: var CodexMapper, id: int, e: JsonNode): seq[UiEvent] =
       inc m.shapeProblems
       return m.fail("", "no thread id")
     m.sessionId = thread
+    m.model = modelWord(e.str("result", "model"))
+    m.effort = modelWord(e.str("result", "reasoningEffort"))
+    m.modelKnown = true
     m.stage = stTurn
     m.outbox.add m.request("turn/start", %*{"threadId": thread, "input": [{"type": "text", "text": m.text}]})
   of "turn/start":
@@ -649,11 +654,15 @@ proc attemptTurn(exe: string, req: TurnRequest, ctl: ptr TurnControl, emit: Emit
   link.sendLines(m.begin())
   var line: string
   var lastSession = ""
+  var told = false
   try:
     while p.outputStream.readLine(line):
       for ev in m.mapLine(line):
         emit ev
       link.sendLines(m.takeOutbox())
+      if m.modelKnown and not told:
+        told = true
+        if not req.onModel.isNil: req.onModel(m.model, m.effort)
       if m.sessionId.len > 0 and m.sessionId != lastSession:
         lastSession = m.sessionId
         if not req.onSession.isNil: req.onSession(lastSession)
