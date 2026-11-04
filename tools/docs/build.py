@@ -72,6 +72,7 @@ NAV: list[tuple[str, list[tuple[str, str]]]] = [
     ("Platforms", [
         ("mac.md", "Mac"),
         ("windows.md", "Windows"),
+        ("windows-friend-test.md", "Windows zip test"),
         ("windows-first-game.md", "Windows, step by step"),
         ("linux.md", "Linux"),
         ("platforms.md", "What was checked where"),
