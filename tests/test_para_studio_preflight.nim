@@ -261,7 +261,7 @@ suite "preflight: Claude, against a stand-in claude":
 
   test "missing edit rules, a missing settings file and a deny rule each fail with their own fix":
     block missingRule:
-      let s = scratch("""{"permissions":{"allow":["Edit(/games/**)"]}}""")
+      let s = scratch("""{"permissions":{"allow":["Write(/games/**)"]}}""")
       defer: s.done()
       let c = s.claudeChecks().byId("edits")
       check c.state == csFail and c.fix == editsMissingFix and "git checkout" in c.fix
