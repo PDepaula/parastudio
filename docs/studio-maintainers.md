@@ -110,7 +110,7 @@ offered) for it.
 | Installed | the `claude` (or `codex`) program is on the PATH | the setup page to install it from |
 | Signed in | `claude auth status --json` (Codex: `codex login status`); only its yes/no is read | "open a terminal, run: claude, and follow its sign-in" |
 | Folder trusted | Claude's own record, `projects["<this folder>"].hasTrustDialogAccepted` in `~/.claude.json` (`$CLAUDE_CONFIG_DIR/.claude.json` if set) | "open a terminal in this folder, run: claude, and choose Yes, I trust this folder" |
-| Edits in `games/` allowed | the folder's `.claude/settings.json` (and `.claude/settings.local.json`) still allow `Edit(/games/**)` and `Write(/games/**)` and nothing denies them | "put the file back: git checkout -- .claude/settings.json" |
+| Edits in `games/` allowed | the folder's `.claude/settings.json` (and `.claude/settings.local.json`) still allow `Edit(/games/**)` and nothing denies them | "put the file back: git checkout -- .claude/settings.json" |
 
 A check the studio has no safe way to answer says **Could not check** with a hint instead of a
 guess (for example a `claude` too old to have `auth status`, a config file in a shape it does not
@@ -204,9 +204,10 @@ shows that in plain words ("A helper wasn't allowed to run ... Ask the producer 
 it a different way.") instead of hanging.
 
 **What the producer and its helpers can change.** A headless `claude -p` turn cannot ask
-anyone, so it refuses every edit that no rule allows. The allow-list therefore holds two
-edit rules, `Edit(/games/**)` and `Write(/games/**)` (`/` is the repository root, so this
-is the `games/` folder and nothing else): the producer writes `PITCH.md`, `PLAN.md`,
+anyone, so it refuses every edit that no rule allows. The allow-list therefore holds one
+edit rule, `Edit(/games/**)` (`/` is the repository root, so this
+is the `games/` folder and nothing else; Claude Code applies `Edit` rules to its Write tool
+too, and never matches a `Write(path)` rule, so there is none): the producer writes `PITCH.md`, `PLAN.md`,
 `CHOICES.md`, `DESIGN.md`, `PLAYTEST.md` and `NOTES.md` there, and the builder, checker
 and scouts (they share the turn's rules) change the game's code and reports there. The
 rest of the allow-list is the `tmp/para ...` commands. Everything outside `games/` stays
@@ -215,10 +216,10 @@ read-only in the studio: the playbooks (`.agents`), `.claude/settings.json`, `AG
 repository. A game's own `.git` folder is refused too (Claude Code treats it as a
 sensitive file); saving goes through `para save`. The refusal text is in [studio.md](studio.md),
 "What the producer can and cannot change", and the producer is told
-(`.agents/skills/producer/SKILL.md`) not to work around it. Both
-edit rules take effect only in a folder Claude Code trusts (see "If something goes wrong" in
+(`.agents/skills/producer/SKILL.md`) not to work around it. The
+edit rule takes effect only in a folder Claude Code trusts (see "If something goes wrong" in
 [studio.md](studio.md)); in an untrusted folder `claude` ignores the whole allow-list, edits included.
-`tests/test_para_producer_cmd.nim` guards the shape: only those two edit rules, only on
+`tests/test_para_producer_cmd.nim` guards the shape: only that one edit rule, only on
 `games/**`, and no bare `Edit`, `Write` or `Bash(*)`.
 
 - **Accounts.** The studio never reads, asks for, stores, logs, forwards or shows a

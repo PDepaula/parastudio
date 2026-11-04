@@ -15,7 +15,8 @@
 # title, times and session id), and the page lists the chats of the agent the game talks to. One
 # agent's id is never handed to another, which could not use it. The agent a game talks to is
 # remembered in `tmp/studio/agent-<game>.txt` (its name and nothing else); a game with no pick uses
-# the studio's default, the first adapter.
+# the studio-wide pick in `tmp/studio/default-agent.txt` (made in the first-run setup checklist,
+# before any game exists), else the first adapter.
 #
 # Every line the page shows is also added to its chat's file (chatstore.nim:
 # `tmp/studio/chat-<game>-<agent>-<number>.jsonl`, keys taken out), so a chat opened again, or the
@@ -64,6 +65,7 @@ type
     watchThread: Thread[ptr ChatState]
     threadsStarted: bool
     infos: Table[string, tuple[info: AgentInfo, at: float]]
+    models: Table[string, tuple[model, effort: string]] ## by agent: what its last turn said it ran with (under `lock`)
     bookLock: Lock ## the chat lists below and their files; never held together with `lock`
     books: Table[string, ChatBook] ## by "<game>/<agent>", read from disk the first time
     storeLock: Lock ## held while a line is added to memory and its chat's file, or a chat is read back, so the two keep the same order
@@ -126,15 +128,28 @@ proc readSession*(root, game, agent: string): string =
 proc pickPath(root, game: string): string =
   root / "tmp" / "studio" / ("agent-" & game & ".txt")
 
+proc defaultPickPath(root: string): string =
+  ## Where the studio-wide pick lives. It does not start with "agent-", so no game's name can reach it.
+  root / "tmp" / "studio" / "default-agent.txt"
+
+proc pickedIn(c: ptr ChatState, path: string): string =
+  ## The agent named in the file at `path` if it still exists, else "".
+  try:
+    let name = readFile(path).strip
+    for a in c.adapters:
+      if a.name == name: return name
+  except IOError, OSError:
+    discard
+
 proc agentOf*(c: ptr ChatState, game: string): string =
-  ## The agent `game`'s chat talks to: the one the friend picked if it still exists, else the default.
+  ## The agent `game`'s chat talks to: the one the friend picked for it if that still exists, else
+  ## the one picked for the whole studio (made before any game exists, in the setup checklist), else
+  ## the built-in default. With no game (`""`) it is the studio-wide pick.
   if validGameName(game):
-    try:
-      let name = readFile(pickPath(c.root, game)).strip
-      for a in c.adapters:
-        if a.name == name: return name
-    except IOError, OSError:
-      discard
+    let own = pickedIn(c, pickPath(c.root, game))
+    if own.len > 0: return own
+  let studioWide = pickedIn(c, defaultPickPath(c.root))
+  if studioWide.len > 0: return studioWide
   c.adapters[0].name
 
 proc currentKey(c: ptr ChatState, game: string): ChatKey =
@@ -240,6 +255,10 @@ proc turnMain(c: ptr ChatState) {.thread.} =
   release(c.lock)
   {.cast(gcsafe).}:
     req.onSession = proc (id: string) = c.setChatSession(key, id)
+    req.onModel = proc (model, effort: string) =
+      acquire(c.lock)
+      c.models[key.agent] = (model, effort)
+      release(c.lock)
     var res: TurnResult
     try:
       res = adapter.runTurn(adapter, req, ctl, proc (ev: UiEvent) = c.add(key, ev))
@@ -465,6 +484,7 @@ type
     turnId*: int
     next*: int
     chat*: int ## the chat these lines are from
+    model*, effort*: string ## what the producer of this chat said it ran its last turn with; "" until it has run one
     entries*: seq[tuple[seq: int, you: bool, ev: UiEvent]]
 
 proc view*(c: ptr ChatState, game: string, since: int): ChatView =
@@ -477,6 +497,7 @@ proc view*(c: ptr ChatState, game: string, since: int): ChatView =
   result.turnId = c.turnId
   result.next = c.nextSeq - 1
   result.chat = key.chat
+  (result.model, result.effort) = c.models.getOrDefault(key.agent)
   for e in c.entries:
     if e.seq > since and e.key == key: result.entries.add (e.seq, e.you, e.ev)
 
@@ -503,6 +524,14 @@ proc agentPreflight*(c: ptr ChatState, name: string): seq[PreflightCheck] =
   {.cast(gcsafe).}:
     result = adapter.preflight(adapter, c.root)
 
+proc agentModel*(c: ptr ChatState, name: string): tuple[model, effort: string] =
+  ## The model and reasoning effort `name` reported for its last turn in this run of the studio, or
+  ## empty strings (nothing is known before the first message; the studio does not set either).
+  let adapter = c.adapterFor(name)
+  acquire(c.lock)
+  result = c.models.getOrDefault(adapter.name)
+  release(c.lock)
+
 proc agentLabel*(c: ptr ChatState, name: string): string = c.adapterFor(name).label
 proc agentCost*(c: ptr ChatState, name: string): string = c.adapterFor(name).cost
 proc agentAbout*(c: ptr ChatState, name: string): string = c.adapterFor(name).about
@@ -512,7 +541,8 @@ proc pickAgent*(c: ptr ChatState, game, name: string): Started =
   ## Makes `name` the agent `game`'s chat talks to, from the next message on. Each agent keeps its
   ## own chats, so switching back later picks up where that agent left off. Refused while a turn
   ## runs (it would be talking to the other one).
-  if not validGameName(game):
+  let wide = game.len == 0 # no game: the pick for the whole studio, used until a game has its own
+  if not wide and not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   if name notin c.agentNames:
     return Started(status: 400, code: "which-agent", message: "That is not one of the producers this studio knows.")
@@ -521,13 +551,14 @@ proc pickAgent*(c: ptr ChatState, game, name: string): Started =
   if isRunning(c):
     return Started(status: 409, code: "busy", message: "The producer is working on your last message. Wait for it, or press Stop, then pick again.")
   if agentOf(c, game) == name: return Started(ok: true, status: 200)
-  let path = pickPath(c.root, game)
+  let path = if wide: defaultPickPath(c.root) else: pickPath(c.root, game)
   try:
     createDir(path.parentDir)
     writeFile(path & ".new", name)
     moveFile(path & ".new", path)
   except IOError, OSError:
     return Started(status: 500, code: "cannot-save", message: "I could not remember that pick (is the disk full?).")
+  if wide: return Started(ok: true, status: 200)
   c.add(c.currentKey(game), UiEvent(kind: ukNotice, code: "agent-picked",
     text: "From your next message on, " & c.adapterFor(name).label & " is the producer. It has its own chats, so it reads the game's notes (PLAN.md) to pick things up; it can't see what the other one said."))
   Started(ok: true, status: 200)

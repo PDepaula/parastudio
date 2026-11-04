@@ -55,12 +55,14 @@ type
 
   EmitProc* = proc (ev: UiEvent) {.closure, gcsafe.}
   SessionProc* = proc (sessionId: string) {.closure, gcsafe.}
+  ModelProc* = proc (model, effort: string) {.closure, gcsafe.}
 
   TurnRequest* = object
     text*: string        ## what the friend typed (untrusted; never put on a command line)
     sessionId*: string   ## "" on the first turn
     workDir*: string     ## the repository root
     onSession*: SessionProc ## called as soon as the agent reports its session id
+    onModel*: ModelProc  ## called when the agent reports the model and reasoning effort it runs the turn with ("" for what it does not say)
 
   TurnResult* = object
     ok*: bool            ## the agent ended without an error (an error has been emitted otherwise)
@@ -261,6 +263,14 @@ proc secretName(name: string): bool =
     if part in n: return true
 
 proc keyLike(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '-', '.'}
+
+proc modelWord*(v: string): string =
+  ## A model name or an effort level as the agent reported it, made safe to show: letters, digits and
+  ## `. _ - : / [ ]` only, at most 60 characters ("" for anything else, so a stray value is left out).
+  for c in v.strip:
+    if c in {'a'..'z', 'A'..'Z', '0'..'9', '.', '_', '-', ':', '/', '[', ']'}: result.add c
+    else: return ""
+  if result.len > 60: result = ""
 
 proc redactSecrets*(text: string): string =
   ## `text` with anything that looks like a key or a login taken out: the value of any environment

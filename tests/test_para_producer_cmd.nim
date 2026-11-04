@@ -15,7 +15,7 @@ import tools/para/lanecmd
 
 const
   repoRoot = currentSourcePath().parentDir.parentDir
-  editRules = ["Edit(/games/**)", "Write(/games/**)"] ## the only non-Bash rules in .claude/settings.json
+  editRules = ["Edit(/games/**)"] ## the only non-Bash rule in .claude/settings.json
 
 proc put(root, rel, body: string) =
   let p = root / rel
@@ -604,8 +604,8 @@ suite "owned file contracts: voice core, AGENTS.md, CLAUDE.md, hook configs":
       check "codex" notin entry.getStr
 
   test ".claude/settings.json: the producer may edit files under games/ and nothing else":
-    # a headless `claude -p` refuses any edit that no rule allows, so without these two rules the
-    # producer cannot write PITCH.md/PLAN.md/... and a helper cannot build; they stay on games/**
+    # a headless `claude -p` refuses any edit that no rule allows, so without this rule the
+    # producer cannot write PITCH.md/PLAN.md/... and a helper cannot build; it stays on games/**
     # (project-root-relative, gitignore-style) so the playbooks, settings and engine stay read-only
     let allow = parseJson(readFile(repoRoot / ".claude" / "settings.json"))["permissions"]["allow"].mapIt(it.getStr)
     check allow.filterIt(it.startsWith("Edit") or it.startsWith("Write") or it.startsWith("MultiEdit") or
@@ -623,6 +623,58 @@ suite "owned file contracts: voice core, AGENTS.md, CLAUDE.md, hook configs":
         check tool == "Bash" # no bare `Edit`, `Write`, `Read`, `WebFetch`, `mcp__...` or wildcard rule
     check "Bash" notin allow and "Bash(*)" notin allow and "Edit" notin allow and "Write" notin allow
     check "Edit(*)" notin allow and "Edit(**)" notin allow and "Write(*)" notin allow and "Write(**)" notin allow
+
+  test ".claude/settings.json: no inert Write rule, and the compiler probes are gcc and clang (Windows has no cc)":
+    let allow = parseJson(readFile(repoRoot / ".claude" / "settings.json"))["permissions"]["allow"].mapIt(it.getStr)
+    check "Write(/games/**)" notin allow # Claude Code never matches a Write(path) rule; Edit(path) covers writes
+    check "Bash(gcc --version)" in allow and "Bash(clang --version)" in allow and "Bash(cc --version)" notin allow
+
+  test "Windows: the Claude hook names its shell, Codex has a Windows command, and Claude keeps Git Bash as its shell tool":
+    let claude = parseJson(readFile(repoRoot / ".claude" / "settings.json"))
+    let hook = claude["hooks"]["SessionStart"][0]["hooks"][0]
+    check hook["shell"].getStr == "bash" # not whichever shell Claude Code finds on this PC
+    # the Bash(...) allow rules only match the Bash tool, which the PowerShell tool would replace on Windows
+    check claude["env"]["CLAUDE_CODE_USE_POWERSHELL_TOOL"].getStr == "0"
+    let codex = parseJson(readFile(repoRoot / ".codex" / "hooks.json"))["hooks"]["SessionStart"][0]["hooks"][0]
+    check codex["command"].getStr.contains("tmp/para producer-context") # the Linux and Mac line is untouched
+    check codex["commandWindows"].getStr == "tmp\\para.exe producer-context"
+    for c in [codex["commandWindows"].getStr]:
+      check "/dev/null" notin c and "||" notin c and "$(" notin c # nothing a Windows shell cannot read
+
+  test "the playbook does not run cc; the hook text names the compiler":
+    let playbook = readFile(repoRoot / playbookFile)
+    check "`cc --version`, `nim -v`" notin playbook
+    check "do not run `cc --version`" in playbook and "`gcc --version`" in playbook
+    let found = compilerLine((name: "gcc", version: "gcc.exe (MinGW) 15.2.0"))
+    check found.startsWith("C compiler: gcc is on this computer") and "15.2.0" in found and "Do not run a compiler check yourself" in found
+    check "(it reports" notin compilerLine((name: "clang", version: ""))
+    let none = compilerLine((name: "", version: ""))
+    check "none of gcc, cc, clang" in none and "Install help" in none
+    let root = newRoot()
+    defer: removeDir(root)
+    root.put("games/mygame/PLAN.md", "Speed: fast\n")
+    check "C compiler: gcc is on this computer" in producerContext(root, "", false, (name: "gcc", version: "15.2"))
+    check "C compiler: none of" in producerContext(root, "", false, (name: "", version: ""))
+
+  test "compilerFact asks the first of gcc, cc, clang that is on the PATH, and says none when none is":
+    when not defined(windows): # stand-ins are shell scripts
+      let bin = createTempDir("para_cc_", "")
+      defer: removeDir(bin)
+      var found: CCompiler
+      withPath(bin):
+        found = compilerFact()
+      check found.name == "" # nothing on this PATH
+      for name in ["clang", "cc"]: # cc comes before clang; gcc, when there is one, before both
+        writeFile(bin / name, "#!/bin/sh\necho \"" & name & " fake 1.2\"\n")
+        setFilePermissions(bin / name, {fpUserRead, fpUserWrite, fpUserExec})
+      withPath(bin):
+        found = compilerFact()
+      check found == (name: "cc", version: "cc fake 1.2")
+      writeFile(bin / "gcc", "#!/bin/sh\necho gcc.exe broken >&2\nexit 3\n")
+      setFilePermissions(bin / "gcc", {fpUserRead, fpUserWrite, fpUserExec})
+      withPath(bin):
+        found = compilerFact()
+      check found.name == "gcc" and found.version == "" # found, but would not say its version
 
   test ".claude/settings.json: the permission allow-list is narrow, and the hook is still there":
     let cfg = parseJson(readFile(repoRoot / ".claude" / "settings.json"))
@@ -648,6 +700,6 @@ suite "owned file contracts: voice core, AGENTS.md, CLAUDE.md, hook configs":
                        "Bash(tmp/para lane land *)"]
       # a rule is a para subcommand, or one of a few exact read-only probes, or the one CLI build line
       check rule.startsWith("Bash(tmp/para ") or rule in ["Bash(nim c --hints:off --outdir:tmp tools/para/para.nim)",
-        "Bash(git --version)", "Bash(nim -v)", "Bash(cc --version)", "Bash(git remote get-url origin)"]
+        "Bash(git --version)", "Bash(nim -v)", "Bash(gcc --version)", "Bash(clang --version)", "Bash(git remote get-url origin)"]
       if rule.startsWith("Bash(tmp/para test"): check rule == "Bash(tmp/para test --filter games/*)"
 

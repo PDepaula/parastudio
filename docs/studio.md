@@ -198,6 +198,15 @@ The chat is the same producer you get in a terminal, in a page. It runs the `cla
   Codex, install Codex CLI from OpenAI's page (https://developers.openai.com/codex/cli; on
   Windows that is your step), open a terminal once, run `codex` and sign in. Using Codex costs
   your own ChatGPT plan or OpenAI API credit.
+  **In the setup checklist** (the pill in the header) the pick works before you have a game: when
+  the producer in use is not installed or not signed in and the other one is installed, the
+  checklist offers **Use Codex instead** (or **Use Claude instead**). That pick is for the whole
+  studio, and a game with no pick of its own starts with it; you can still pick per game later.
+- **Which model and how hard it thinks.** A small line under Pip's name says which model and
+  effort the producer reported for its last message ("Claude · claude-opus-5-5 · high effort").
+  Studio does not choose either: the tool's own settings do (for Codex `default effort` means the model's own default; Claude does
+  not report its effort, so it shows `effort not reported`). Until the first message there is nothing to show. A big model on high effort is the
+  usual reason a turn is slow.
 - **One turn at a time.** Check, Save and Backup wait while the producer is working, and the
   other way round. **Stop** ends the turn and everything it started. A turn is stopped after
   `--turn-timeout` minutes (default 60; long builds are normal).

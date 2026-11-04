@@ -66,6 +66,27 @@ proc itemNote(meth: string, item: JsonNode, thread = threadId): string =
 proc completedTurn(status = "completed", error: JsonNode = newJNull()): string =
   note("turn/completed", %*{"threadId": threadId, "turn": {"id": "t1", "items": [], "status": status, "error": error}})
 
+suite "codex conversation: the model and effort the thread answer reports":
+  test "model and reasoningEffort come from the thread/start answer; a null effort is the model's own default":
+    var f = started()
+    check f.m.modelKnown and f.m.model == "gpt-6-luna" and f.m.effort == "" # the recorded answer has reasoningEffort null
+    var g: Feed
+    g.m = newCodexMapper("/work/repo", "hi")
+    discard g.m.begin()
+    g.feed(fixtureLines("handshake.jsonl")[0])
+    var answer = parseJson(fixtureLines("handshake.jsonl")[1])
+    answer["result"]["model"] = %"gpt-6-luna"
+    answer["result"]["reasoningEffort"] = %"xhigh"
+    g.feed($answer)
+    check g.m.model == "gpt-6-luna" and g.m.effort == "xhigh"
+    var h: Feed
+    h.m = newCodexMapper("/work/repo", "hi")
+    discard h.m.begin()
+    h.feed(fixtureLines("handshake.jsonl")[0])
+    answer["result"]["model"] = %"gpt 6; reboot"
+    h.feed($answer)
+    check h.m.modelKnown and h.m.model == "" # not a plain name: left out
+
 suite "codex conversation: what is sent, from the first line to the turn":
   test "a new conversation: initialize, initialized, thread/start, then the message inside JSON":
     var f = started("make it red; $(reboot) \"quoted\" & `x` | y\nsecond line ünïcode")

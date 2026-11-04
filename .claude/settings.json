@@ -1,8 +1,10 @@
 {
+  "env": {
+    "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0"
+  },
   "permissions": {
     "allow": [
       "Edit(/games/**)",
-      "Write(/games/**)",
       "Bash(tmp/para producer-context)",
       "Bash(tmp/para check)",
       "Bash(tmp/para check --game *)",
@@ -28,7 +30,8 @@
       "Bash(nim c --hints:off --outdir:tmp tools/para/para.nim)",
       "Bash(git --version)",
       "Bash(nim -v)",
-      "Bash(cc --version)",
+      "Bash(gcc --version)",
+      "Bash(clang --version)",
       "Bash(git remote get-url origin)"
     ]
   },
@@ -39,6 +42,7 @@
           {
             "type": "command",
             "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" 2>/dev/null; tmp/para producer-context 2>/dev/null || true",
+            "shell": "bash",
             "timeout": 10
           }
         ]
