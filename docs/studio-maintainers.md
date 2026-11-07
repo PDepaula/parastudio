@@ -234,13 +234,14 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
 - **The desk.** Every "may this start now?" is one decision in `studiodesk.nim`, written with
   [eversince](https://github.com/PDepaula/eversince), a pinned nimble dependency (MIT; see
   `paraloop.nimble`, `nimble.lock`, THIRD_PARTY.md). It is a pure core: commands (`StartTurn`,
-  `EndTurn`, `StartStep`, `EndStep`, `NewGame`, `LandLane`, `StartPlay`, `TakeShot`, `PickProducer`,
+  `EndTurn`, `StopTurn`, `StartStep`, `EndStep`, `NewGame`, `LandLane`, `StartPlay`, `TakeShot`, `PickProducer`,
   `PickSpeed`, `NewChat`, `OpenChat`, `DeleteChat`, `UseChat`, `ReportSession` and `ReportModel`,
   plus `AddLine` and `RestoreChat` for the chat's lines), events, four views (`Desk`: turns, step,
   picks, the last Play and picture; `Chat`: the lines the page polls; `ChatBook`: each chat's
-  record; `Producers`: what each producer last ran with) and four queries (`DeskNow`, `ChatSince`,
-  `ChatList`, `ProducerNow`), with no thread, lock, clock, file or process (the compiler enforces
-  it). `studiodesk.em` lists the same blocks and the stories; the build stops when the two disagree.
+  record; `Producers`: what each producer last ran with) and five queries (`DeskNow`, `JobNow`,
+  `ChatSince`, `ChatList`, `ProducerNow`), with no thread, lock, clock, file or process (the compiler
+  enforces it for every command, view and query; the four processors below are the one exception).
+  `studiodesk.em` lists the same blocks and the stories; the build stops when the two disagree.
   Every refusal a route used to decide is a rule here, with its words and a scenario: a new game's
   name (`needsName`, `badName`, `taken`), a save's note (`badMessage`), landing a helper's work
   (`noSuchLane`), Play (`noSource`, `busy`) and a picture (`otherGame`, `notRunning`). What is on disk
@@ -252,7 +253,32 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   `tests/studiodesk/scenarios.jsonl` (`test_para_studio_desk.nim` runs them against the real core).
   `studiochat.nim` is the shell: **one lock**, `ChatState.lock`, serialises the runtime, every
   command is executed and every question answered under it, and the turn thread and the job thread
-  hand their ends back as commands (`EndTurn`, `EndStep`); only plain values leave the lock. There is
+  hand their ends back as commands (`EndTurn`, `EndStep`); only plain values leave the lock.
+  **The threads are processors.** `TurnRunner` (consumes `TurnStarted` and `StopRequested`, issues
+  `AddLine`, `ReportSession`, `ReportModel`, `EndTurn`) starts the turn thread, and on
+  `StopRequested` has that turn's child ended; `TurnClock` (`TurnStarted`, issues `EndTurn`) starts
+  the turn's clock; `StepRunner` and `StepClock` (`StepStarted`, issue `EndStep`) start the job thread
+  and its clock. They are declared in `studiodesk.nim`, clocks first, so a turn or a step whose clock
+  cannot start does not run. A processor is delivered by `execute`, inside the command call and under
+  the one lock, so **it only starts a thread and never waits for one**: ending a child waits (`cancel`
+  has a grace period), so `StopRequested` starts a small stopper thread (`stopMain`) and `stopTurn`
+  watches it with the lock free. A processor does its start through `hands` (a thread-local record of
+  procs in `studiodesk.nim`, set around each command by the shell's `run`; empty in a scenario, so a
+  processor then does nothing, and filled with stand-ins that start no thread and no child process
+  in `tests/test_para_studio_threads.nim`). If a thread cannot start, the processor issues `EndTurn`
+  (outcome `failed`) or `EndStep` (code 1) itself, and `startTurn` / `startJob` answer 500 `spawn`.
+  What a thread gives back goes through `handBack(<Processor>, <command>)`, which takes only the
+  commands that processor's `issues` line lists (the compiler refuses the rest). The turn's record
+  (control, threads, session, speed) stays this file's `turns` table: `startTurn` works out what the
+  facts do not carry (message, session id, speed) and hands it over in `pending` for the length of the
+  command, and the processors make the record from it. Delivery positions are memory only
+  (`MemPositions`): a turn does not survive a restart, and a restart replays no processor.
+  **Stop is a fact.** `POST /api/chat/stop` is the command `StopTurn(game)`, which refuses `idle`
+  and produces `StopRequested(game, turn)`, so a stop has a position in the log's numbering like a
+  turn; `shutdownChat` issues `StopTurn` for each running game. A `StopRequested` for a turn that
+  is over, or no longer that game's, changes nothing (`giveAgain` re-gives one to prove it). A timeout
+  is `TurnEnded` with outcome `timeout`. Turn, step and stop events are not written to
+  `studio.jsonl`. There is
   no start gate: a turn and a step cannot both be accepted, because both ask the same desk under the
   same lock. What stays outside the events: the HTTP checks, the agent adapters, `TurnControl`,
   killing process trees, the job's 200,000-byte output buffer, and
@@ -266,9 +292,9 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   code goes: a `screen` for each panel of the page (`SetupPanel`, `GamesPanel`, `ChatPanel`,
   `PlayPanel`, `StepsPanel`, `ResumePanel`, `BackupSheet`, `NewGameSheet`) and for the shell's
   threads, with the commands and queries each really offers, and a `slice` for each story. Beside
-  it, `tools/para/studio-plan.em` is the same app plus the blocks the later slices add (the threads as
-  named processors, Stop, the Play window as a view; the chat books, the picks and what ran have
-  landed); nothing builds against it. The
+  it, `tools/para/studio-plan.em` is the same app plus the blocks the later slices add (the Play
+  window as a view; the chat books, the picks and what ran, the threads as named processors and Stop
+  have landed); nothing builds against it. The
   rule, held by `tests/test_para_studio_model.nim`: the plan may be ahead of the code and never
   behind it, so every block of `studiodesk.em` is in the plan with the same line, every slice is there
   as it is and every screen has at least its commands and queries. When a slice lands, move its
@@ -294,7 +320,7 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   game it is for, and a turn for a third game is refused (`too-busy`) while two other games'
   turns are running with helpers' lanes (each compile can take 3 to 4 GB). `GET /api/chat`
   reports `running` for the game asked and `working` for all of them; **Stop** (`POST
-  /api/chat/stop {game}`) ends that game's turn and everything it started (the
+  /api/chat/stop {game}`, the command `StopTurn`) ends that game's turn and everything it started (the
   whole process tree: its process group and descendants on macOS and Linux, `taskkill /T` on Windows).
   A turn is stopped after `--turn-timeout` minutes (default 60; long builds are
   normal). Closing the studio (Ctrl+C) ends every running turn. A job (Check, Save, Land, Backup,

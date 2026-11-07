@@ -14,6 +14,16 @@
 # the agent unless the friend sends a message: opening the page, polling, even a reload start no
 # turn and so cost nothing.
 #
+# The threads are the desk's processors (studiodesk.nim): once the desk accepts a turn, the fact
+# TurnStarted makes TurnRunner start the turn thread and TurnClock the clock thread, and the fact
+# StopRequested (what the command StopTurn makes, for the Stop button and for the studio closing) makes
+# TurnRunner have the turn's child ended; a step's StepStarted does the same for the job thread
+# and its clock (studioapi.nim). They run inside the command call, with the one lock held, so each only
+# STARTS a thread: ending a child waits for it, so that is a small thread of its own, and no processor
+# waits for anything. The turn's record (control, threads, session, speed) is this file's table, `turns`;
+# what the processors need of it that the facts do not carry (the message, the session id, the speed)
+# is worked out by `startTurn` before the command and handed over in `pending`.
+#
 # What may happen now (one turn per game, no message while that game's step runs, no producer, speed
 # or chat change during that game's turn, ...) is decided by the desk in studiodesk.nim, a pure core
 # written with eversince. This file is its shell: ONE lock (`ChatState.lock`) serialises the desk's
@@ -50,8 +60,8 @@ import agent
 import chatstore
 import savepoint
 import studiodesk
-from studiodesk import maxMessageChars, validMessage, DeskFacts
-export maxMessageChars, validMessage, DeskFacts
+from studiodesk import maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted
+export maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted
 
 const
   defaultTurnSeconds* = 3600
@@ -66,8 +76,15 @@ type
     askedModel*, askedEffort*: string ## what the studio passed ("" = left to the agent)
     model*, effort*: string ## what the agent reported ("" = it did not say)
 
+  PendingTurn = object
+    ## What `startTurn` worked out for the turn the desk is about to accept, for the processors to take.
+    text: string
+    session: string
+    speed: Speed
+
   Turn = object
-    ## One game's turn: made by `startTurn`, kept (finished) until that game's next turn or the end.
+    ## One game's turn: made by the processors on TurnStarted, kept (finished) until that game's next
+    ## turn or the end.
     chat: ptr ChatState
     id: int
     key: ChatKey
@@ -75,11 +92,19 @@ type
     session: string
     speed: Speed
     startedAt: float
-    stopping: int ## stop requests currently inside `cancel`
+    stopping: int ## holders of the record while a stop is under way: the stopper thread, a `stopTurn` waiting for it
+    cancelling: int ## stopper threads inside `cancel`
     ctl: ptr TurnControl
     turnThread: Thread[ptr Turn]
     watchThread: Thread[ptr Turn]
-    threadsStarted: bool
+    stopThread: Thread[ptr Turn]
+    turnStarted, watchStarted, stopStarted: bool
+    spawnFailed: bool ## a thread of this turn could not be started
+
+  StepHooks* = object
+    ## What the shell that runs steps (studioapi.nim) does for the processors StepRunner and StepClock.
+    data*: pointer
+    run*, watch*: proc (data: pointer, e: StepStarted): bool {.nimcall, gcsafe.} ## start the job thread, and its clock
 
   ChatState* = object
     lock: Lock ## the ONE lock: it serialises the desk's runtime (`desk`: the rules, the views, the book, the picks) and guards the records below
@@ -89,6 +114,9 @@ type
     timeoutSec: int
     files: ChatFilesStore ## the store behind `desk`
     turns: Table[string, ptr Turn] ## by game: the running turn, or the last one that ended
+    pending: Table[string, PendingTurn] ## by game: handed to the processors by `startTurn`, for the length of its command (under `lock`)
+    ended: seq[ptr Turn] ## the ended turns a new turn of their game replaced, for `startTurn` to reap with the lock free
+    steps: StepHooks
     infos: Table[string, tuple[info: AgentInfo, at: float]]
     shown: HashSet[string] ## the chats ("<game>/<agent>/<chat>") whose earlier lines the Chat view holds, or that have none (under `lock`)
     migrated: HashSet[string] ## the books ("<game>/<agent>") already checked for files an older studio left (under `lock`)
@@ -107,9 +135,13 @@ proc adapterFor(c: ptr ChatState, name: string): AgentAdapter =
     if a.name == name: return a
   c.adapters[0]
 
+proc setHands(c: ptr ChatState) {.gcsafe.}
+
 proc run(c: ptr ChatState, name: string, data: JsonNode): Decision =
-  ## One command through the runtime. Called with `lock` held.
+  ## One command through the runtime. Called with `lock` held. The processors the command wakes run
+  ## inside it, on this thread, and reach this state through `hands`.
   {.cast(gcsafe).}:
+    c.setHands()
     result = c.desk.execute(name, data)
 
 proc inject(c: ptr ChatState, kind: string, data: JsonNode) =
@@ -282,6 +314,13 @@ proc nowFacts(c: ptr ChatState, game: string): DeskFacts =
   {.cast(gcsafe).}:
     result = answer(DeskNow(game: game), c.desk.app.desk)
 
+proc jobNow*(c: ptr ChatState): JobFacts =
+  ## The step the desk knows of: running now, or the last one that ended (step 0 before the first).
+  acquire(c.lock)
+  defer: release(c.lock)
+  {.cast(gcsafe).}:
+    result = answer(JobNow(), c.desk.app.desk)
+
 proc deskFacts*(c: ptr ChatState, game = ""): DeskFacts =
   ## What the desk says now: every game with a turn, `game`'s turn, the step. Plain values.
   acquire(c.lock)
@@ -366,11 +405,17 @@ proc addCard*(c: ptr ChatState, game: string, ev: UiEvent) =
   ## agent, so it works with no turn running.
   c.add(c.settle(game), ev)
 
+proc giveBack(c: ptr ChatState, who: typedesc, cmd: auto): Decision =
+  ## A processor's thread gives a command back, through that processor's one door (`handBack` in
+  ## studiodesk.nim: only the commands its `issues` line lists go in). Called with `lock` held.
+  let (name, data) = handBack(who, cmd)
+  c.run(name, data)
+
 proc reportSession(c: ptr ChatState, key: ChatKey, id: string) =
   ## The agent named its session: the desk keeps it (and refuses an id a command line could not take).
   acquire(c.lock)
   defer: release(c.lock)
-  discard c.run("ReportSession", %*{"game": key.game, "agent": key.agent, "chat": key.chat, "session": id})
+  discard c.giveBack(TurnRunner, ReportSession(game: key.game, agent: key.agent, chat: key.chat, session: id))
 
 proc ranWith(r: Ran): RanWith =
   let (ok, speed) = parseSpeed(r.speed)
@@ -386,18 +431,26 @@ proc reportAsked(c: ptr ChatState, key: ChatKey, speed: Speed, model, effort: st
   ## A new turn: what it asked for is known now; what the agent says follows.
   acquire(c.lock)
   defer: release(c.lock)
-  discard c.run("ReportModel", %*{"game": key.game, "agent": key.agent, "speed": $speed, "askedModel": model,
-    "askedEffort": effort, "model": "", "effort": ""})
+  discard c.giveBack(TurnRunner, ReportModel(game: key.game, agent: key.agent, speed: $speed, askedModel: model,
+    askedEffort: effort, model: "", effort: ""))
 
 proc reportRan(c: ptr ChatState, key: ChatKey, speed: Speed, model, effort: string) =
   ## The agent said what it runs this turn with; what was asked for stays.
   acquire(c.lock)
   defer: release(c.lock)
   let was = c.ranIn(key.game, key.agent)
-  discard c.run("ReportModel", %*{"game": key.game, "agent": key.agent, "speed": $speed, "askedModel": was.askedModel,
-    "askedEffort": was.askedEffort, "model": model, "effort": effort})
+  discard c.giveBack(TurnRunner, ReportModel(game: key.game, agent: key.agent, speed: $speed, askedModel: was.askedModel,
+    askedEffort: was.askedEffort, model: model, effort: effort))
 
 # --- a turn -------------------------------------------------------------------------
+# TurnRunner and TurnClock (studiodesk.nim) start these threads; `turnMain` and `watchMain` are what
+# they run, and `stopMain` is what ends a turn's child when StopRequested says so.
+
+proc addFromTurn(c: ptr ChatState, key: ChatKey, ev: UiEvent) =
+  ## The turn thread puts a line on the page and in its chat's file.
+  acquire(c.lock)
+  defer: release(c.lock)
+  discard c.giveBack(TurnRunner, AddLine(game: key.game, agent: key.agent, chat: key.chat, line: lineBody((you: false, ev: ev)).to(LineBody)))
 
 proc turnMain(t: ptr Turn) {.thread.} =
   let c = t.chat
@@ -420,25 +473,25 @@ proc turnMain(t: ptr Turn) {.thread.} =
     req.onModel = proc (model, effort: string) = c.reportRan(key, speed, model, effort)
     var res: TurnResult
     try:
-      res = adapter.runTurn(adapter, req, ctl, proc (ev: UiEvent) = c.add(key, ev))
+      res = adapter.runTurn(adapter, req, ctl, proc (ev: UiEvent) = c.addFromTurn(key, ev))
     except CatchableError as e:
-      c.add(key, UiEvent(kind: ukError, code: "crashed",
+      c.addFromTurn(key, UiEvent(kind: ukError, code: "crashed",
         text: "The studio hit a problem while talking to the producer's tool: " & oneLine(redactSecrets(e.msg), 200)))
     let reason = ctl.cancelReason
     var outcome = ""
     if res.cancelled and reason == "timeout":
-      c.add(key, UiEvent(kind: ukError, code: "timeout",
+      c.addFromTurn(key, UiEvent(kind: ukError, code: "timeout",
         text: "This turn ran longer than " & (if timeoutSec >= 120: $(timeoutSec div 60) & " minutes" elif timeoutSec >= 60: "a minute" else: $timeoutSec & (if timeoutSec == 1: " second" else: " seconds")) & ", so I stopped it. Anything a helper already changed is still in the game folder. Ask the producer where things stand."))
       outcome = "timeout"
     elif res.cancelled:
-      c.add(key, UiEvent(kind: ukNotice, code: "stopped",
+      c.addFromTurn(key, UiEvent(kind: ukNotice, code: "stopped",
         text: "Stopped. Anything a helper already changed is still in the game folder. Ask the producer where things stand."))
       outcome = "stopped"
     elif res.ok: outcome = "ok"
     else: outcome = "failed"
     # the turn is over: the game is free and the page gets its end-of-turn line, in one command
     acquire(c.lock)
-    discard c.run("EndTurn", %*{"game": key.game, "agent": key.agent, "chat": key.chat, "turn": t.id, "outcome": outcome})
+    discard c.giveBack(TurnRunner, EndTurn(game: key.game, agent: key.agent, chat: key.chat, turn: t.id, outcome: outcome))
     release(c.lock)
 
 proc watchMain(t: ptr Turn) {.thread.} =
@@ -461,6 +514,21 @@ proc watchMain(t: ptr Turn) {.thread.} =
       ctl.cancel("timeout")
       return
 
+proc stopMain(t: ptr Turn) {.thread.} =
+  ## Ends the turn's child. `cancel` waits for it (up to a short grace), so this is a thread and not
+  ## the processor, which runs under the lock and may not wait.
+  let c = t.chat
+  var ctl: ptr TurnControl
+  acquire(c.lock)
+  ctl = t.ctl
+  release(c.lock)
+  {.cast(gcsafe).}:
+    ctl.cancel("stop")
+  acquire(c.lock)
+  dec t.cancelling
+  dec t.stopping
+  release(c.lock)
+
 proc reap(t: ptr Turn) =
   ## Joins an ended turn's threads, frees its control and the turn itself. Only called for a turn
   ## that is no longer running and no longer in `turns`.
@@ -471,10 +539,12 @@ proc reap(t: ptr Turn) =
     release(c.lock)
     if not busy: break
     sleep(10)
-  if t.threadsStarted:
-    joinThread(t.turnThread)
-    joinThread(t.watchThread)
-    t.threadsStarted = false
+  if t.turnStarted: joinThread(t.turnThread)
+  if t.watchStarted: joinThread(t.watchThread)
+  if t.stopStarted: joinThread(t.stopThread)
+  t.turnStarted = false
+  t.watchStarted = false
+  t.stopStarted = false
   if t.ctl != nil:
     freeTurnControl(t.ctl)
     t.ctl = nil
@@ -482,6 +552,89 @@ proc reap(t: ptr Turn) =
   t.session = ""
   t.key = (game: "", agent: "", chat: 0)
   dealloc(t)
+
+proc turnFor(c: ptr ChatState, e: TurnStarted): ptr Turn =
+  ## The shell's record of turn `e`: made on first use from what `startTurn` handed over, and the same
+  ## record for the second processor that asks. nil for a turn `startTurn` did not prepare. The game's
+  ## earlier, ended turn is set aside for `startTurn` to reap once the lock is free. Called with `lock` held.
+  result = c.turns.getOrDefault(e.game, nil)
+  if result != nil and result.id == e.turn: return
+  if e.game notin c.pending: return nil
+  let p = c.pending[e.game]
+  if result != nil: c.ended.add result
+  let t = create(Turn)
+  t.chat = c
+  t.key = (e.game, e.agent, e.chat)
+  t.text = p.text
+  t.session = p.session
+  t.speed = p.speed
+  t.startedAt = epochTime()
+  t.ctl = newTurnControl()
+  t.id = e.turn
+  c.turns[e.game] = t
+  result = t
+
+proc runTurnThread(state: pointer, e: TurnStarted): bool {.nimcall, gcsafe.} =
+  ## TurnRunner on TurnStarted: starts the turn thread. False when it could not. Lock held; never waits.
+  let c = cast[ptr ChatState](state)
+  let t = c.turnFor(e)
+  if t == nil or t.spawnFailed: return true # nothing prepared, or the clock could not start and so the turn does not run
+  try:
+    createThread(t.turnThread, turnMain, t)
+    t.turnStarted = true
+  except CatchableError:
+    t.spawnFailed = true
+    return false
+  true
+
+proc watchTurnThread(state: pointer, e: TurnStarted): bool {.nimcall, gcsafe.} =
+  ## TurnClock on TurnStarted: starts the clock thread. False when it could not. Lock held; never waits.
+  let c = cast[ptr ChatState](state)
+  let t = c.turnFor(e)
+  if t == nil: return true
+  try:
+    createThread(t.watchThread, watchMain, t)
+    t.watchStarted = true
+  except CatchableError:
+    t.spawnFailed = true
+    return false
+  true
+
+proc stopTurnChild(state: pointer, e: StopRequested) {.nimcall, gcsafe.} =
+  ## TurnRunner on StopRequested: has that turn's child ended, by a thread of its own (`cancel` waits
+  ## for the child). A request for a turn that is not this game's running one, or already over, or that
+  ## never ran, is ignored. Lock held; never waits.
+  let c = cast[ptr ChatState](state)
+  let t = c.turns.getOrDefault(e.game, nil)
+  if t == nil or t.id != e.turn or t.ctl == nil or not t.turnStarted or t.stopStarted: return
+  if c.desk.app.desk.turnOf(e.game) != e.turn: return
+  inc t.stopping
+  inc t.cancelling
+  try:
+    createThread(t.stopThread, stopMain, t)
+    t.stopStarted = true
+  except CatchableError:
+    dec t.stopping
+    dec t.cancelling
+
+proc runStepThread(state: pointer, e: StepStarted): bool {.nimcall, gcsafe.} =
+  let c = cast[ptr ChatState](state)
+  c.steps.run == nil or c.steps.run(c.steps.data, e)
+
+proc watchStepThread(state: pointer, e: StepStarted): bool {.nimcall, gcsafe.} =
+  let c = cast[ptr ChatState](state)
+  c.steps.watch == nil or c.steps.watch(c.steps.data, e)
+
+proc setHands(c: ptr ChatState) =
+  ## What the desk's processors do, for the command about to run on this thread.
+  hands = Hands(state: c, runTurn: runTurnThread, watchTurn: watchTurnThread, endTurn: stopTurnChild,
+    runStep: runStepThread, watchStep: watchStepThread)
+
+proc setSteps*(c: ptr ChatState, hooks: StepHooks) =
+  ## The shell that runs steps says how StepRunner and StepClock start theirs (studioapi.nim).
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.steps = hooks
 
 proc takeEnded(c: ptr ChatState, game: string): ptr Turn =
   ## The ended turn `game` last had, taken out of the list (nil when it has none). Called with `lock`
@@ -502,65 +655,67 @@ proc isRunning*(c: ptr ChatState): bool = c.runningGames.len > 0
 proc startTurn*(c: ptr ChatState, game, text: string, busyGames: seq[string] = @[]): Started =
   ## One turn of `game`'s producer. `busyGames` are the other games whose helpers are building (the
   ## caller looked them up: that is on disk, not a fact the desk has). The desk decides; what is
-  ## accepted is then done here: the chat's title, the turn's record, its threads.
+  ## accepted is then done here: the chat's title, and the processors (they run inside the command)
+  ## start the turn's threads from the record this makes ready.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   discard c.settle(game) # the chat's earlier lines come first
   acquire(c.lock)
   let agentName = c.agentIn(game)
   let b = c.bookIn(game, agentName)
+  c.pending[game] = PendingTurn(text: text, session: c.sessionIn(game, agentName, b.current), speed: c.speedIn(game))
   let decision = c.run("StartTurn", %*{"game": game, "agent": agentName, "chat": b.current, "text": text, "busyGames": busyGames})
+  c.pending.del(game)
   if decision.refused:
     release(c.lock)
     return refusal(decision)
   # accepted: the game's turn is now the desk's, so no other change to this game gets in
   let turnId = decision.events[0].data["turn"].getInt
   discard c.run("UseChat", %*{"game": game, "agent": agentName, "chat": b.current, "title": titleOf(text)}) # names a new chat, marks it used now
-  let session = c.sessionIn(game, agentName, b.current)
-  let key: ChatKey = (game, agentName, b.current)
-  let was = c.takeEnded(game)
-  let t = create(Turn)
-  t.chat = c
-  t.key = key
-  t.text = text
-  t.session = session
-  t.speed = c.speedIn(game)
-  t.startedAt = epochTime()
-  t.ctl = newTurnControl()
-  t.id = turnId
-  c.turns[game] = t
+  var dead = c.ended # the turns this one replaced
+  c.ended = @[]
+  let t = c.turns.getOrDefault(game, nil)
+  let spawned = t != nil and t.id == turnId and not t.spawnFailed
+  if not spawned and t != nil and t.id == turnId: # a thread could not be started: the processors ended the turn as failed
+    dead.add c.takeEnded(game)
   release(c.lock)
-  if was != nil: reap(was)
-  try:
-    createThread(t.turnThread, turnMain, t)
-    createThread(t.watchThread, watchMain, t)
-    t.threadsStarted = true
-  except CatchableError:
-    acquire(c.lock)
-    discard c.run("EndTurn", %*{"game": game, "agent": agentName, "chat": key.chat, "turn": turnId, "outcome": "failed"})
-    discard c.takeEnded(game)
-    release(c.lock)
-    reap(t)
+  for d in dead: reap(d)
+  if not spawned:
     return Started(status: 500, code: "spawn", message: "The studio could not start that turn.")
   Started(ok: true, status: 200, turnId: turnId)
 
 proc stopTurn*(c: ptr ChatState, game: string): bool =
-  ## True when `game` had a turn to stop (other games' turns go on). Returns once the child is gone
-  ## (or after a short grace).
-  var ctl: ptr TurnControl
-  var t: ptr Turn
+  ## True when `game` had a turn to stop (other games' turns go on): the command StopTurn is accepted,
+  ## and TurnRunner has that turn's child ended. Returns once the child is gone (or after a short grace).
   acquire(c.lock)
-  t = c.turns.getOrDefault(game, nil)
-  if t != nil and t.ctl != nil and c.nowFacts(game).turn == t.id:
-    ctl = t.ctl
-    inc t.stopping
+  let decision = c.run("StopTurn", %*{"game": game})
+  if decision.refused:
+    release(c.lock)
+    return false
+  let t = c.turns.getOrDefault(game, nil)
+  if t != nil: inc t.stopping # the record stays while this waits for the stop
   release(c.lock)
-  if ctl == nil: return false
-  ctl.cancel("stop")
+  if t == nil: return true
+  while true: # the stopper thread does the waiting; this only watches it, with the lock free
+    acquire(c.lock)
+    let going = t.cancelling > 0
+    release(c.lock)
+    if not going: break
+    sleep(10)
   acquire(c.lock)
   dec t.stopping
   release(c.lock)
   true
+
+proc giveAgain*(c: ptr ChatState, processor: string, e: Envelope) =
+  ## Gives one fact to one processor again, whatever its position, and handles the commands it issues
+  ## (the kit's `redeliver`: what a restart does behind the scenes). A StopRequested for a turn that is
+  ## over, or no longer that game's, changes nothing; this is how a test shows it.
+  acquire(c.lock)
+  defer: release(c.lock)
+  {.cast(gcsafe).}:
+    c.setHands()
+    c.desk.redeliver(processor, e)
 
 proc shutdownChat*(c: ptr ChatState) =
   ## The studio is closing: end every running turn so no claude is left behind.
@@ -570,7 +725,8 @@ proc shutdownChat*(c: ptr ChatState) =
     sleep(100)
   if not isRunning(c):
     acquire(c.lock)
-    var ended: seq[ptr Turn]
+    var ended = c.ended
+    c.ended = @[]
     for game, t in c.turns: ended.add t
     c.turns.clear()
     release(c.lock)
@@ -813,7 +969,8 @@ proc askShot*(c: ptr ChatState, game, windowGame: string, windowRunning: bool): 
   Started(ok: true, status: 200)
 
 proc endStep*(c: ptr ChatState, step, code: int) =
-  ## Step `step` is over (a number that is not the running step is ignored).
+  ## Step `step` is over (a number that is not the running step is ignored): the job thread hands
+  ## EndStep back, through StepRunner's one door.
   acquire(c.lock)
   defer: release(c.lock)
-  discard c.run("EndStep", %*{"step": step, "code": code})
+  discard c.giveBack(StepRunner, EndStep(step: step, code: code))

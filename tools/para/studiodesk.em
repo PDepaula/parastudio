@@ -6,17 +6,19 @@
 # studio-plan.em, beside it, is the same app with the blocks later slices add (see docs/studio-maintainers.md);
 # tests/test_para_studio_model.nim holds this file to it, and docs/studio-model.svg is this file drawn.
 #
-# There is no processor: processors are delivered inside the command call and do no input or output
-# here. The shell's threads (the turn thread, the job thread, the clocks) start and end things and
-# issue the commands below back; the screens TurnThread and JobThread stand for them. The game
-# window's own thread and the Stop buttons are not here yet: they are the plan's, not the code's.
+# The shell's threads are processors: TurnRunner (the turn thread, and ending a turn's child on Stop),
+# TurnClock (its time limit), StepRunner (the job thread) and StepClock (its time limit). A processor
+# is delivered inside the command call, under the shell's one lock, so it only starts a thread; the
+# thread hands back the commands its processor's `issues` line lists. The screens TurnThread and
+# JobThread stay for the commands the shell also issues itself. The game window's own thread is not
+# here yet: it is the plan's, not the code's.
 
 # --- what the friend sees: one screen for each panel of the page, and who else acts ---
 screen SetupPanel   | commands PickProducer                                              # the checklist before the first chat
 screen GamesPanel   | queries DeskNow   | commands LandLane                              # the sidebar: games, save points, the helpers' work
-screen ChatPanel    | queries ChatSince,ChatList,ProducerNow | commands StartTurn,UseChat,PickProducer,PickSpeed,NewChat,OpenChat,DeleteChat
+screen ChatPanel    | queries ChatSince,ChatList,ProducerNow | commands StartTurn,UseChat,StopTurn,PickProducer,PickSpeed,NewChat,OpenChat,DeleteChat
 screen PlayPanel    | commands StartPlay,TakeShot                                         # the game window: Play, and a picture of it
-screen StepsPanel   | queries DeskNow   | commands StartStep                             # Check and Save
+screen StepsPanel   | queries DeskNow,JobNow | commands StartStep                             # Check and Save
 screen ResumePanel                                                                       # "Where we left off": read from the game's files
 screen BackupSheet  | commands StartStep                                                  # Back up online
 screen NewGameSheet | commands NewGame                                                    # Start a game
@@ -46,10 +48,16 @@ slice start a game       : NewGameSheet -> NewGame -> StepStarted -> Desk -> Des
 slice land a helper's work : GamesPanel -> LandLane -> StepStarted -> Desk -> DeskNow -> StepsPanel
 slice press play         : PlayPanel -> StartPlay -> PlayStarted -> Desk
 slice take a picture     : PlayPanel -> TakeShot -> ShotAsked -> Desk
+slice the turn runs               : TurnRunner -> AddLine -> LineAdded -> Chat -> ChatSince -> ChatPanel
+slice the turn is stopped         : ChatPanel -> StopTurn -> StopRequested -> TurnRunner -> EndTurn -> TurnEnded -> Desk -> ChatSince -> ChatPanel
+slice the turn runs out of time   : TurnClock -> EndTurn -> TurnEnded -> Desk -> ChatSince -> ChatPanel
+slice the step runs               : StepRunner -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
+slice the step runs out of time   : StepClock -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
 
 # --- requests ---
 command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy
 command EndTurn game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn
+command StopTurn game:string | reads Desk | produces StopRequested | refuses idle
 command AddLine game:string agent:string chat:int line:LineBody | reads Chat | produces LineAdded
 command StartStep game:string kind:string message:string | reads Desk | produces StepStarted | refuses badMessage,busy,needsMessage
 command NewGame name:string existing:list[string] | reads Desk | produces StepStarted | refuses badName,busy,needsName,taken
@@ -70,6 +78,7 @@ command RestoreChat game:string agent:string chat:int lines:list[LineBody] lastN
 # --- facts ---
 event TurnStarted game:string agent:string chat:int turn:int
 event TurnEnded game:string agent:string chat:int turn:int outcome:string
+event StopRequested game:string turn:int
 event LineAdded game:string agent:string chat:int n:int line:LineBody
 event ChatRestored game:string agent:string chat:int lastN:int lines:list[LineBody]
 event ChatForgotten game:string agent:string chat:int
@@ -96,6 +105,13 @@ query DeskNow game:string | reads Desk | returns DeskFacts
 query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage
 query ChatList game:string agent:string | reads ChatBook | returns ChatListing
 query ProducerNow game:string agent:string | reads Producers | returns Ran
+query JobNow | reads Desk | returns JobFacts
+
+# --- background work: the shell's threads, named ---
+processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession
+processor TurnClock  | consumes TurnStarted | issues EndTurn
+processor StepRunner | consumes StepStarted | issues EndStep
+processor StepClock  | consumes StepStarted | issues EndStep
 
 # --- value types ---
 record LineBody you:bool kind:string text:string id:string role:string status:string tools:int code:string detail:string url:string
@@ -110,3 +126,4 @@ record ChatListing agent:string current:int chats:list[ChatRecord]
 record Ran game:string agent:string started:bool speed:string askedModel:string askedEffort:string model:string effort:string
 record DeskFacts working:list[string] running:bool turn:int lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string stepCode:int
 record ChatPage running:bool working:list[string] turn:int next:int entries:list[ChatEntry]
+record JobFacts running:bool step:int kind:string game:string code:int

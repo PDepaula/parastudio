@@ -19,6 +19,12 @@
 # everything it started and ends with a plain line saying so, so one stuck step can never hold every
 # game's Check, Save and Backup (and that game's chat) for good.
 #
+# The job's thread and its clock are the desk's processors StepRunner and StepClock (studiodesk.nim):
+# once the desk accepts a step, StepStarted makes them start `jobMain` and `watchMain`, inside the
+# command call and so under the chat's one lock (`startJob` also holds this file's own lock then, so
+# the hooks below do not take it). They only start threads and never wait for one; the job thread
+# ends its step by handing `EndStep` back, as before.
+#
 # Routes (all JSON; the page is `GET /`):
 #   GET  /api/state?game=NAME   games, the chosen game and the resume facts, the helpers' lanes, the current job
 #   GET  /api/lanes?game=NAME   just the helpers' lanes (the page polls it while a turn runs)
@@ -109,6 +115,11 @@ type
     fired: bool ## the clock ended it
     seconds: int
     thread: Thread[ptr JobWatch]
+    started: bool ## the thread was started (and so is joined when the clock is freed)
+
+  JobThread = object
+    ## The job's thread, on the heap so that a finished one can wait to be joined while the next runs.
+    thread: Thread[ptr Studio]
 
   Studio* = object
     root*: string ## the repository: every child process runs here
@@ -116,16 +127,23 @@ type
     defaultGame*: string
     lock: Lock ## the job's output buffer, its arguments and its threads (whether a job may start is the desk's, not decided here)
     jobId: int ## the step number the desk gave the running (or last) job
+    jobBegun: int ## the step number the job's records above were set up for
     jobOutput: string
     jobDropped: int ## bytes cut from the front of jobOutput so far
     jobArgs: seq[string]
-    jobThread: Thread[ptr Studio]
-    jobThreadStarted: bool
+    pendingArgs: seq[string] ## the arguments of the step `startJob` is asking the desk about, for StepRunner to take
+    jobThread: ptr JobThread ## the running (or last) job's thread; nil if it never started
+    jobSpawnFailed: bool ## a thread of the job could not be started
+    retiredThreads: seq[ptr JobThread] ## finished jobs' threads, joined by `startJob` once the chat's lock is free
+    retiredWatches: seq[ptr JobWatch]
     jobSeconds: int
     jobWatch: ptr JobWatch ## the running (or last) job's clock
     chat: ChatState
     play: Play
     shotLock: Lock ## one picture at a time
+
+proc jobRunStart(data: pointer, e: StepStarted): bool {.nimcall, gcsafe.}
+proc jobWatchStart(data: pointer, e: StepStarted): bool {.nimcall, gcsafe.}
 
 proc newStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapter(),
                 turnSeconds = defaultTurnSeconds, planner: Planner = defaultPlan,
@@ -142,6 +160,7 @@ proc newStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapte
   initLock(result.lock)
   initLock(result.shotLock)
   initChat(addr result.chat, root, adapter & others, turnSeconds)
+  setSteps(addr result.chat, StepHooks(data: result, run: jobRunStart, watch: jobWatchStart))
   initPlay(addr result.play, root, planner)
 
 proc shutdownStudio*(st: ptr Studio) =
@@ -227,10 +246,10 @@ proc lanesJson(st: ptr Studio, game: string): JsonNode =
 
 proc jobSummary(st: ptr Studio): JsonNode =
   ## The step the desk knows of: running now, or the last one that ended (null before the first).
-  let f = deskFacts(addr st.chat)
-  if f.stepId == 0: return newJNull()
-  %*{"id": f.stepId, "kind": f.stepKind, "game": f.stepGame, "running": f.stepRunning,
-     "code": (if f.stepRunning: newJNull() else: %f.stepCode)}
+  let f = jobNow(addr st.chat)
+  if f.step == 0: return newJNull()
+  %*{"id": f.step, "kind": f.kind, "game": f.game, "running": f.running,
+     "code": (if f.running: newJNull() else: %f.code)}
 
 proc stateJson(st: ptr Studio, asked: string): Response =
   let plans = gamesWithPlan(st.root)
@@ -300,7 +319,7 @@ proc newWatch(seconds: int): ptr JobWatch =
   result.seconds = seconds
 
 proc freeWatch(w: ptr JobWatch) =
-  joinThread(w.thread)
+  if w.started: joinThread(w.thread)
   deinitLock(w.lock)
   dealloc(w)
 
@@ -349,46 +368,82 @@ proc jobMain(st: ptr Studio) {.thread.} =
   release(st.lock)
   endStep(addr st.chat, step, code) # the job is over: the desk is free, and this is the thread's last act
 
+proc beginJob(st: ptr Studio, step: int) =
+  ## Sets up the records of step `step` (the output, the arguments, the clock), once, whichever of
+  ## StepClock and StepRunner asks first; the job it replaces is set aside for `startJob` to join.
+  ## Called with `st.lock` held (by `startJob`, inside the command).
+  if st.jobBegun == step: return
+  st.jobBegun = step
+  if st.jobThread != nil:
+    st.retiredThreads.add st.jobThread
+    st.jobThread = nil
+  if st.jobWatch != nil:
+    st.retiredWatches.add st.jobWatch
+    st.jobWatch = nil
+  st.jobId = step
+  st.jobOutput = ""
+  st.jobDropped = 0
+  st.jobArgs = st.pendingArgs
+  st.jobWatch = newWatch(st.jobSeconds)
+  st.jobSpawnFailed = false
+
+proc jobWatchStart(data: pointer, e: StepStarted): bool =
+  ## StepClock on StepStarted: starts the job's clock. False when it could not. Never waits.
+  let st = cast[ptr Studio](data)
+  st.beginJob(e.step)
+  try:
+    createThread(st.jobWatch.thread, watchMain, st.jobWatch)
+    st.jobWatch.started = true
+  except CatchableError:
+    st.jobSpawnFailed = true
+    return false
+  true
+
+proc jobRunStart(data: pointer, e: StepStarted): bool =
+  ## StepRunner on StepStarted: starts the job thread. False when it could not. Never waits.
+  let st = cast[ptr Studio](data)
+  st.beginJob(e.step)
+  if st.jobSpawnFailed: return true # the clock could not start, so the step does not run
+  let j = create(JobThread)
+  try:
+    createThread(j.thread, jobMain, st)
+  except CatchableError:
+    dealloc(j)
+    st.jobSpawnFailed = true
+    return false
+  st.jobThread = j
+  true
+
 proc startJob(st: ptr Studio, kind, game: string, args: seq[string], message = "",
               existing: seq[string] = @[], lanes: seq[string] = @[]): Response =
   ## `existing` (a new game) and `lanes` (landing a helper's work, `args[^1]` the one asked for) are
   ## what the caller looked up on disk for the desk's rule.
   acquire(st.lock)
   defer: release(st.lock)
+  st.pendingArgs = args
   let started = # the desk decides: a name, a note or a lane that does not fit, a turn of this game, or another step, refuses it
-    case kind
+    case kind # (and when it accepts, StepClock and StepRunner start the job's clock and thread inside the command)
     of "new": startNewGame(addr st.chat, game, existing)
     of "land": startLand(addr st.chat, game, args[^1], lanes)
     else: startStep(addr st.chat, game, kind, message)
+  st.pendingArgs = @[]
+  let retiredThreads = st.retiredThreads # the jobs this one replaced: their last act was ending their step, so these return at once
+  let retiredWatches = st.retiredWatches
+  st.retiredThreads = @[]
+  st.retiredWatches = @[]
+  for j in retiredThreads:
+    joinThread(j.thread)
+    dealloc(j)
+  for w in retiredWatches: freeWatch(w) # the job is over, so its clock has returned or is about to
   if not started.ok: return fail(started.status, started.message, started.code)
-  if st.jobThreadStarted:
-    joinThread(st.jobThread) # its last act was ending the step, so this returns at once
-    st.jobThreadStarted = false
-  if st.jobWatch != nil:
-    freeWatch(st.jobWatch) # the job is over, so its clock has returned or is about to
-    st.jobWatch = nil
-  st.jobId = started.turnId
-  st.jobOutput = ""
-  st.jobDropped = 0
-  st.jobArgs = args
-  st.jobWatch = newWatch(st.jobSeconds)
-  var watchStarted = false
-  try:
-    createThread(st.jobWatch.thread, watchMain, st.jobWatch)
-    watchStarted = true
-    createThread(st.jobThread, jobMain, st)
-    st.jobThreadStarted = true
-  except CatchableError:
-    endStep(addr st.chat, st.jobId, 1) # it never ran: the desk is free again
+  if st.jobSpawnFailed: # the processors ended the step as failed, so the desk is free again
     let w = st.jobWatch
     st.jobWatch = nil
-    if watchStarted:
+    if w != nil:
       acquire(w.lock)
       w.done = true
       release(w.lock)
-      joinThread(w.thread)
-    deinitLock(w.lock)
-    dealloc(w)
+      freeWatch(w)
     return fail(500, "The studio could not start that step.", "spawn")
   jsonResponse(200, %*{"job": jobSummary(st)})
 
