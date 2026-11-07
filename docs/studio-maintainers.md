@@ -41,7 +41,8 @@ The code is `tools/para/studiohttp.nim` (the server and its checks),
 (the list of chats on disk, and the chats' lines in the kit's file store), `agent.nim`
 (the interface every agent adapter fills in), `claudeagent.nim` (the Claude adapter),
 `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
-raising), `agents.nim` (which adapters exist), `studioplay.nim` (the game window),
+raising), `agents.nim` (which adapters exist), `studioplay.nim` (the game window: its build, its program and
+the thread of one Play run; what the window *is* is the desk's `PlayWindow` view),
 `studioshot.nim` (the pictures) and `studio/index.html` (the page, compiled
 into the binary with the fonts in `studio/fonts/`, which `studiofonts.nim` inlines; editing either
 needs a rebuild of `para`). Visual boards are `boardcmd.nim` (`para board`, below) and
@@ -236,17 +237,21 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   `paraloop.nimble`, `nimble.lock`, THIRD_PARTY.md). It is a pure core: commands (`StartTurn`,
   `EndTurn`, `StopTurn`, `StartStep`, `EndStep`, `NewGame`, `LandLane`, `StartPlay`, `TakeShot`, `PickProducer`,
   `PickSpeed`, `NewChat`, `OpenChat`, `DeleteChat`, `UseChat`, `ReportSession` and `ReportModel`,
-  plus `AddLine` and `RestoreChat` for the chat's lines), events, four views (`Desk`: turns, step,
+  plus `AddLine` and `RestoreChat` for the chat's lines, and `StopPlay`, `PlayPhase` and `EndPlay` for
+  the game window), events, five views (`Desk`: turns, step,
   picks, the last Play and picture; `Chat`: the lines the page polls; `ChatBook`: each chat's
-  record; `Producers`: what each producer last ran with) and five queries (`DeskNow`, `JobNow`,
-  `ChatSince`, `ChatList`, `ProducerNow`), with no thread, lock, clock, file or process (the compiler
-  enforces it for every command, view and query; the four processors below are the one exception).
-  `studiodesk.em` lists the same blocks and the stories; the build stops when the two disagree.
+  record; `Producers`: what each producer last ran with; `PlayWindow`: the game window) and six queries
+  (`DeskNow`, `JobNow`, `ChatSince`, `ChatList`, `ProducerNow`, `PlayNow`), with no thread, lock, clock,
+  file or process (the compiler enforces it for every command, view and query; the five processors below
+  are the one exception). `studiodesk.em` lists the same blocks and the stories; the build stops when the two disagree.
   Every refusal a route used to decide is a rule here, with its words and a scenario: a new game's
   name (`needsName`, `badName`, `taken`), a save's note (`badMessage`), landing a helper's work
-  (`noSuchLane`), Play (`noSource`, `busy`) and a picture (`otherGame`, `notRunning`). What is on disk
+  (`noSuchLane`), Play (`noSource`, `busy`), Stop for the game window (`idle`), a step while Play builds
+  (`busy`: Play and a step both build the game, so each waits for the other) and a picture
+  (`otherGame`, `notRunning`). What is on disk
   or in a process is looked up by the route and handed in as a field of the command (`existing`,
-  `lanes`, `hasSource`, `windowGame`, `windowRunning`, like `busyGames`); the desk never looks. The
+  `lanes`, `hasSource`, `windowRunning`, like `busyGames`; which game's window is open is the `PlayWindow` view's, so
+  `windowGame` is left empty); the desk never looks. The
   routes only turn a refusal's word into a status and a code, in the one table in `studiochat.nim`'s
   `refusal`. A picture in flight stays the shell's `shotLock` (a `tryAcquire`, the only other lock);
   it is not a rule of the desk. The rules each have a scenario in
@@ -280,7 +285,7 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   is `TurnEnded` with outcome `timeout`. Turn, step and stop events are not written to
   `studio.jsonl`. There is
   no start gate: a turn and a step cannot both be accepted, because both ask the same desk under the
-  same lock. What stays outside the events: the HTTP checks, the agent adapters, `TurnControl`,
+  same lock; Play is under that lock too (below), and has none of its own. What stays outside the events: the HTTP checks, the agent adapters, `TurnControl`,
   killing process trees, the job's 200,000-byte output buffer, and
   "a third game is refused while two have helpers building" (the routes look the helpers' folders up
   and hand the games they found to `StartTurn`). To change a rule: edit `studiodesk.em` first, then
@@ -288,13 +293,44 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   tools/para/studiodesk.nim` and `eversince scenarios tests/studiodesk/scenarios.jsonl --app
   tools/para/studiodesk.nim --model tools/para/studiodesk.em` (the kit's command line, `nimble tool` in
   its repository); the build already runs the model check.
+- **The game window is a view.** `PlayWindow` (`phase`, `game`, `run`, `code`, `message`, `detail`) is
+  folded from `PlayStarted` (Play was accepted: building), `PlayPhased` (the thread reports starting or
+  running, or running but not answering), `PlayEnded` (the thread reports how the run ended: the
+  code decides it, `""` stopped is idle, `closed` and `crashed-later` are exited, every other word is
+  failed) and `PlayStopRequested` (Stop: the code reads `stopping` and the message says so until the
+  thread ends the run). `query PlayNow` is `GET /api/play`, plus the two things the desk may not
+  hold: the build's latest `CC:` line and a ping of the game (`playView` in studioplay.nim). A poll
+  that finds the window answering (or not answering in time) tells the desk with `PlayPhase`, so
+  "running" and "not-answering" are facts in the view, not a guess made on each poll. The commands
+  and what they refuse: `StartPlay` (`noSource`, and `busy` while a step runs; it does **not** refuse
+  while a window is open, a second Play restarts), `StopPlay` (`idle`: nothing building, starting or
+  running), `PlayPhase` and `EndPlay` (`staleRun`: the run is not the open one, it already ended, or
+  for `PlayPhase` a stop is under way), and the steps (`StartStep`, `NewGame`, `LandLane`) refuse
+  `busy` while the phase is building. `processor PlayRunner` consumes `PlayStarted` and
+  `PlayStopRequested` and, like the other processors, reaches the shell through the desk's `hands`
+  (`openPlay`, `stopPlay`, set around each command by `setHands` from the `PlayHooks` that
+  `initPlay` registered with `setPlay`): `playOpen` ends the run that is open and starts the new run's
+  thread, `playStop` hands a stop to the run. They run inside the command,
+  under the one lock, so they **only start a thread or hand a stop on and never wait**: the stop
+  waits a few seconds for the program to go (`TurnControl.cancel`), so a small thread of its own
+  does that, and a second Play's thread, not the lock, waits until the older run's thread is done
+  before it builds (Windows will not overwrite a program that is running). What the processor
+  issues itself is what the shell cannot: `EndPlay` for a run whose thread did not start (and for a
+  stop with no thread left to end it), `PlayPhase` starting for a plan with nothing to build.
+  `studioplay.nim` keeps the build and launch, each run's output lines (300 lines, memory only), the
+  ping, `classifyBuildFailure` and `classifyGameExit`; its state is guarded by the same lock
+  (`lockDesk`), it has no lock, gate, phase or run id of its own. Play events are memory-only like
+  every turn and step event. The route `POST /api/play/stop` asks the desk and then waits (outside the
+  lock, up to 15 seconds) until the window is no longer building, starting or running, so the page
+  sees idle when the call returns, as before. Tests: the scenarios, `test_para_studio_playwindow.nim`
+  (the processor with stand-in hands, the one lock) and `test_para_studio_play.nim` (the real
+  handler, the real threads, a stand-in build and game).
 - **The model files and the pictures.** `tools/para/studiodesk.em` is the whole app as far as the
   code goes: a `screen` for each panel of the page (`SetupPanel`, `GamesPanel`, `ChatPanel`,
   `PlayPanel`, `StepsPanel`, `ResumePanel`, `BackupSheet`, `NewGameSheet`) and for the shell's
   threads, with the commands and queries each really offers, and a `slice` for each story. Beside
-  it, `tools/para/studio-plan.em` is the same app plus the blocks the later slices add (the Play
-  window as a view; the chat books, the picks and what ran, the threads as named processors and Stop
-  have landed); nothing builds against it. The
+  it, `tools/para/studio-plan.em` is the same app plus the blocks the later slices add (every slice of
+  the migration has landed, so today it is level with the checked file); nothing builds against it. The
   rule, held by `tests/test_para_studio_model.nim`: the plan may be ahead of the code and never
   behind it, so every block of `studiodesk.em` is in the plan with the same line, every slice is there
   as it is and every screen has at least its commands and queries. When a slice lands, move its
@@ -310,7 +346,7 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   eversince pic tools/para/studio-plan.em docs/studio-plan.svg
   ```
 
-  The plan has two warnings by design until its slices land (an event no command produces yet);
+  The plan may have warnings by design until its slices land (an event no command produces yet);
   the checked file passes `--strict`. `eversince catalog tools/para/studiodesk.em` is the quick way
   to read the blocks before opening a source file.
 - **One turn at a time for each game.** `ChatState.turns` holds a turn per game (its own
@@ -491,8 +527,9 @@ The friend-facing description is in [studio.md](studio.md), "Play and screenshot
 - The game's printed lines are kept in memory only (a few hundred lines) so a window
   that closes straight away can be told apart (no screen, no OpenGL, a crash). The studio
   writes no log file. Play is refused while a Check, Save or Backup step runs (a check
-  builds the game too); it does not wait for a chat turn, since the producer's helpers
-  change files while you watch.
+  builds the game too), and a step, a new game or landing a helper's work is refused while Play
+  builds (the desk's rule, `busy` both ways); Play does not wait for a chat turn, since the
+  producer's helpers change files while you watch.
 - A picture is never read from a path the game names without checking it: the name has to
   be a `.png` inside the repository's `tmp/`, a plain file (not a link) that starts with the
   PNG signature and is under 12 MB, and the studio then moves it into `tmp/studio/shots/`

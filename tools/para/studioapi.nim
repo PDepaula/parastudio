@@ -70,10 +70,12 @@
 # refused with a 409. A step for one game does not wait for another game's turn, and a turn does
 # not wait for another game's step, but only one step runs at a time.
 #
-# The game window is studioplay.nim (the build, the window's process, stopping it) and the
-# pictures are studioshot.nim (asking the window, keeping the file, serving it back). Play is
-# refused while a Check, Save or Backup step runs (a check builds the game too); it does not wait
-# for a chat turn, since the producer's helpers change files while the friend watches.
+# The game window is the desk's `PlayWindow` view (studiodesk.nim) with studioplay.nim around it (the
+# build, the window's process, the thread that runs one Play; `GET /api/play` is the view's `PlayNow`
+# plus the build's progress line and a ping) and the pictures are studioshot.nim (asking the window,
+# keeping the file, serving it back). Play is refused while a Check, Save or Backup step runs, and a
+# step is refused while Play builds (both build the game: one rule each, in the desk); Play does not
+# wait for a chat turn, since the producer's helpers change files while the friend watches.
 #
 # A helper's lane (lanecmd.nim: its own copy of the game, next to it) is listed in plain facts: its
 # role, its ticket, how many files it changed, and `live` while that game's chat turn runs (the
@@ -161,7 +163,7 @@ proc newStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapte
   initLock(result.shotLock)
   initChat(addr result.chat, root, adapter & others, turnSeconds)
   setSteps(addr result.chat, StepHooks(data: result, run: jobRunStart, watch: jobWatchStart))
-  initPlay(addr result.play, root, planner)
+  initPlay(addr result.play, addr result.chat, root, planner)
 
 proc shutdownStudio*(st: ptr Studio) =
   ## The studio is closing: end a running chat turn and the game window, so nothing is left running.
@@ -676,16 +678,13 @@ proc playStartJson(st: ptr Studio, body: JsonNode): Response =
   if picked.status != 0: return picked
   let asked = askPlay(addr st.chat, game, fileExists(gameDirOf(st.root, game) / (game & ".nim")))
   if not asked.ok: return fail(asked.status, asked.message, asked.code)
-  if not startPlay(addr st.play, game):
-    return fail(500, "The studio could not close the game window it opened before. Close that window yourself, then press Play again.", "restart")
-  playJson(st)
+  playJson(st) # the desk's processor has started the run's thread (and ended the open one: a second Play restarts)
 
 proc shotRoute(st: ptr Studio, body: JsonNode): Response =
   var game: string
   let picked = pickGame(st, body.fieldString("game"), game)
   if picked.status != 0: return picked
-  let window = playView(addr st.play)
-  let asked = askShot(addr st.chat, game, if window.state in ["starting", "running"]: window.game else: "", windowOpen(st.root))
+  let asked = askShot(addr st.chat, game, "", windowOpen(st.root)) # the desk knows which window is open: its PlayWindow view
   if not asked.ok: return fail(asked.status, asked.message, asked.code)
   if not tryAcquire(st.shotLock):
     return fail(409, "A picture is already being taken. Wait a moment.", "busy")

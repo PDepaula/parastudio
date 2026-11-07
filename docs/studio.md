@@ -324,7 +324,7 @@ closes the old window and starts over, so there is one game window at a time, an
 the chat as a card; Studio keeps the newest 20 in `tmp/studio/shots/` and deletes older ones. If
 the window Studio opened belongs to a different game than the one picked on the page, the
 screenshot is refused and the page says which game is open. Play is refused while a Check, Save or
-Backup runs. The producer can ask you to press either.
+Backup runs, and a Check, Save or Backup waits while Play is still building the game. The producer can ask you to press either.
 
 ![The game's screenshot shown inline in the Studio chat](img/studio-3-play.png)
 

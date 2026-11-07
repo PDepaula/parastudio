@@ -169,8 +169,8 @@ suite "the processors, with stand-in hands (no thread, no child process)":
 suite "the model's processors, and the door a thread hands its commands back through":
   let model = parseModel(readFile(modelFile), "studiodesk.em")
 
-  test "the four threads are processors, and each consumes and issues what the model line says":
-    check processors(StudioDesk()).sorted == @["StepClock", "StepRunner", "TurnClock", "TurnRunner"]
+  test "the threads are processors, and each consumes and issues what the model line says":
+    check processors(StudioDesk()).sorted == @["PlayRunner", "StepClock", "StepRunner", "TurnClock", "TurnRunner"] # the Play run joined the four threads
     check model.find("TurnRunner").edge("consumes").sorted == @["StopRequested", "TurnStarted"]
     check model.find("TurnRunner").edge("issues").sorted == @["AddLine", "EndTurn", "ReportModel", "ReportSession"]
     check model.find("TurnClock").edge("consumes") == @["TurnStarted"]

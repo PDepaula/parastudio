@@ -60,8 +60,8 @@ import agent
 import chatstore
 import savepoint
 import studiodesk
-from studiodesk import maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted
-export maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted
+from studiodesk import maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted, PlayFacts, PlayStarted, PlayStopRequested
+export maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted, PlayFacts
 
 const
   defaultTurnSeconds* = 3600
@@ -106,6 +106,14 @@ type
     data*: pointer
     run*, watch*: proc (data: pointer, e: StepStarted): bool {.nimcall, gcsafe.} ## start the job thread, and its clock
 
+  PlayHooks* = object
+    ## What the shell that runs the game window (studioplay.nim) does for the processor PlayRunner.
+    data*: pointer
+    open*: proc (data: pointer, e: PlayStarted): string {.nimcall, gcsafe.}
+      ## ends the open run and starts this one's thread; answers "building", "starting" or "" (it did not start)
+    stop*: proc (data: pointer, e: PlayStopRequested): bool {.nimcall, gcsafe.}
+      ## hands the stop on to the run; false when nothing is left that would end it
+
   ChatState* = object
     lock: Lock ## the ONE lock: it serialises the desk's runtime (`desk`: the rules, the views, the book, the picks) and guards the records below
     desk: Runtime[StudioDesk] ## studiodesk.nim's rules, the views and the chats' lines; only ever touched under `lock`
@@ -117,6 +125,7 @@ type
     pending: Table[string, PendingTurn] ## by game: handed to the processors by `startTurn`, for the length of its command (under `lock`)
     ended: seq[ptr Turn] ## the ended turns a new turn of their game replaced, for `startTurn` to reap with the lock free
     steps: StepHooks
+    play: PlayHooks
     infos: Table[string, tuple[info: AgentInfo, at: float]]
     shown: HashSet[string] ## the chats ("<game>/<agent>/<chat>") whose earlier lines the Chat view holds, or that have none (under `lock`)
     migrated: HashSet[string] ## the books ("<game>/<agent>") already checked for files an older studio left (under `lock`)
@@ -625,10 +634,24 @@ proc watchStepThread(state: pointer, e: StepStarted): bool {.nimcall, gcsafe.} =
   let c = cast[ptr ChatState](state)
   c.steps.watch == nil or c.steps.watch(c.steps.data, e)
 
+proc openPlayRun(state: pointer, e: PlayStarted): string {.nimcall, gcsafe.} =
+  let c = cast[ptr ChatState](state)
+  if c.play.open == nil: "building" else: c.play.open(c.play.data, e)
+
+proc stopPlayRun(state: pointer, e: PlayStopRequested): bool {.nimcall, gcsafe.} =
+  let c = cast[ptr ChatState](state)
+  c.play.stop == nil or c.play.stop(c.play.data, e)
+
 proc setHands(c: ptr ChatState) =
   ## What the desk's processors do, for the command about to run on this thread.
   hands = Hands(state: c, runTurn: runTurnThread, watchTurn: watchTurnThread, endTurn: stopTurnChild,
-    runStep: runStepThread, watchStep: watchStepThread)
+    runStep: runStepThread, watchStep: watchStepThread, openPlay: openPlayRun, stopPlay: stopPlayRun)
+
+proc setPlay*(c: ptr ChatState, hooks: PlayHooks) =
+  ## The shell that runs the game window says how PlayRunner starts and stops a run (studioplay.nim).
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.play = hooks
 
 proc setSteps*(c: ptr ChatState, hooks: StepHooks) =
   ## The shell that runs steps says how StepRunner and StepClock start theirs (studioapi.nim).
@@ -960,8 +983,9 @@ proc askPlay*(c: ptr ChatState, game: string, hasSource: bool): Started =
   Started(ok: true, status: 200, turnId: decision.events[0].data["run"].getInt)
 
 proc askShot*(c: ptr ChatState, game, windowGame: string, windowRunning: bool): Started =
-  ## The desk's answer to "may a picture be asked of the game window": `windowGame` is the game of
-  ## the window that is starting or running ("" when none) and `windowRunning` whether it answers.
+  ## The desk's answer to "may a picture be asked of the game window": `windowRunning` is whether the
+  ## window answers on its channel (the caller pinged it). `windowGame` is "" to take the window the
+  ## desk's `PlayWindow` view shows (starting or running), which is every call the studio makes.
   acquire(c.lock)
   defer: release(c.lock)
   let decision = c.run("TakeShot", %*{"game": game, "windowGame": windowGame, "windowRunning": windowRunning})
@@ -974,3 +998,44 @@ proc endStep*(c: ptr ChatState, step, code: int) =
   acquire(c.lock)
   defer: release(c.lock)
   discard c.giveBack(StepRunner, EndStep(step: step, code: code))
+
+# --- the game window ------------------------------------------------------------------
+# What the window is (idle, building, starting, running, failed or exited, and for which run) and
+# every command that changes it is the desk's `PlayWindow` view. studioplay.nim runs the build and the
+# window and reports back with the commands below; it shares this lock, there is no second one: the
+# desk's processor PlayRunner starts and stops a run's thread inside the command that asked.
+
+proc lockDesk*(c: ptr ChatState) =
+  ## The ONE lock, for studioplay.nim's own state (a run's output lines and its threads), so a Play
+  ## and a step or a turn are never decided or changed at the same moment.
+  acquire(c.lock)
+
+proc unlockDesk*(c: ptr ChatState) =
+  release(c.lock)
+
+proc windowLocked*(c: ptr ChatState): PlayFacts =
+  ## What the desk says about the game window now (query `PlayNow`). Called with `lock` held.
+  {.cast(gcsafe).}:
+    result = answer(PlayNow(), c.desk.app.playWindow)
+
+proc window*(c: ptr ChatState): PlayFacts =
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.windowLocked
+
+proc phasePlayLocked*(c: ptr ChatState, run: int, phase, message, code: string): bool =
+  ## The run's thread (or a poll of the page) reports the next phase. False when the desk refused it
+  ## (the run is over, or a stop is under way). Called with `lock` held.
+  not c.giveBack(PlayRunner, PlayPhase(run: run, phase: phase, message: message, code: code)).refused
+
+proc endPlayLocked*(c: ptr ChatState, run: int, code, message, detail: string): bool =
+  ## The run's thread reports how the run ended. False when the desk refused it (another run replaced
+  ## this one: nobody is waiting for its end). Called with `lock` held.
+  not c.giveBack(PlayRunner, EndPlay(run: run, code: code, message: message, detail: detail)).refused
+
+proc askStopPlay*(c: ptr ChatState): bool =
+  ## The friend pressed Stop (or the studio is closing). True when a build or a window was under way
+  ## and has been told to end; false when there was nothing to stop.
+  acquire(c.lock)
+  defer: release(c.lock)
+  not c.run("StopPlay", %*{}).refused

@@ -53,12 +53,12 @@ suite "the plan is ahead of the code, never behind":
   test "every block and slice of the checked file is in the plan, the same":
     check behind(code, plan) == newSeq[string]()
 
-  test "the plan has the blocks the later slices add, and the checked file does not":
-    check plan.blocks.len > code.blocks.len
-    check plan.slices.len > code.slices.len
-    for name in ["StopPlay", "PlayRunner", "PlayWindow", "PlayPhase", "PlayNow"]:
+  test "every slice of the migration has landed, so the plan has nothing the checked file lacks (it may again, with the next slice)":
+    check plan.blocks.len >= code.blocks.len
+    check plan.slices.len >= code.slices.len
+    for name in ["StopTurn", "StepClock", "TurnRunner", "PlayWindow", "PlayRunner", "PlayNow"]:
       check plan.find(name).name == name
-      check code.find(name).name == ""
+      check code.find(name).name == name
 
   test "the plan is a model in its own right: its screens and slices name real blocks and edges":
     let own = plan.blocks.filterIt(it.kind in codeKinds).mapIt(it.canonical)
@@ -90,7 +90,7 @@ suite "the pictures are what the model files draw":
   test "every panel of the page has a screen":
     let m = modelOf("studiodesk.em")
     for panel in ["SetupPanel", "GamesPanel", "ChatPanel", "PlayPanel", "StepsPanel", "ResumePanel", "BackupSheet", "NewGameSheet",
-                  "TurnThread", "JobThread"]:
+                  "TurnThread", "JobThread", "PlayThread"]:
       check m.find(panel).kind == "screen"
 
 suite "the desk's own copies of the shell's rules":
