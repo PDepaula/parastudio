@@ -56,7 +56,7 @@ suite "the plan is ahead of the code, never behind":
   test "the plan has the blocks the later slices add, and the checked file does not":
     check plan.blocks.len > code.blocks.len
     check plan.slices.len > code.slices.len
-    for name in ["StopTurn", "ChatBook", "PlayWindow", "TurnRunner", "PlayNow"]:
+    for name in ["StopTurn", "StepClock", "PlayWindow", "TurnRunner", "PlayNow"]:
       check plan.find(name).name == name
       check code.find(name).name == ""
 

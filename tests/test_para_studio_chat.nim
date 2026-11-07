@@ -57,6 +57,21 @@ var logPath: string
 
 proc jsonOf(r: Reply): JsonNode = parseJson(r.body)
 
+proc studioLog(): seq[JsonNode] =
+  ## The studio's own events, as the file keeps them (tmp/studio/studio.jsonl): each chat's book, the
+  ## producer and speed picks, and what a producer last ran with.
+  let path = root / "tmp" / "studio" / "studio.jsonl"
+  if fileExists(path):
+    for line in lines(path):
+      if line.len > 0: result.add parseJson(line)
+
+proc studioEvents(kind: string, game = ""): seq[JsonNode] =
+  studioLog().filterIt(it["kind"].getStr == kind and (game.len == 0 or it["data"]["game"].getStr == game))
+
+proc picked(kind: string, field: string, game = ""): seq[(string, string)] =
+  ## The (game, pick) of every pick event of that kind in the file.
+  studioEvents(kind, game).mapIt((it["data"]["game"].getStr, it["data"][field].getStr))
+
 proc post(r: Running, path: string, body: JsonNode): Reply =
   r.request("POST", path, body = $body)
 
@@ -210,15 +225,16 @@ suite "para studio chat: a turn end to end":
     var c: Chat
     check running.send("one\nand a second line that is not kept in full because titles are short").status == 200
     running.waitFor(c, finished)
-    let file = root / "tmp" / "studio" / "chats-pong-claude.json"
+    let file = root / "tmp" / "studio" / "studio.jsonl"
     check fileExists(file)
-    let saved = parseJson(readFile(file))
-    check saved["chats"].len == 1
-    let chat = saved["chats"][0]
-    check toSeq(chat.keys) == @["id", "title", "started", "updated", "session"]
-    check chat["session"].getStr == sessionId
-    check chat["title"].getStr == "one and a second line that is not kept in full because title…"
+    let book = studioLog().filterIt(it["kind"].getStr != "ModelReported") # the chat's own events
+    check book.mapIt(it["kind"].getStr) == @["ChatUsed", "SessionReported"]
+    check toSeq(book[0]["data"].keys) == @["game", "agent", "chat", "at", "title"]
+    check book[1]["data"]["session"].getStr == sessionId
+    check book[0]["data"]["title"].getStr == "one and a second line that is not kept in full because title…"
     check "titles are short" notin readFile(file) # only the start of the first message
+    let listed = jsonOf(running.request("GET", "/api/chats?game=pong"))["chats"]
+    check listed.len == 1 and listed[0]["started"].getInt > 0 and listed[0]["updated"].getInt >= listed[0]["started"].getInt
     check readSession(root, "pong", "claude") == sessionId
     check readSession(root, "pong", "codex") == "" # another agent's conversation is its own
     # a second turn, from a fresh page (a new Chat view) resumes the same conversation
@@ -241,7 +257,7 @@ suite "para studio chat: a turn end to end":
     check readSession(root, "pong", "claude") == sessionId # replaced by the real one
     # the same in the chats file: a session id that could never be one is dropped
     running.stop()
-    let file = root / "tmp" / "studio" / "chats-pong-claude.json"
+    let file = root / "tmp" / "studio" / "studio.jsonl"
     writeFile(file, readFile(file).replace(sessionId, "--dangerously-skip-permissions"))
     running = startStudio(root, getAppFilename(), "", newClaudeAdapterFor(getAppFilename()))
     var d = Chat(next: c.next)
@@ -262,7 +278,7 @@ suite "para studio chat: a turn end to end":
     running.poll(pongAgain, "pong")
     check pongAgain.events.allIt(it["text"].getStr != "for tetris")
     check readSession(root, "pong", "claude") == sessionId and readSession(root, "tetris", "claude") == sessionId
-    check fileExists(root / "tmp" / "studio" / "chats-pong-claude.json") and fileExists(root / "tmp" / "studio" / "chats-tetris-claude.json")
+    check studioEvents("ChatUsed").mapIt(it["data"]["game"].getStr).sorted == @["pong", "tetris"] # one book each
     check running.request("GET", "/api/chat?game=nope&since=0").status == 404
     check running.send("x", "nope").status == 404
     check running.request("GET", "/api/chat?since=0").status == 400 # two games: which one?
@@ -387,8 +403,7 @@ suite "para studio chat: two agents, each with its own conversation":
     let r = pick("codex")
     check r.status == 200 and jsonOf(r)["current"].getStr == "codex"
     check currentAgent("pong") == "codex" and currentAgent("tetris") == "claude"
-    check readFile(root / "tmp" / "studio" / "agent-pong.txt") == "codex"
-    check not fileExists(root / "tmp" / "studio" / "agent-tetris.txt")
+    check picked("AgentPicked", "agent") == @[("pong", "codex")] # remembered for pong only
     var c: Chat
     running.poll(c)
     check c.events.len == 1 and c.events[0]["kind"].getStr == "notice" and c.events[0]["code"].getStr == "agent-picked"
@@ -452,12 +467,12 @@ suite "para studio chat: two agents, each with its own conversation":
     check claudeArgs() == @[baseArgs]
     let ran = jsonOf(running.request("GET", "/api/chat?game=pong"))["ran"]
     check ran["speedRan"].getStr == "standard" and ran["askedModel"].getStr == "" and ran["askedEffort"].getStr == ""
-    check not fileExists(root / "tmp" / "studio" / "speed-pong.txt")
+    check picked("SpeedPicked", "speed").len == 0
 
   test "Quick and Deep reach the spawned claude as --model and --effort flags, and Standard takes them away again":
     beginBoth()
     check pickSpeed("quick").status == 200
-    check readFile(root / "tmp" / "studio" / "speed-pong.txt") == "quick"
+    check picked("SpeedPicked", "speed") == @[("pong", "quick")]
     turn("one")
     check pickSpeed("deep").status == 200
     turn("two")
@@ -498,7 +513,7 @@ suite "para studio chat: two agents, each with its own conversation":
     check pickSpeed("deep", "pong").status == 200
     check jsonOf(running.request("GET", "/api/agent?game=pong"))["speed"].getStr == "deep"
     check jsonOf(running.request("GET", "/api/agent?game=tetris"))["speed"].getStr == "standard"
-    check not fileExists(root / "tmp" / "studio" / "speed-tetris.txt")
+    check picked("SpeedPicked", "speed", "tetris").len == 0
     check pickSpeed("quick", "tetris").status == 200
     var t: Chat
     check running.send("for tetris", "tetris").status == 200
@@ -581,7 +596,7 @@ suite "para studio chat: two agents, each with its own conversation":
     check currentAgent("") == "claude"
     let r = pick("codex", "")
     check r.status == 200 and jsonOf(r)["current"].getStr == "codex"
-    check readFile(root / "tmp" / "studio" / "default-agent.txt") == "codex"
+    check picked("AgentPicked", "agent") == @[("", "codex")]
     check currentAgent("") == "codex"
     check jsonOf(running.request("GET", "/api/agent"))["current"].getStr == "codex"
     check calls().len == 0 and codexCalls().len == 0
@@ -593,13 +608,21 @@ suite "para studio chat: two agents, each with its own conversation":
     check currentAgent("pong") == "codex" and currentAgent("default") == "codex"
     check pick("claude", "pong").status == 200
     check currentAgent("pong") == "claude" and currentAgent("default") == "codex" and currentAgent("") == "codex"
-    check readFile(root / "tmp" / "studio" / "agent-pong.txt") == "claude"
+    check picked("AgentPicked", "agent", "pong") == @[("pong", "claude")]
     # a studio started again remembers it; junk in the file is ignored
     running.stop()
     running = startStudio(root, getAppFilename(), "", adapterNamed("claude", getAppFilename()), others = @[adapterNamed("codex", getAppFilename())])
     check currentAgent("") == "codex"
     for junk in ["gemini", "codex; reboot", "", "../claude"]:
-      writeFile(root / "tmp" / "studio" / "default-agent.txt", junk)
+      running.stop()
+      let file = root / "tmp" / "studio" / "studio.jsonl"
+      var rows: seq[string]
+      for e in studioLog():
+        var row = e
+        if row["kind"].getStr == "AgentPicked" and row["data"]["game"].getStr == "": row["data"]["agent"] = %junk
+        rows.add $row
+      writeFile(file, rows.join("\n") & "\n")
+      running = startStudio(root, getAppFilename(), "", adapterNamed("claude", getAppFilename()), others = @[adapterNamed("codex", getAppFilename())])
       check currentAgent("") == "claude"
 
   test "a pick that cannot be made is refused in plain words":
@@ -610,7 +633,7 @@ suite "para studio chat: two agents, each with its own conversation":
       check r.status == status
       check jsonOf(r)["error"].getStr.len > 0
     check currentAgent() == "claude"
-    check not fileExists(root / "tmp" / "studio" / "agent-pong.txt")
+    check picked("AgentPicked", "agent", "pong").len == 0
 
   test "each agent keeps its own conversation, and switching back resumes it":
     beginBoth()
@@ -671,7 +694,8 @@ suite "para studio chat: two agents, each with its own conversation":
     check readSession(root, "pong", "codex") == "" # it was never codex's
     turn("again")
     check calls()[0]["args"].getElems.mapIt(it.getStr)[^2 .. ^1] == @["--resume", sessionId]
-    check fileExists(root / "tmp" / "studio" / "chats-pong-claude.json") and not fileExists(root / "tmp" / "studio" / "session-pong.id")
+    check studioEvents("SessionReported", "pong").mapIt(it["data"]["session"].getStr) == @[sessionId] # moved into the log...
+    check not fileExists(root / "tmp" / "studio" / "session-pong.id") # ...and the old file is gone
 
   test "a pick file with anything but an agent's name in it is ignored":
     beginBoth()

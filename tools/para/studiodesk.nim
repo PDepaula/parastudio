@@ -33,12 +33,22 @@
 # "A picture is already being taken" stays the shell's `shotLock` (a tryAcquire, not a second lock
 # around the desk): it is about the one picture in flight, not about what the desk may start.
 #
+# The chats' books (each chat's number, title, times and session id, and which one is current), the
+# producer and speed picks and what a game's producer last ran with are events too, and they are the
+# ones that survive a restart: chatstore.nim writes them to tmp/studio/studio.jsonl, and the shell
+# replays that file when the studio starts. The book's rules, each with a scenario:
+#   a fresh chat is not listed until a message   NewChat, UseChat
+#   a chat's title is the start of its first     UseChat
+#   message; the one used last is first in the list
+#   deleting the current chat starts a fresh one DeleteChat
+#   a session id is one a command line may take  ReportSession refuses badSession
+#
 # Kept apart on purpose (not events): the HTTP checks, the agent adapters, TurnControl, killing a
-# process tree, the 200,000-byte job output buffer, the chats' titles and session ids (chatstore.nim's
-# books), and what a game's producer was last asked to run with.
+# process tree and the 200,000-byte job output buffer.
 
-import std/[os, strutils, sequtils]
+import std/[os, options, strutils, sequtils]
 import eversince
+from agent import validSessionToken
 
 const
   maxMessageChars* = 8000   ## the longest message the friend may send
@@ -78,6 +88,31 @@ record Pick:
 record SpeedPick:
   game: string
   speed: string
+record ChatRecord:
+  id: int
+  title: string             ## "" for a chat from before there were titles
+  started: int              ## seconds since 1970
+  updated: int
+  session: string           ## the agent's own id for the conversation, "" until it reports one
+record Book:
+  game: string
+  agent: string
+  current: int              ## the chat the next message goes to (it may have no record yet: a fresh chat)
+  next: int                 ## the number the next fresh chat gets; numbers are never reused
+  chats: seq[ChatRecord]    ## the one used last at the end
+record ChatListing:
+  agent: string
+  current: int
+  chats: seq[ChatRecord]    ## newest first
+record Ran:
+  game: string
+  agent: string
+  started: bool             ## a turn has run (the fields below mean something)
+  speed: string             ## the speed that turn started with
+  askedModel: string        ## what the studio passed ("" = left to the agent)
+  askedEffort: string
+  model: string             ## what the agent reported ("" = it did not say)
+  effort: string
 record DeskFacts:
   working: seq[string]      ## every game with a turn running, by name
   running: bool             ## the asked game has a turn running
@@ -135,6 +170,35 @@ event AgentPicked:
 event SpeedPicked:
   game: string
   speed: string
+event ChatStarted:
+  game: string
+  agent: string
+  chat: int                 ## the fresh chat the next message goes to
+  at: int
+event ChatOpened:
+  game: string
+  agent: string
+  chat: int
+  next: int                 ## the number the next fresh chat gets, so a forgotten chat's number is not handed out again
+event ChatUsed:
+  game: string
+  agent: string
+  chat: int
+  at: int
+  title: string             ## the start of the message, which names the chat when it has no record yet
+event SessionReported:
+  game: string
+  agent: string
+  chat: int
+  session: string
+event ModelReported:
+  game: string
+  agent: string
+  speed: string
+  askedModel: string
+  askedEffort: string
+  model: string
+  effort: string
 event PlayStarted:
   game: string
   run: int                  ## how many times Play was accepted, this one included
@@ -284,6 +348,100 @@ func nextN*(chat: Chat, game, agent: string, id: int): int =
   result = 1
   for c in chat.counts:
     if c.game == game and c.agent == agent and c.chat == id: return c.lines + 1
+
+func freshBook(game, agent: string): Book = Book(game: game, agent: agent, current: 1, next: 2)
+
+func indexOf(books: seq[Book], game, agent: string): int =
+  ## The index of `game`'s book for `agent`, -1 when there is none yet.
+  result = -1
+  for i, b in books:
+    if b.game == game and b.agent == agent: return i
+
+func find*(b: Book, id: int): int =
+  ## The index of chat `id` in `b.chats`, -1 when it has no record.
+  result = -1
+  for i, c in b.chats:
+    if c.id == id: return i
+
+func bookOf*(view: seq[Book], game, agent: string): Book =
+  ## `game`'s chats with `agent`: a fresh book (one empty chat, nothing listed) before there is any.
+  let i = view.indexOf(game, agent)
+  if i < 0: freshBook(game, agent) else: view[i]
+
+view ChatBook:
+  state:
+    books: seq[Book]        ## one for each game and agent that has had a chat
+  on ChatStarted:
+    var i = state.books.indexOf(e.game, e.agent)
+    if i < 0:
+      state.books.add freshBook(e.game, e.agent)
+      i = state.books.high
+    state.books[i].current = e.chat
+    state.books[i].next = max(state.books[i].next, e.chat + 1)
+  on ChatOpened:
+    var i = state.books.indexOf(e.game, e.agent)
+    if i < 0:
+      state.books.add freshBook(e.game, e.agent)
+      i = state.books.high
+    state.books[i].current = e.chat
+    state.books[i].next = max(state.books[i].next, max(e.next, e.chat + 1))
+  on ChatUsed:
+    var i = state.books.indexOf(e.game, e.agent)
+    if i < 0:
+      state.books.add freshBook(e.game, e.agent)
+      i = state.books.high
+    var rec = ChatRecord(id: e.chat, title: e.title, started: e.at, updated: e.at)
+    let at = state.books[i].find(e.chat)
+    if at >= 0:
+      rec = state.books[i].chats[at]
+      rec.updated = e.at
+      state.books[i].chats.delete(at)
+    state.books[i].chats.add rec # the one used last goes at the end
+    state.books[i].current = e.chat
+    state.books[i].next = max(state.books[i].next, e.chat + 1)
+  on SessionReported:
+    let i = state.books.indexOf(e.game, e.agent)
+    if i >= 0:
+      let at = state.books[i].find(e.chat)
+      if at >= 0: state.books[i].chats[at].session = e.session
+  on ChatForgotten:
+    let i = state.books.indexOf(e.game, e.agent)
+    if i >= 0:
+      let at = state.books[i].find(e.chat)
+      if at >= 0:
+        state.books[i].chats.delete(at)
+        if state.books[i].current == e.chat: # the next message starts a fresh chat
+          state.books[i].current = state.books[i].next
+          state.books[i].next += 1
+
+view Producers:
+  state:
+    ran: seq[Ran]           ## what each game's producer (one agent) did its last turn with
+  on ModelReported:
+    var kept: seq[Ran]
+    for r in state.ran:
+      if not (r.game == e.game and r.agent == e.agent): kept.add r
+    kept.add Ran(game: e.game, agent: e.agent, started: true, speed: e.speed, askedModel: e.askedModel,
+      askedEffort: e.askedEffort, model: e.model, effort: e.effort)
+    state.ran = kept
+
+func ranOf*(view: seq[Ran], game, agent: string): Ran =
+  ## What `game`'s producer `agent` last ran with; every field empty before its first turn.
+  result = Ran(game: game, agent: agent)
+  for r in view:
+    if r.game == game and r.agent == agent: return r
+
+func newestFirst*(b: Book): seq[ChatRecord] =
+  ## The chats to list, the one used last first (two used in the same second: the later one).
+  for i in countdown(b.chats.high, 0):
+    var at = result.len
+    while at > 0 and result[at - 1].updated < b.chats[i].updated: dec at
+    result.insert(b.chats[i], at)
+
+func goodSession*(session: string): bool =
+  ## A session id a command line may take (agent.nim's `validSessionToken`, the only gate before one
+  ## reaches a command line; an adapter checks its own stricter shape on top).
+  session.len > 0 and session.validSessionToken == session
 
 command StartTurn:
   fields:
@@ -441,6 +599,8 @@ command PickProducer:
   decide:
     if (if cmd.game.len == 0: desk.turns.len > 0 else: desk.turnOf(cmd.game) != 0):
       refuse busy, "The producer is working on this game's last message. Wait for it, or press Stop, then pick again."
+    for p in desk.picks:
+      if p.game == cmd.game and p.agent == cmd.agent: return # the same pick again changes nothing
     emit AgentPicked(game: cmd.game, agent: cmd.agent)
 
 command PickSpeed:
@@ -453,39 +613,104 @@ command PickSpeed:
   decide:
     if desk.turnOf(cmd.game) != 0:
       refuse busy, "The producer is working on this game's last message. Wait for it, or press Stop, then pick again."
+    var now = "standard"
+    for p in desk.speeds:
+      if p.game == cmd.game: now = p.speed
+    if now == cmd.speed: return # the same speed again changes nothing
     emit SpeedPicked(game: cmd.game, speed: cmd.speed)
 
 command NewChat:
   fields:
     game: string
-  reads Desk
+    agent: Option[string]   ## the producer the game talks to now (the shell knows the default one)
+  reads Desk, ChatBook
+  produces ChatStarted
   refuses busy
   decide:
     if desk.turnOf(cmd.game) != 0:
       refuse busy, "The producer is still working on this game. Stop the turn first."
+    let agent = cmd.agent.get("")
+    let book = chatBook.books.bookOf(cmd.game, agent)
+    if book.find(book.current) >= 0: # a fresh chat is already the current one: nothing to change
+      emit ChatStarted(game: cmd.game, agent: agent, chat: book.next, at: int(ctx.now div 1000))
 
 command OpenChat:
   fields:
     game: string
     chat: int
-  reads Desk
+    agent: Option[string]   ## the producer the game talks to now
+  reads Desk, ChatBook
+  produces ChatOpened
   refuses busy
   decide:
     if desk.turnOf(cmd.game) != 0:
       refuse busy, "The producer is working on this game's last message. Wait for it, or press Stop, then open the chat."
+    let agent = cmd.agent.get("")
+    let book = chatBook.books.bookOf(cmd.game, agent)
+    if book.find(cmd.chat) >= 0 and book.current != cmd.chat: # a chat with no record, or the open one: nothing to change
+      emit ChatOpened(game: cmd.game, agent: agent, chat: cmd.chat, next: book.next)
 
 command DeleteChat:
   fields:
     game: string
     agent: string
     chat: int
-  reads Desk
-  produces ChatForgotten
+  reads Desk, ChatBook
+  produces ChatForgotten, ChatStarted
   refuses busy
   decide:
     if desk.turnOf(cmd.game) != 0:
       refuse busy, "The producer is working on this game's last message. Wait for it, or press Stop, then delete the chat."
-    emit ChatForgotten(game: cmd.game, agent: cmd.agent, chat: cmd.chat)
+    let book = chatBook.books.bookOf(cmd.game, cmd.agent)
+    emit ChatForgotten(game: cmd.game, agent: cmd.agent, chat: cmd.chat) # the lines and the id go whether or not the chat had a record
+    if book.find(cmd.chat) >= 0 and book.current == cmd.chat: # the next message starts a fresh chat
+      emit ChatStarted(game: cmd.game, agent: cmd.agent, chat: book.next, at: int(ctx.now div 1000))
+
+command UseChat:
+  fields:
+    game: string
+    agent: string
+    chat: int
+    title: string           ## the start of the message just sent, which names the chat if it is new
+  produces ChatUsed
+  decide:
+    emit ChatUsed(game: cmd.game, agent: cmd.agent, chat: cmd.chat, at: int(ctx.now div 1000), title: cmd.title)
+
+command ReportSession:
+  fields:
+    game: string
+    agent: string
+    chat: int
+    session: string         ## the agent's own id for the conversation
+  reads ChatBook
+  produces SessionReported
+  refuses badSession
+  decide:
+    if not cmd.session.goodSession:
+      refuse badSession, "That is not a session id the studio can keep."
+    let book = chatBook.books.bookOf(cmd.game, cmd.agent)
+    let at = book.find(cmd.chat)
+    if at >= 0 and book.chats[at].session != cmd.session: # a chat with no record has nothing to resume
+      emit SessionReported(game: cmd.game, agent: cmd.agent, chat: cmd.chat, session: cmd.session)
+
+command ReportModel:
+  fields:
+    game: string
+    agent: string
+    speed: string
+    askedModel: string
+    askedEffort: string
+    model: string
+    effort: string
+  reads Producers
+  produces ModelReported
+  decide:
+    let was = producers.ran.ranOf(cmd.game, cmd.agent)
+    if was.started and was.speed == cmd.speed and was.askedModel == cmd.askedModel and was.askedEffort == cmd.askedEffort and
+        was.model == cmd.model and was.effort == cmd.effort:
+      return # the same words again change nothing
+    emit ModelReported(game: cmd.game, agent: cmd.agent, speed: cmd.speed, askedModel: cmd.askedModel,
+      askedEffort: cmd.askedEffort, model: cmd.model, effort: cmd.effort)
 
 command RestoreChat:
   fields:
@@ -539,5 +764,26 @@ query ChatSince:
     result.next = chat.last
     for l in chat.lines:
       if l.seq > q.since and l.game == q.game and l.agent == q.agent and l.chat == q.chat: result.entries.add l
+
+query ChatList:
+  fields:
+    game: string
+    agent: string
+  reads ChatBook
+  returns ChatListing
+  answer:
+    let book = chatBook.books.bookOf(q.game, q.agent)
+    result.agent = q.agent
+    result.current = book.current
+    result.chats = book.newestFirst
+
+query ProducerNow:
+  fields:
+    game: string
+    agent: string
+  reads Producers
+  returns Ran
+  answer:
+    result = producers.ran.ranOf(q.game, q.agent)
 
 sealModel(StudioDesk, currentSourcePath().parentDir / "studiodesk.em")

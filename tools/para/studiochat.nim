@@ -5,9 +5,9 @@
 # This file knows the agent only through agent.nim's `AgentAdapter`: it hands the adapter the
 # friend's message, collects the `UiEvent`s the adapter emits into a numbered list the page polls
 # (`GET /api/chat?since=N`, the same polling the Check and Save steps use), keeps each chat's
-# session id and its lines in chatstore.nim's files so a restart, a reopened page or picking the
-# chat again from the list shows the chat as it was and resumes the same conversation, and stops a
-# turn (the Stop button, a timeout, or the studio closing).
+# session id (the desk's book, in studio.jsonl) and its lines (its own file, chatstore.nim) so a
+# restart, a reopened page or picking the chat again from the list shows the chat as it was and
+# resumes the same conversation, and stops a turn (the Stop button, a timeout, or the studio closing).
 #
 # A turn runs on its own thread, with a second small thread watching the clock; each game's turn
 # has threads, a control and a clock of its own, so Stop and the time limit act on that game only. Nothing is sent to
@@ -23,16 +23,18 @@
 # the desk's events; chatstore.nim's `ChatFilesStore` keeps them in the chat's file (keys out, size
 # cap, forgotten with the chat).
 #
-# Each agent keeps its own chats (chatstore.nim: `tmp/studio/chats-<game>-<agent>.json`, each chat's
-# title, times and session id), and the page lists the chats of the agent the game talks to. One
-# agent's id is never handed to another, which could not use it. The agent a game talks to is
-# remembered in `tmp/studio/agent-<game>.txt` (its name and nothing else); a game with no pick uses
-# the studio-wide pick in `tmp/studio/default-agent.txt` (made in the first-run setup checklist,
-# before any game exists), else the first adapter. How hard the producer thinks is the game's
-# "producer speed" (quick, standard or deep), remembered the same way in `tmp/studio/speed-<game>.txt`
-# (default standard, which passes no model and no effort); each turn takes the speed in force when
-# it starts, and the adapter turns it into its agent's own model and effort flags. What was asked
-# for and what the agent then reported are kept for each game and agent, for the line on the page.
+# Each agent keeps its own chats (the desk's `ChatBook` view: each chat's title, times and session
+# id), and the page lists the chats of the agent the game talks to. One agent's id is never handed to
+# another, which could not use it. The agent a game talks to is the desk's `Desk.picks`: the one
+# picked for the game, else the studio-wide pick (made in the first-run setup checklist, before any
+# game exists), else the first adapter. How hard the producer thinks is the game's "producer speed"
+# (quick, standard or deep), the desk's `Desk.speeds` (default standard, which passes no model and no
+# effort); each turn takes the speed in force when it starts, and the adapter turns it into its
+# agent's own model and effort flags. What was asked for and what the agent then reported are the
+# `Producers` view, for the line on the page. The book, the picks and that line are events that
+# survive a restart: chatstore.nim keeps them in `tmp/studio/studio.jsonl` and `initChat` replays that
+# file (and only that file) when the studio starts, then moves the files older studios kept
+# (`chats-*.json`, `session-*.id`, `agent-*.txt`, `speed-*.txt`, `default-agent.txt`) into it, once.
 #
 # Every line the page shows is also added to its chat's file (chatstore.nim:
 # `tmp/studio/chat-<game>-<agent>-<number>.jsonl`, keys taken out), so a chat opened again, or the
@@ -42,8 +44,8 @@
 # file; with no such record it gets a plain note instead. These files stay on this computer and
 # go when the chat is deleted; no login or key is ever written.
 
-import std/[json, locks, os, sequtils, strutils, tables, times]
-import eversince/[types, runtime]
+import std/[json, locks, os, sequtils, sets, tables, times]
+import eversince/[types, runtime, store]
 import agent
 import chatstore
 import savepoint
@@ -80,37 +82,22 @@ type
     threadsStarted: bool
 
   ChatState* = object
-    lock: Lock ## the ONE lock: it serialises the desk's runtime (`desk`) and guards the records below
+    lock: Lock ## the ONE lock: it serialises the desk's runtime (`desk`: the rules, the views, the book, the picks) and guards the records below
     desk: Runtime[StudioDesk] ## studiodesk.nim's rules, the views and the chats' lines; only ever touched under `lock`
     adapters: seq[AgentAdapter] ## the first is the default
     root: string
     timeoutSec: int
+    files: ChatFilesStore ## the store behind `desk`
     turns: Table[string, ptr Turn] ## by game: the running turn, or the last one that ended
     infos: Table[string, tuple[info: AgentInfo, at: float]]
-    models: Table[string, RanWith] ## by "<game>/<agent>": what its last turn asked for and said it ran with (under `lock`)
-    bookLock: Lock ## the chat lists below and their files; never held together with `lock`
-    books: Table[string, ChatBook] ## by "<game>/<agent>", read from disk the first time
-    noteLock: Lock ## held while owed chats are taken and read back, so no other line gets in between
-    notes: seq[ChatKey] ## chats open when their book was read from disk, still owed their earlier lines
+    shown: HashSet[string] ## the chats ("<game>/<agent>/<chat>") whose earlier lines the Chat view holds, or that have none (under `lock`)
+    migrated: HashSet[string] ## the books ("<game>/<agent>") already checked for files an older studio left (under `lock`)
 
   Started* = object
     ok*: bool
     status*: int
     code*, message*: string
     turnId*: int ## StartTurn: the turn's number; StartStep: the step's
-
-proc initChat*(c: ptr ChatState, root: string, adapters: seq[AgentAdapter], timeoutSec = defaultTurnSeconds) =
-  ## `adapters` are the agents the page may pick from, the default first.
-  doAssert adapters.len > 0
-  initLock(c.lock)
-  initLock(c.bookLock)
-  initLock(c.noteLock)
-  c.root = root
-  c.adapters = adapters
-  c.timeoutSec = timeoutSec
-  let files = newChatFiles(root)
-  c.desk = Runtime[StudioDesk](store: files, clock: proc (): int64 = (epochTime() * 1000).int64)
-  c.desk.seq = files.highestSeq() # the log goes on from where an earlier run of the studio left it
 
 proc agentNames*(c: ptr ChatState): seq[string] =
   for a in c.adapters: result.add a.name
@@ -120,82 +107,153 @@ proc adapterFor(c: ptr ChatState, name: string): AgentAdapter =
     if a.name == name: return a
   c.adapters[0]
 
+proc run(c: ptr ChatState, name: string, data: JsonNode): Decision =
+  ## One command through the runtime. Called with `lock` held.
+  {.cast(gcsafe).}:
+    result = c.desk.execute(name, data)
+
+proc inject(c: ptr ChatState, kind: string, data: JsonNode) =
+  ## An event of an older studio's files, written to the log as it is and folded into the views: it
+  ## is a fact that already happened, so no command decides it. Called with `lock` held.
+  {.cast(gcsafe).}:
+    let e = Envelope(seq: c.desk.seq + 1, at: c.desk.clock(), kind: kind, data: data)
+    c.desk.store.append([e])
+    c.desk.seq += 1
+    try: apply(c.desk.app, e)
+    except CatchableError: discard
+
+proc knownAgent(c: ptr ChatState, name: string): bool =
+  for a in c.adapters:
+    if a.name == name: return true
+
+proc moveOldPicks(c: ptr ChatState) =
+  ## The producer and speed picks an older studio kept in `agent-<game>.txt`, `speed-<game>.txt` and
+  ## `default-agent.txt` become events, once, and the files go. A name that is not an agent or a
+  ## speed is left out (and its file goes too); a pick the log already has is not overwritten.
+  let old = oldPicks(c.root)
+  c.files.failed = false
+  proc have(c: ptr ChatState, game: string): bool =
+    for p in c.desk.app.desk.picks:
+      if p.game == game: return true
+  if old.wide.len > 0 and c.knownAgent(old.wide) and not c.have(""):
+    c.inject("AgentPicked", %*{"game": "", "agent": old.wide})
+  for (game, name) in old.agents:
+    if validGameName(game) and c.knownAgent(name) and not c.have(game):
+      c.inject("AgentPicked", %*{"game": game, "agent": name})
+  for (game, name) in old.speeds:
+    let (ok, speed) = parseSpeed(name)
+    var known = false
+    for p in c.desk.app.desk.speeds:
+      if p.game == game: known = true
+    if validGameName(game) and ok and not known:
+      c.inject("SpeedPicked", %*{"game": game, "speed": $speed})
+  if not c.files.failed: removeOldPicks(c.root)
+
+proc moveOldBook(c: ptr ChatState, game, agent: string) =
+  ## `game`'s chats with `agent` as an older studio kept them (a book file, or one session id in a
+  ## file of its own) become events, once, and the files go. Called with `lock` held.
+  let k = game & "/" & agent
+  if k in c.migrated: return
+  c.migrated.incl k
+  if not hasOldBook(c.root, game, agent): return
+  let b = loadBook(c.root, game, agent)
+  c.files.failed = false
+  for (kind, data) in oldBookEvents(game, agent, b, epochTime().int64): c.inject(kind, data)
+  if not c.files.failed: removeOldBook(c.root, game, agent) # if the disk refused, the files stay for the next start
+
+proc moveOldFiles(c: ptr ChatState) =
+  ## Everything an older studio kept in files moves into the log. The studio calls it once, at start.
+  acquire(c.lock)
+  defer: release(c.lock)
+  for (game, agent) in oldBooks(c.root): c.moveOldBook(game, agent)
+  c.moveOldPicks()
+
+proc initChat*(c: ptr ChatState, root: string, adapters: seq[AgentAdapter], timeoutSec = defaultTurnSeconds) =
+  ## `adapters` are the agents the page may pick from, the default first.
+  doAssert adapters.len > 0
+  initLock(c.lock)
+  c.root = root
+  c.adapters = adapters
+  c.timeoutSec = timeoutSec
+  c.files = newChatFiles(root)
+  c.desk = Runtime[StudioDesk](store: c.files, clock: proc (): int64 = (epochTime() * 1000).int64)
+  for e in c.files.loadStudio(): # the studio's own events only (a few lines per chat and pick); chats are read when opened
+    try: apply(c.desk.app, e)
+    except CatchableError: discard # an event that does not fit its type is left out: the studio still starts
+  c.desk.seq = c.files.highestSeq() # the log goes on from where an earlier run of the studio left it
+  c.moveOldFiles() # what an older studio kept in files becomes events, once
+
 # --- the chat lists ---------------------------------------------------------------
 
-proc bookOf(c: ptr ChatState, game, agent: string): ChatBook =
-  ## A copy of `game`'s chats with `agent`. Called with `bookLock` held.
-  let k = game & "/" & agent
-  if k notin c.books:
-    let b = loadBook(c.root, game, agent)
-    c.books[k] = b
-    if b.find(b.current) >= 0 or fileExists(logPath(c.root, game, agent, b.current)):
-      c.notes.add (game, agent, b.current)
-  c.books[k]
+proc bookIn(c: ptr ChatState, game, agent: string): Book =
+  ## A copy of `game`'s chats with `agent`. Called with `lock` held.
+  c.moveOldBook(game, agent) # a file an older studio left since the studio started is moved now
+  {.cast(gcsafe).}:
+    result = c.desk.app.chatBook.books.bookOf(game, agent)
 
-proc keep(c: ptr ChatState, game, agent: string, b: ChatBook) =
-  ## Remembers `b` and writes it down. Called with `bookLock` held.
-  c.books[game & "/" & agent] = b
-  discard saveBook(c.root, game, agent, b) # if the disk refuses, the chats last until the studio closes
+proc sessionIn(c: ptr ChatState, game, agent: string, chat: int): string =
+  ## The session id chat `chat` resumes, "" for a new conversation. It goes on to a command line, so
+  ## it passes `validSessionToken` here too, whatever a hand-edited log says. Called with `lock` held.
+  let b = c.bookIn(game, agent)
+  let i = b.find(chat)
+  if i >= 0: validSessionToken(b.chats[i].session) else: ""
 
 proc readSession*(root, game, agent: string): string =
   ## The session id the next message in `game`'s current chat with `agent` resumes, "" for a new
-  ## conversation (read from disk, for tests and tools; the studio itself keeps the list in memory).
-  let b = loadBook(root, game, agent)
+  ## conversation (read from disk, for tests and tools; the studio itself keeps the book in the desk).
+  if not validGameName(game) or not validAgentName(agent): return
+  var app: StudioDesk
+  for e in newChatFiles(root).loadStudio():
+    try: apply(app, e)
+    except CatchableError: discard
+  let book = app.chatBook.books.bookOf(game, agent)
+  let at = book.find(book.current)
+  if at >= 0: return validSessionToken(book.chats[at].session)
+  let b = loadBook(root, game, agent) # a book an older studio kept, not moved yet
   let i = b.find(b.current)
   if i >= 0: b.chats[i].session else: ""
 
 # --- the agent a game talks to ------------------------------------------------------
 
-proc pickPath(root, game: string): string =
-  root / "tmp" / "studio" / ("agent-" & game & ".txt")
-
-proc defaultPickPath(root: string): string =
-  ## Where the studio-wide pick lives. It does not start with "agent-", so no game's name can reach it.
-  root / "tmp" / "studio" / "default-agent.txt"
-
-proc pickedIn(c: ptr ChatState, path: string): string =
-  ## The agent named in the file at `path` if it still exists, else "".
-  try:
-    let name = readFile(path).strip
-    for a in c.adapters:
-      if a.name == name: return name
-  except IOError, OSError:
-    discard
-
-proc agentOf*(c: ptr ChatState, game: string): string =
+proc agentIn(c: ptr ChatState, game: string): string =
   ## The agent `game`'s chat talks to: the one the friend picked for it if that still exists, else
   ## the one picked for the whole studio (made before any game exists, in the setup checklist), else
-  ## the built-in default. With no game (`""`) it is the studio-wide pick.
-  if validGameName(game):
-    let own = pickedIn(c, pickPath(c.root, game))
-    if own.len > 0: return own
-  let studioWide = pickedIn(c, defaultPickPath(c.root))
-  if studioWide.len > 0: return studioWide
+  ## the built-in default. With no game (`""`) it is the studio-wide pick. Called with `lock` held.
+  {.cast(gcsafe).}:
+    if validGameName(game):
+      for p in c.desk.app.desk.picks:
+        if p.game == game and c.knownAgent(p.agent): return p.agent
+    for p in c.desk.app.desk.picks:
+      if p.game == "" and c.knownAgent(p.agent): return p.agent
   c.adapters[0].name
+
+proc agentOf*(c: ptr ChatState, game: string): string =
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.agentIn(game)
 
 # --- the producer's speed for a game -------------------------------------------------
 
-proc speedPath(root, game: string): string =
-  root / "tmp" / "studio" / ("speed-" & game & ".txt")
-
-proc speedOf*(c: ptr ChatState, game: string): Speed =
+proc speedIn(c: ptr ChatState, game: string): Speed =
   ## The speed `game`'s next turn runs at: the one the friend picked for it, else standard. A game
-  ## with no name (or a file that says something else) is standard.
+  ## with no name is standard. Called with `lock` held.
   if validGameName(game):
-    try:
-      let (ok, sp) = parseSpeed(readFile(speedPath(c.root, game)).strip)
-      if ok: return sp
-    except IOError, OSError:
-      discard
+    {.cast(gcsafe).}:
+      for p in c.desk.app.desk.speeds:
+        if p.game == game:
+          let (ok, sp) = parseSpeed(p.speed)
+          if ok: return sp
   spStandard
 
-proc currentKey(c: ptr ChatState, game: string): ChatKey =
-  ## The chat `game`'s page shows now: its producer's current chat.
-  let agent = agentOf(c, game)
-  acquire(c.bookLock)
-  let b = c.bookOf(game, agent)
-  release(c.bookLock)
-  (game, agent, b.current)
+proc speedOf*(c: ptr ChatState, game: string): Speed =
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.speedIn(game)
+
+proc currentIn(c: ptr ChatState, game: string): ChatKey =
+  ## The chat `game`'s page shows now: its producer's current chat. Called with `lock` held.
+  let agent = c.agentIn(game)
+  (game, agent, c.bookIn(game, agent).current)
 
 # --- the desk ------------------------------------------------------------------------
 # Everything below that asks "may this happen?" asks the desk, with `lock` held.
@@ -219,11 +277,6 @@ proc refusal(d: Decision): Started =
     else: (409, d.code)
   Started(status: status, code: code, message: d.message)
 
-proc run(c: ptr ChatState, name: string, data: JsonNode): Decision =
-  ## One command through the runtime. Called with `lock` held.
-  {.cast(gcsafe).}:
-    result = c.desk.execute(name, data)
-
 proc nowFacts(c: ptr ChatState, game: string): DeskFacts =
   ## The desk's answer about `game` (and every game, and the step). Called with `lock` held.
   {.cast(gcsafe).}:
@@ -246,21 +299,23 @@ proc restoreLocked(c: ptr ChatState, key: ChatKey, read: ChatRead, persist: bool
   discard c.run("RestoreChat", %*{"game": key.game, "agent": key.agent, "chat": key.chat,
     "lines": read.lines.mapIt(lineBody(it)), "lastN": read.lastN, "persist": persist})
 
+proc keyOf(key: ChatKey): string = key.game & "/" & key.agent & "/" & $key.chat
+
 proc restore(c: ptr ChatState, key: ChatKey) =
   ## Shows chat `key` as its file has it: whatever the page held of it is replaced by the lines read
   ## back. A listed chat with no file (one from before lines were kept) gets its lines rebuilt from
   ## the agent's own record of the conversation, or the plain note when there is none, and either is
-  ## written to the file so this happens once. A fresh chat with no file shows nothing.
-  acquire(c.bookLock)
-  let b = c.bookOf(key.game, key.agent)
+  ## written to the file so this happens once. A fresh chat with no file shows nothing. Called with
+  ## `lock` free.
+  acquire(c.lock)
+  let b = c.bookIn(key.game, key.agent)
   let i = b.find(key.chat)
   let listed = i >= 0
-  let session = if listed: b.chats[i].session else: ""
-  release(c.bookLock)
-  acquire(c.lock)
+  let session = if listed: c.sessionIn(key.game, key.agent, key.chat) else: ""
   var read = readChat(c.root, key.game, key.agent, key.chat)
   if read.found or not listed:
     c.restoreLocked(key, read, persist = false)
+    c.shown.incl key.keyOf
     release(c.lock)
     return
   release(c.lock) # the agent's record can take a moment to read: not under the lock
@@ -279,17 +334,21 @@ proc restore(c: ptr ChatState, key: ChatKey) =
     c.restoreLocked(key, read, persist = false)
   else:
     c.restoreLocked(key, ChatRead(lines: lines), persist = true) # the desk writes them as new lines
+  c.shown.incl key.keyOf
 
-proc flushNotes(c: ptr ChatState) =
-  ## Reads back the chats owed their earlier lines, so those come before any other line. Called
-  ## with `lock` free.
-  acquire(c.noteLock)
-  defer: release(c.noteLock)
-  acquire(c.bookLock)
-  let owed = c.notes
-  c.notes = @[]
-  release(c.bookLock)
-  for key in owed: c.restore(key)
+proc settle(c: ptr ChatState, game: string): ChatKey =
+  ## The chat `game`'s page shows now, with its earlier lines read back first when this run has not
+  ## yet (the Chat view starts empty: a chat's lines come from its file when it is first looked at).
+  ## Called with `lock` free, before anything is added to that chat.
+  acquire(c.lock)
+  let key = c.currentIn(game)
+  var owed = false
+  if key.keyOf notin c.shown:
+    owed = c.bookIn(key.game, key.agent).find(key.chat) >= 0 or fileExists(logPath(c.root, key.game, key.agent, key.chat))
+    if not owed: c.shown.incl key.keyOf # a fresh chat has nothing to read back
+  release(c.lock)
+  if owed: c.restore(key)
+  key
 
 proc addLocked(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
   ## Puts a line on the page and in its chat's file. Called with `lock` held.
@@ -298,7 +357,6 @@ proc addLocked(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
 
 proc add(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
   ## Puts a line on the page and in its chat's file. Called with `lock` free.
-  c.flushNotes()
   acquire(c.lock)
   defer: release(c.lock)
   c.addLocked(key, ev, you)
@@ -306,13 +364,38 @@ proc add(c: ptr ChatState, key: ChatKey, ev: UiEvent, you = false) =
 proc addCard*(c: ptr ChatState, game: string, ev: UiEvent) =
   ## A line the studio itself puts in `game`'s current chat (a screenshot card): not from the
   ## agent, so it works with no turn running.
-  c.add(c.currentKey(game), ev)
+  c.add(c.settle(game), ev)
 
-proc setChatSession(c: ptr ChatState, key: ChatKey, id: string) =
-  acquire(c.bookLock)
-  var b = c.bookOf(key.game, key.agent)
-  if b.setSession(key.chat, id): c.keep(key.game, key.agent, b)
-  release(c.bookLock)
+proc reportSession(c: ptr ChatState, key: ChatKey, id: string) =
+  ## The agent named its session: the desk keeps it (and refuses an id a command line could not take).
+  acquire(c.lock)
+  defer: release(c.lock)
+  discard c.run("ReportSession", %*{"game": key.game, "agent": key.agent, "chat": key.chat, "session": id})
+
+proc ranWith(r: Ran): RanWith =
+  let (ok, speed) = parseSpeed(r.speed)
+  RanWith(started: r.started, speed: if ok: speed else: spStandard, askedModel: r.askedModel, askedEffort: r.askedEffort,
+    model: r.model, effort: r.effort)
+
+proc ranIn(c: ptr ChatState, game, agent: string): RanWith =
+  ## What `agent` did `game`'s last turn with, from the desk's `Producers` view. Called with `lock` held.
+  {.cast(gcsafe).}:
+    result = ranWith(answer(ProducerNow(game: game, agent: agent), c.desk.app.producers))
+
+proc reportAsked(c: ptr ChatState, key: ChatKey, speed: Speed, model, effort: string) =
+  ## A new turn: what it asked for is known now; what the agent says follows.
+  acquire(c.lock)
+  defer: release(c.lock)
+  discard c.run("ReportModel", %*{"game": key.game, "agent": key.agent, "speed": $speed, "askedModel": model,
+    "askedEffort": effort, "model": "", "effort": ""})
+
+proc reportRan(c: ptr ChatState, key: ChatKey, speed: Speed, model, effort: string) =
+  ## The agent said what it runs this turn with; what was asked for stays.
+  acquire(c.lock)
+  defer: release(c.lock)
+  let was = c.ranIn(key.game, key.agent)
+  discard c.run("ReportModel", %*{"game": key.game, "agent": key.agent, "speed": $speed, "askedModel": was.askedModel,
+    "askedEffort": was.askedEffort, "model": model, "effort": effort})
 
 # --- a turn -------------------------------------------------------------------------
 
@@ -331,23 +414,10 @@ proc turnMain(t: ptr Turn) {.thread.} =
   timeoutSec = c.timeoutSec
   release(c.lock)
   {.cast(gcsafe).}:
-    req.onSession = proc (id: string) = c.setChatSession(key, id)
-    let ranKey = key.game & "/" & key.agent
+    req.onSession = proc (id: string) = c.reportSession(key, id)
     let speed = req.speed
-    req.onAsked = proc (model, effort: string) =
-      acquire(c.lock)
-      # a new turn: what it asked for is known now; what the agent says follows
-      c.models[ranKey] = RanWith(started: true, speed: speed, askedModel: model, askedEffort: effort)
-      release(c.lock)
-    req.onModel = proc (model, effort: string) =
-      acquire(c.lock)
-      var r = c.models.getOrDefault(ranKey)
-      r.started = true
-      r.speed = speed
-      r.model = model
-      r.effort = effort
-      c.models[ranKey] = r
-      release(c.lock)
+    req.onAsked = proc (model, effort: string) = c.reportAsked(key, speed, model, effort)
+    req.onModel = proc (model, effort: string) = c.reportRan(key, speed, model, effort)
     var res: TurnResult
     try:
       res = adapter.runTurn(adapter, req, ctl, proc (ev: UiEvent) = c.add(key, ev))
@@ -435,24 +505,18 @@ proc startTurn*(c: ptr ChatState, game, text: string, busyGames: seq[string] = @
   ## accepted is then done here: the chat's title, the turn's record, its threads.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
-  discard c.currentKey(game) # reads the game's chat list, and so queues the earlier lines it owes
-  c.flushNotes()
+  discard c.settle(game) # the chat's earlier lines come first
   acquire(c.lock)
-  let agentName = agentOf(c, game)
-  acquire(c.bookLock)
-  var b = c.bookOf(game, agentName)
-  release(c.bookLock)
+  let agentName = c.agentIn(game)
+  let b = c.bookIn(game, agentName)
   let decision = c.run("StartTurn", %*{"game": game, "agent": agentName, "chat": b.current, "text": text, "busyGames": busyGames})
   if decision.refused:
     release(c.lock)
     return refusal(decision)
   # accepted: the game's turn is now the desk's, so no other change to this game gets in
   let turnId = decision.events[0].data["turn"].getInt
-  acquire(c.bookLock)
-  b = c.bookOf(game, agentName)
-  let session = b.noteMessage(text, epochTime().int64)
-  c.keep(game, agentName, b)
-  release(c.bookLock)
+  discard c.run("UseChat", %*{"game": game, "agent": agentName, "chat": b.current, "title": titleOf(text)}) # names a new chat, marks it used now
+  let session = c.sessionIn(game, agentName, b.current)
   let key: ChatKey = (game, agentName, b.current)
   let was = c.takeEnded(game)
   let t = create(Turn)
@@ -460,7 +524,7 @@ proc startTurn*(c: ptr ChatState, game, text: string, busyGames: seq[string] = @
   t.key = key
   t.text = text
   t.session = session
-  t.speed = speedOf(c, game)
+  t.speed = c.speedIn(game)
   t.startedAt = epochTime()
   t.ctl = newTurnControl()
   t.id = turnId
@@ -511,6 +575,9 @@ proc shutdownChat*(c: ptr ChatState) =
     c.turns.clear()
     release(c.lock)
     for t in ended: reap(t)
+    acquire(c.lock)
+    c.files.close() # every file the studio holds open is let go (a later write opens it again)
+    release(c.lock)
 
 proc newConversation*(c: ptr ChatState, game: string): bool =
   ## The next message in `game` starts a new chat with its producer; the earlier ones stay in the
@@ -518,14 +585,7 @@ proc newConversation*(c: ptr ChatState, game: string): bool =
   if not validGameName(game): return false
   acquire(c.lock)
   defer: release(c.lock)
-  if c.run("NewChat", %*{"game": game}).refused: return false
-  let agent = agentOf(c, game)
-  acquire(c.bookLock)
-  var b = c.bookOf(game, agent)
-  b.freshChat()
-  c.keep(game, agent, b)
-  release(c.bookLock)
-  true
+  not c.run("NewChat", %*{"game": game, "agent": c.agentIn(game)}).refused
 
 proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   ## The next message in `game` goes to chat `id` and resumes its conversation, and the page shows
@@ -533,23 +593,16 @@ proc openChat*(c: ptr ChatState, game: string, id: int): Started =
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   acquire(c.lock)
-  let decision = c.run("OpenChat", %*{"game": game, "chat": id})
-  if decision.refused:
-    release(c.lock)
-    return refusal(decision)
-  let agent = agentOf(c, game)
-  acquire(c.bookLock)
-  var b = c.bookOf(game, agent)
+  let agent = c.agentIn(game)
+  let b = c.bookIn(game, agent)
+  let listed = b.find(id) >= 0
   let was = b.current
-  let found = b.openChat(id)
-  if found and was != id: c.keep(game, agent, b)
-  release(c.bookLock)
+  let decision = c.run("OpenChat", %*{"game": game, "chat": id, "agent": agent})
   release(c.lock)
-  if not found:
+  if decision.refused: return refusal(decision)
+  if not listed:
     return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
-  if was != id:
-    c.flushNotes()
-    c.restore((game, agent, id))
+  if was != id: c.restore((game, agent, id))
   Started(ok: true, status: 200)
 
 proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
@@ -558,19 +611,15 @@ proc deleteChat*(c: ptr ChatState, game: string, id: int): Started =
   ## the conversation. Refused while this game's turn runs.
   if not validGameName(game):
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
-  discard c.currentKey(game) # reads the game's chat list, and so queues the earlier lines it owes...
-  c.flushNotes() # ...which are read back first, so none of them comes back after the delete
+  discard c.settle(game) # the chat's earlier lines are read back first, so none of them comes back after the delete
   acquire(c.lock)
   defer: release(c.lock)
-  let agent = agentOf(c, game)
-  let decision = c.run("DeleteChat", %*{"game": game, "agent": agent, "chat": id}) # the lines go with this command
+  let agent = c.agentIn(game)
+  let listed = c.bookIn(game, agent).find(id) >= 0
+  let decision = c.run("DeleteChat", %*{"game": game, "agent": agent, "chat": id}) # the lines and the id go with this command
   if decision.refused: return refusal(decision)
-  acquire(c.bookLock)
-  var b = c.bookOf(game, agent)
-  let found = b.dropChat(id)
-  if found: c.keep(game, agent, b)
-  release(c.bookLock)
-  if not found:
+  c.shown.excl (game, agent, id).keyOf
+  if not listed:
     return Started(status: 404, code: "no-such-chat", message: "That chat is not in the list any more.")
   Started(ok: true, status: 200)
 
@@ -578,15 +627,18 @@ type
   ChatList* = object
     agent*: string
     current*: int
-    chats*: seq[ChatRecord] ## newest first
+    chats*: seq[studiodesk.ChatRecord] ## newest first
 
 proc listChats*(c: ptr ChatState, game: string): ChatList =
   ## `game`'s chats with the producer it talks to now, the one used last first.
-  let agent = agentOf(c, game)
-  acquire(c.bookLock)
-  let b = c.bookOf(game, agent)
-  release(c.bookLock)
-  ChatList(agent: agent, current: b.current, chats: b.newestFirst)
+  acquire(c.lock)
+  defer: release(c.lock)
+  let agent = c.agentIn(game)
+  discard c.bookIn(game, agent)
+  var l: ChatListing
+  {.cast(gcsafe).}:
+    l = answer(studiodesk.ChatList(game: game, agent: agent), c.desk.app.chatBook)
+  ChatList(agent: l.agent, current: l.current, chats: l.chats)
 
 # --- what the page reads ------------------------------------------------------------
 
@@ -604,8 +656,7 @@ type
 
 proc view*(c: ptr ChatState, game: string, since: int): ChatView =
   ## The lines after `since` of the chat `game`'s page shows now.
-  let key = c.currentKey(game)
-  c.flushNotes()
+  let key = c.settle(game)
   acquire(c.lock)
   defer: release(c.lock)
   var page: ChatPage
@@ -615,9 +666,9 @@ proc view*(c: ptr ChatState, game: string, since: int): ChatView =
   result.turnId = page.turn
   result.working = page.working
   result.next = page.next
-  result.speed = $speedOf(c, game)
+  result.speed = $c.speedIn(game)
   result.chat = key.chat
-  result.ran = c.models.getOrDefault(key.game & "/" & key.agent)
+  result.ran = c.ranIn(key.game, key.agent)
   result.model = result.ran.model
   result.effort = result.ran.effort
   for e in page.entries:
@@ -648,12 +699,12 @@ proc agentPreflight*(c: ptr ChatState, name: string): seq[PreflightCheck] =
     result = adapter.preflight(adapter, c.root)
 
 proc agentModel*(c: ptr ChatState, game, name: string): RanWith =
-  ## What `name` did `game`'s last turn in this run of the studio with: the speed it started at, the
+  ## What `name` did `game`'s last turn with (it survives a restart): the speed it started at, the
   ## model and effort the studio asked for, and the ones the agent reported. Empty before the first
   ## message.
   let adapter = c.adapterFor(name)
   acquire(c.lock)
-  result = c.models.getOrDefault(game & "/" & adapter.name)
+  result = c.ranIn(game, adapter.name)
   release(c.lock)
 
 proc speedAbout*(c: ptr ChatState, name: string, speed: Speed): string =
@@ -669,23 +720,18 @@ proc pickSpeed*(c: ptr ChatState, game, name: string): Started =
   let (ok, speed) = parseSpeed(name)
   if not ok:
     return Started(status: 400, code: "which-speed", message: "That is not one of the speeds: Quick, Standard or Deep.")
-  discard c.currentKey(game)
-  c.flushNotes()
+  discard c.settle(game)
   acquire(c.lock)
   defer: release(c.lock)
+  c.files.failed = false
   let decision = c.run("PickSpeed", %*{"game": game, "speed": $speed})
   if decision.refused: return refusal(decision)
-  if speedOf(c, game) == speed: return Started(ok: true, status: 200)
-  let path = speedPath(c.root, game)
-  try:
-    createDir(path.parentDir)
-    writeFile(path & ".new", $speed)
-    moveFile(path & ".new", path)
-  except IOError, OSError:
+  if decision.events.len == 0: return Started(ok: true, status: 200) # the same speed again says nothing more
+  if c.files.failed:
     return Started(status: 500, code: "cannot-save", message: "I could not remember that pick (is the disk full?).")
-  let agent = agentOf(c, game)
+  let agent = c.agentIn(game)
   let about = c.speedAbout(agent, speed)
-  c.addLocked(c.currentKey(game), UiEvent(kind: ukNotice, code: "speed-picked",
+  c.addLocked(c.currentIn(game), UiEvent(kind: ukNotice, code: "speed-picked",
     text: "From your next message on, the producer runs at " & speedLabels[speed] & " speed" & (if about.len > 0: ": " & about else: "") & "."))
   Started(ok: true, status: 200)
 
@@ -703,23 +749,18 @@ proc pickAgent*(c: ptr ChatState, game, name: string): Started =
     return Started(status: 400, code: "which-game", message: "Say which game this is about.")
   if name notin c.agentNames:
     return Started(status: 400, code: "which-agent", message: "That is not one of the producers this studio knows.")
-  if not wide:
-    discard c.currentKey(game)
-    c.flushNotes()
+  if not wide: discard c.settle(game)
   acquire(c.lock)
   defer: release(c.lock)
+  let before = c.agentIn(game)
+  c.files.failed = false
   let decision = c.run("PickProducer", %*{"game": game, "agent": name}) # the studio-wide pick waits for every turn
   if decision.refused: return refusal(decision)
-  if agentOf(c, game) == name: return Started(ok: true, status: 200)
-  let path = if wide: defaultPickPath(c.root) else: pickPath(c.root, game)
-  try:
-    createDir(path.parentDir)
-    writeFile(path & ".new", name)
-    moveFile(path & ".new", path)
-  except IOError, OSError:
+  if decision.events.len == 0 or before == name: return Started(ok: true, status: 200) # the same pick again says nothing more
+  if c.files.failed:
     return Started(status: 500, code: "cannot-save", message: "I could not remember that pick (is the disk full?).")
   if wide: return Started(ok: true, status: 200)
-  c.addLocked(c.currentKey(game), UiEvent(kind: ukNotice, code: "agent-picked",
+  c.addLocked(c.currentIn(game), UiEvent(kind: ukNotice, code: "agent-picked",
     text: "From your next message on, " & c.adapterFor(name).label & " is the producer. It has its own chats, so it reads the game's notes (PLAN.md) to pick things up; it can't see what the other one said."))
   Started(ok: true, status: 200)
 

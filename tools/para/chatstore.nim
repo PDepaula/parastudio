@@ -1,7 +1,15 @@
 # The studio's past chats: every conversation the friend had with one producer about one game.
 #
-# One small file per game and agent, `tmp/studio/chats-<game>-<agent>.json`, holds that agent's
-# chats for the game: each one's number, its title (the start of the first message the friend sent
+# Where the chats' books live now: they are events (studiodesk.nim's `ChatBook` view), kept with the
+# producer and speed picks and what each producer last ran with in ONE studio-wide file,
+# `tmp/studio/studio.jsonl`, the kit's forgetting file store (see "the studio's own events" below). The
+# files older studios kept, `chats-<game>-<agent>.json`, `session-*.id`, `agent-<game>.txt`,
+# `speed-<game>.txt` and `default-agent.txt`, are read once, written as events and removed (the
+# `old...` procs below and the shell's migration); this file still reads them, and can still write a
+# book file, which no studio does any more.
+#
+# What a book file holds (the same facts the events carry): `tmp/studio/chats-<game>-<agent>.json`
+# held that agent's chats for the game: each one's number, its title (the start of the first message the friend sent
 # in it, on one line, at most `maxTitleRunes` letters, with anything that looks like a key taken
 # out), when it started and was last used, and the agent's session id once the agent reported one,
 # so opening an old chat resumes the same conversation. Which chat the next message goes to is
@@ -24,7 +32,7 @@
 # Such a file is read as one chat with no title, and removed once the new file is written.
 #
 # This file only reads and writes; studiochat.nim decides when, with the desk's runtime under its
-# one lock (the lines go through `ChatFilesStore`, the store behind that runtime). A file the
+# one lock (the lines and the studio's events go through `ChatFilesStore`, the store behind that runtime). A file the
 # studio did not write the way it writes it (not JSON, a field of the wrong kind, a session id that
 # could not be one) is read as far as it makes sense and the rest is left out; it never raises.
 
@@ -487,15 +495,51 @@ proc dropLines*(root, game, agent: string, chat: int) =
   try: removeFile(path)
   except OSError: discard
 
+# --- the studio's own events ---------------------------------------------------------
+
+const
+  studioKinds = ["ChatStarted", "ChatOpened", "ChatUsed", "SessionReported", "AgentPicked", "SpeedPicked", "ModelReported"]
+  maxStudioStreamBytes = 1024 * 1024 ## every stream of studio.jsonl is capped at 1 MiB; only the ran: stream is expected to reach it, a chat stream needs thousands of messages
+
+proc studioPath*(root: string): string = studioDir(root) / "studio.jsonl"
+
+proc studioStreamOf(e: Envelope): string =
+  ## The chat-scoped events belong to the chat's stream (so forgetting the chat takes them out of this
+  ## file too), what a producer ran with to a stream of its own (capped), the picks to none.
+  let d = e.data
+  if d == nil or d.kind != JObject: return ""
+  case e.kind
+  of "ChatStarted", "ChatOpened", "ChatUsed", "SessionReported":
+    streamKey(d.strField("game"), d.strField("agent"), int(d.intField("chat")))
+  of "ModelReported": "ran:" & d.strField("game") & "/" & d.strField("agent")
+  else: ""
+
+proc cleanStudio(e: Envelope): Envelope =
+  ## The store's clean hook for studio.jsonl: a session id is written only in the shape
+  ## `validSessionToken` accepts, and a title with keys taken out.
+  result = e
+  if e.data == nil or e.data.kind != JObject: return
+  var data = newJObject()
+  for k, v in e.data: data[k] = v
+  case e.kind
+  of "SessionReported": data["session"] = %validSessionToken(e.data.strField("session"))
+  of "ChatUsed": data["title"] = %redactSecrets(e.data.strField("title"))
+  else: return
+  result.data = data
+
 # --- the desk's store ---------------------------------------------------------------
 
 type
   ChatFilesStore* = ref object of Store
-    ## The store behind the desk's runtime: a kept line goes to its chat's file, a forgotten chat's
-    ## file goes, and every other event (a turn, a step, a pick, a page restore) is not kept on disk.
+    ## The store behind the desk's runtime: a kept line goes to its chat's file, the studio's own
+    ## events (a chat's book, a pick, what a producer ran with) to studio.jsonl, a forgotten chat's
+    ## file and events go, and every other event (a turn, a step, a page restore) is not kept on disk.
     root*: string
     stores: Table[string, FileStore]
     checked: Table[string, bool]
+    studio: FileStore
+    parked: seq[FileStore] ## closed stores, kept alive (see `close`)
+    failed*: bool ## a write was refused since the shell last cleared this (the disk is full or read-only)
 
 proc newChatFiles*(root: string): ChatFilesStore =
   ChatFilesStore(root: root)
@@ -528,16 +572,52 @@ proc envelopesOf(path: string): seq[Envelope] =
       if isEnvelope(n): result.add fromLine(raw)
     except CatchableError: discard
 
+proc loadStudio*(s: ChatFilesStore): seq[Envelope] =
+  ## The studio's own events, in log order: the only thing the shell replays when it starts. A line
+  ## that is not an event is skipped, so a file edited by hand never stops the studio.
+  result = envelopesOf(studioPath(s.root))
+  result.sort(proc (x, y: Envelope): int = cmp(x.seq, y.seq))
+
+proc tidyStudio(path: string) =
+  ## studio.jsonl as the store wants it: a line that is not an event is left out (the store refuses
+  ## to open a log with one in the middle, and the studio would then keep nothing).
+  var text: string
+  try: text = readFile(path)
+  except IOError, OSError: return
+  var rows: seq[string]
+  var dropped = false
+  for raw in text.splitLines:
+    if raw.len == 0: continue
+    try:
+      if isEnvelope(parseJson(raw)): rows.add raw
+      else: dropped = true
+    except CatchableError: dropped = true
+  if dropped: discard writeWhole(path, rows)
+
+proc studioStore(s: ChatFilesStore): FileStore =
+  if s.studio == nil:
+    let path = studioPath(s.root)
+    createDir(path.parentDir)
+    tidyStudio(path)
+    s.studio = openFileStore(path, clean = cleanStudio, streamOf = studioStreamOf, maxStreamBytes = maxStudioStreamBytes)
+  s.studio
+
+proc forgetStudio(s: ChatFilesStore, stream: string) =
+  ## The chat's events leave studio.jsonl (its session id with them).
+  if s.studio == nil and not fileExists(studioPath(s.root)): return
+  s.studioStore.forget(stream)
+
 proc prepare(s: ChatFilesStore) =
   ## Every file an older studio wrote is rewritten in the kit's form (once), so a log read from them is whole.
   for (game, agent, chat) in s.chatFiles:
     if validLog(game, agent, chat): migrateLog(s.root, game, agent, chat)
 
 proc highestSeq*(s: ChatFilesStore): int64 =
-  ## The last log position any chat's file holds, so the runtime goes on from there after a restart.
+  ## The last log position any file holds, so the runtime goes on from there after a restart.
   s.prepare()
   for (game, agent, chat) in s.chatFiles:
     for e in envelopesOf(logPath(s.root, game, agent, chat)): result = max(result, e.seq)
+  for e in envelopesOf(studioPath(s.root)): result = max(result, e.seq)
 
 proc storeFor(s: ChatFilesStore, game, agent: string, chat: int): FileStore =
   if not validLog(game, agent, chat): raise newException(ValueError, "not a chat the studio keeps")
@@ -556,6 +636,9 @@ proc forgetChat(s: ChatFilesStore, game, agent: string, chat: int) =
     s.stores.del(path)
   s.checked.del(path)
   dropLines(s.root, game, agent, chat)
+  if validLog(game, agent, chat):
+    try: s.forgetStudio(streamKey(game, agent, chat))
+    except CatchableError: discard # the lines are gone; the studio's own events of it go with the next rewrite
 
 method append*(s: ChatFilesStore, evs: openArray[Envelope]) =
   for e in evs:
@@ -566,15 +649,18 @@ method append*(s: ChatFilesStore, evs: openArray[Envelope]) =
         if d.intField("n") > 0: s.storeFor(d.strField("game"), d.strField("agent"), int(d.intField("chat"))).append([e])
       of forgetKind:
         s.forgetChat(d.strField("game"), d.strField("agent"), int(d.intField("chat")))
+      elif e.kind in studioKinds:
+        s.studioStore.append([e])
       else: discard
     except CatchableError:
-      discard # the disk refused, or the name was not a chat's: the line shows until the studio closes
+      s.failed = true # the disk refused, or the name was not a chat's: the line shows until the studio closes
 
 method load*(s: ChatFilesStore): seq[Envelope] =
-  ## Every chat's events, in log order (for a replay).
+  ## Every chat's events and the studio's own, in log order (for a replay).
   s.prepare()
   for (game, agent, chat) in s.chatFiles:
     result.add envelopesOf(logPath(s.root, game, agent, chat))
+  result.add envelopesOf(studioPath(s.root))
   result.sort(proc (x, y: Envelope): int = cmp(x.seq, y.seq))
 
 method forget*(s: ChatFilesStore, stream: string) =
@@ -585,5 +671,91 @@ method forget*(s: ChatFilesStore, stream: string) =
   s.forgetChat(p[0], p[1], parseInt(p[2]))
 
 method close*(s: ChatFilesStore) =
-  for fs in s.stores.values: fs.close
+  ## Lets go of every file. A closed store is parked, not freed: the stores are made on whichever
+  ## thread wrote first (a turn's, a request's), and an ORC reference must not be freed on another
+  ## thread than the one that made it. A later write opens the file again.
+  for fs in s.stores.values:
+    fs.close
+    s.parked.add fs
   s.stores.clear()
+  if s.studio != nil:
+    s.studio.close
+    s.parked.add s.studio
+    s.studio = nil
+
+# --- what older studios kept: read once, then written as events and removed ----------------
+
+type
+  OldPicks* = object
+    ## The files that held the producer and speed picks, as they were (nothing checked yet).
+    wide*: string                       ## default-agent.txt, "" when there is none
+    agents*: seq[tuple[game, name: string]]  ## agent-<game>.txt
+    speeds*: seq[tuple[game, name: string]]  ## speed-<game>.txt
+
+proc fileText(path: string): string =
+  try: readFile(path).strip
+  except IOError, OSError: ""
+
+proc oldBooks*(root: string): seq[tuple[game, agent: string]] =
+  ## The games and agents that have a book file or a session file of an older studio, in name order.
+  let dir = studioDir(root)
+  if not dirExists(dir): return
+  for kind, path in walkDir(dir):
+    if kind != pcFile: continue
+    let name = path.extractFilename
+    var core = ""
+    if name.startsWith("chats-") and name.endsWith(".json"): core = name[6 ..< name.len - 5]
+    elif name.startsWith("session-") and name.endsWith(".id"): core = name[8 ..< name.len - 3]
+    else: continue
+    let at = core.find('-')
+    let pair = if at < 0: (core, "claude") else: (core[0 ..< at], core[at + 1 .. ^1]) # session-<game>.id was Claude's
+    if validGameName(pair[0]) and validAgentName(pair[1]) and pair notin result: result.add pair
+  result.sort(proc (x, y: tuple[game, agent: string]): int = cmp(x.game & "/" & x.agent, y.game & "/" & y.agent))
+
+proc hasOldBook*(root, game, agent: string): bool =
+  fileExists(chatsPath(root, game, agent)) or legacyPaths(root, game, agent).anyIt(fileExists(it))
+
+proc removeOldBook*(root, game, agent: string) =
+  ## The older studio's files for this book go, once the events hold what they did.
+  for path in @[chatsPath(root, game, agent)] & legacyPaths(root, game, agent):
+    try: removeFile(path)
+    except OSError: discard
+
+proc oldBookEvents*(game, agent: string, b: ChatBook, now: int64): seq[tuple[kind: string, data: JsonNode]] =
+  ## A book as the events that make the `ChatBook` view hold it again: each chat used (at its start,
+  ## and at its last use when that is later), its session, then the chat the next message goes to.
+  for c in b.chats:
+    result.add ("ChatUsed", %*{"game": game, "agent": agent, "chat": c.id, "at": c.started, "title": c.title})
+    if c.updated != c.started:
+      result.add ("ChatUsed", %*{"game": game, "agent": agent, "chat": c.id, "at": c.updated, "title": c.title})
+    if c.session.len > 0:
+      result.add ("SessionReported", %*{"game": game, "agent": agent, "chat": c.id, "session": c.session})
+  if b.find(b.current) >= 0:
+    result.add ("ChatOpened", %*{"game": game, "agent": agent, "chat": b.current, "next": b.next})
+  elif b.chats.len > 0 or b.current > 1:
+    result.add ("ChatStarted", %*{"game": game, "agent": agent, "chat": b.current, "at": now})
+
+proc oldPicks*(root: string): OldPicks =
+  let dir = studioDir(root)
+  if not dirExists(dir): return
+  result.wide = fileText(dir / "default-agent.txt")
+  for kind, path in walkDir(dir):
+    if kind != pcFile: continue
+    let name = path.extractFilename
+    if name.startsWith("agent-") and name.endsWith(".txt"):
+      result.agents.add (name[6 ..< name.len - 4], fileText(path))
+    elif name.startsWith("speed-") and name.endsWith(".txt"):
+      result.speeds.add (name[6 ..< name.len - 4], fileText(path))
+  result.agents.sort(proc (x, y: tuple[game, name: string]): int = cmp(x.game, y.game))
+  result.speeds.sort(proc (x, y: tuple[game, name: string]): int = cmp(x.game, y.game))
+
+proc removeOldPicks*(root: string) =
+  let dir = studioDir(root)
+  if not dirExists(dir): return
+  for kind, path in walkDir(dir):
+    if kind != pcFile: continue
+    let name = path.extractFilename
+    if name == "default-agent.txt" or (name.startsWith("agent-") and name.endsWith(".txt")) or
+        (name.startsWith("speed-") and name.endsWith(".txt")):
+      try: removeFile(path)
+      except OSError: discard
