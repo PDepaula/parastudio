@@ -16,6 +16,7 @@ file.
 | [pararules](https://github.com/paranim/pararules) | 1.4.0 | Public Domain |
 | [paratext](https://github.com/paranim/paratext) | 0.13.0 | Public Domain |
 | [parasound](https://github.com/paranim/parasound) | 1.0.0 | Public Domain |
+| [eversince](https://github.com/PDepaula/eversince) (the event-modelling kit behind the studio's chat log; pinned to commit ece12c4) | 0.0.1 | MIT |
 | paramidi, paramidi_soundfonts (pulled in by parasound) | 0.7.0, 0.2.0 | Public Domain |
 | [stb_image](https://gitlab.com/define-private-public/stb_image-Nim) | 2.5 | Unlicense (Public Domain) |
 | [nimgl](https://github.com/nimgl/nimgl) | 1.3.2 | MIT |

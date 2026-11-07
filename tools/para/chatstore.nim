@@ -9,7 +9,8 @@
 # empty chat is never listed.
 #
 # Each chat's lines, as the page showed them, are kept beside it in
-# `tmp/studio/chat-<game>-<agent>-<number>.jsonl`, one line of JSON each: what the friend typed,
+# `tmp/studio/chat-<game>-<agent>-<number>.jsonl`, one line of JSON each (an event of the kit's
+# forgetting file store, see "each chat's lines" below): what the friend typed,
 # what the producer said, its activity lines, helper cards (where they started and how they ended,
 # not every step in between), notes, errors and picture cards. Text is kept as it was with anything
 # that looks like a key taken out (the same `redactSecrets` as the titles), and one message is cut
@@ -22,12 +23,14 @@
 # `session-<game>-<agent>.id` (and, before there was a second agent, Claude's in `session-<game>.id`).
 # Such a file is read as one chat with no title, and removed once the new file is written.
 #
-# This file only reads and writes; studiochat.nim decides when, under its own lock. A file the
+# This file only reads and writes; studiochat.nim decides when, with the desk's runtime under its
+# one lock (the lines go through `ChatFilesStore`, the store behind that runtime). A file the
 # studio did not write the way it writes it (not JSON, a field of the wrong kind, a session id that
 # could not be one) is read as far as it makes sense and the rest is left out; it never raises.
 
-import std/[algorithm, json, os, sequtils, strutils, times]
+import std/[algorithm, json, os, sequtils, strutils, tables, times]
 from std/unicode import runeLen, runeSubStr, validateUtf8
+import eversince/[types, store, store_file]
 import agent
 import savepoint
 
@@ -274,25 +277,83 @@ proc asKept*(line: ChatLine): ChatLine =
   ## `line` as its chat's file keeps it and gives it back.
   discard decodeLine(encodeLine(line), result)
 
-proc trimNote(): string =
-  encodeLine((you: false, ev: UiEvent(kind: ukNotice, code: "chat-trimmed",
-    text: "The oldest part of this chat was left out to keep it small (each chat keeps about its last 500 KB of messages).")))
+# The lines are the kit's own (eversince, a pinned nimble dependency): each chat's file is a
+# forgetting file store (`openFileStore`), one JSON line per event {"seq","at","kind","data"}, and
+# its three duties are the store's hooks and not code of ours:
+#   clean     every line is written with keys taken out and long text cut (`keptBody`)
+#   cap       the file keeps the newest lines under `maxLogBytes` (`maxStreamBytes`; the oldest go first)
+#   forget    the chat's lines are taken out of the file when the chat is deleted (`dropLines`)
+# The chat's own lines are the desk's `LineAdded` events (studiodesk.nim); `ChatFilesStore` is the
+# store the desk's runtime writes them to. A file an older studio wrote (one compact line each,
+# `{"kind": "say", "text": ...}`) is read as before and rewritten in the kit's form the first time
+# the studio opens it.
 
-proc fitted(lines: seq[string]): seq[string] =
-  ## `lines` when they fit in `maxLogBytes`, else the newest that fit in `keepLogBytes`, behind one
-  ## note saying the oldest were left out.
-  var total = 0
-  for l in lines: total += l.len + 1
-  if total <= maxLogBytes: return lines
-  let note = trimNote()
-  var size = note.len + 1
-  var first = lines.len
-  while first > 0 and size + lines[first - 1].len + 1 <= keepLogBytes:
-    dec first
-    size += lines[first].len + 1
-  result = @[note]
-  for i in first ..< lines.len:
-    if lines[i] != note: result.add lines[i]
+const
+  lineKind* = "LineAdded" ## the kind of the desk event that carries a kept line
+  forgetKind* = "ChatForgotten" ## the kind of the desk event that takes a chat out of its file
+
+proc studioFiles(root: string): string = studioDir(root)
+
+proc streamKey(game, agent: string, chat: int): string = game & "/" & agent & "/" & $chat
+
+proc nowMs(): int64 = (epochTime() * 1000).int64
+
+proc lineBody*(line: ChatLine): JsonNode =
+  ## A line as the desk's `LineBody` holds it: every field, as it is.
+  let ev = line.ev
+  %*{"you": line.you, "kind": kindWords[ev.kind], "text": ev.text, "id": ev.id, "role": ev.role,
+     "status": ev.status, "tools": ev.tools, "code": ev.code, "detail": ev.detail, "url": ev.url}
+
+proc lineOfBody*(n: JsonNode, line: var ChatLine, allowDone = false): bool =
+  ## A `LineBody` back as the page shows it; false for one that is not a line the studio writes
+  ## (the end-of-turn marker only when `allowDone`).
+  if n == nil or n.kind != JObject: return false
+  let word = n.strField("kind")
+  var kind = ukSay
+  var known = false
+  for k in UiKind:
+    if kindWords[k] == word and (allowDone or k != ukTurnDone):
+      kind = k
+      known = true
+  if not known: return false
+  let url = n.strField("url")
+  let you = n{"you"}
+  line = (you: you != nil and you.kind == JBool and you.getBool, ev: UiEvent(kind: kind, text: n.strField("text"), id: n.strField("id"),
+    role: n.strField("role"), status: n.strField("status"), tools: int(n.intField("tools").clamp(-1, 1_000_000)),
+    code: n.strField("code"), detail: n.strField("detail"),
+    url: if kind in {ukNotice, ukError} and url.startsWith("https://"): url else: ""))
+  true
+
+proc lineData*(game, agent: string, chat, n: int, line: ChatLine): JsonNode =
+  ## The data of a `LineAdded` event.
+  %*{"game": game, "agent": agent, "chat": chat, "n": n, "line": lineBody(line)}
+
+proc keptBody(body: JsonNode): JsonNode =
+  var line: ChatLine
+  if lineOfBody(body, line): lineBody(asKept(line)) else: body
+
+proc cleanEnvelope(e: Envelope): Envelope =
+  ## The store's clean hook: a line is written with keys taken out, long text cut and a link kept
+  ## only when it is https. The views of the running studio saw the line as it was.
+  result = e
+  if e.kind == lineKind and e.data != nil and e.data.kind == JObject and e.data.hasKey("line"):
+    var data = newJObject()
+    for k, v in e.data: data[k] = v
+    data["line"] = keptBody(e.data["line"])
+    result.data = data
+
+proc streamOfEnvelope(e: Envelope): string =
+  let d = e.data
+  if d == nil or d.kind != JObject: return ""
+  streamKey(d.strField("game"), d.strField("agent"), int(d.intField("chat")))
+
+proc openChatStore(path: string): FileStore =
+  createDir(path.parentDir)
+  openFileStore(path, clean = cleanEnvelope, streamOf = streamOfEnvelope, maxStreamBytes = maxLogBytes)
+
+proc isEnvelope(n: JsonNode): bool =
+  n.kind == JObject and n{"seq"} != nil and n["seq"].kind == JInt and n{"kind"} != nil and n["kind"].kind == JString and
+    n{"data"} != nil and n["data"].kind == JObject
 
 proc writeWhole(path: string, lines: seq[string]): bool =
   try:
@@ -303,33 +364,54 @@ proc writeWhole(path: string, lines: seq[string]): bool =
   except IOError, OSError:
     false
 
-proc appendLine*(root, game, agent: string, chat: int, line: ChatLine): bool =
-  ## Adds one line to chat `chat`'s file; false when it could not be written (the line still shows
-  ## while the studio runs).
-  if not validLog(game, agent, chat): return false
+proc migrateLog(root, game, agent: string, chat: int) =
+  ## A file an older studio wrote is rewritten in the kit's form, once. Lines it could not read are left out.
   let path = logPath(root, game, agent, chat)
-  try:
-    createDir(path.parentDir)
-    var f: File
-    if not open(f, path, fmAppend): return false
-    try: f.write(encodeLine(line) & "\n")
-    finally: f.close()
-    if getFileSize(path) > maxLogBytes:
-      return writeWhole(path, fitted(readFile(path).splitLines.filterIt(it.len > 0)))
-    true
-  except IOError, OSError:
-    false
+  var text: string
+  try: text = readFile(path)
+  except IOError, OSError: return
+  var legacy = false
+  for raw in text.splitLines:
+    if raw.len == 0: continue
+    try:
+      if not isEnvelope(parseJson(raw)): legacy = true
+    except CatchableError: legacy = true
+  if not legacy: return
+  var rows: seq[string]
+  var seqNo = 0'i64
+  var num = 0
+  let at = try: getLastModificationTime(path).toUnix * 1000 except OSError: nowMs()
+  for raw in text.splitLines:
+    if raw.len == 0: continue
+    var n: JsonNode
+    try: n = parseJson(raw)
+    except CatchableError: continue
+    if isEnvelope(n):
+      seqNo = max(seqNo, n["seq"].getBiggestInt)
+      num = max(num, int(n["data"].intField("n")))
+      rows.add raw
+    else:
+      var line: ChatLine
+      if decodeLine(raw, line):
+        inc seqNo
+        inc num
+        rows.add toLine(Envelope(seq: seqNo, at: at, kind: lineKind, data: lineData(game, agent, chat, num, line)))
+  discard writeWhole(path, rows)
 
-proc writeLines*(root, game, agent: string, chat: int, lines: seq[ChatLine]): bool =
-  ## Chat `chat`'s file holds `lines` from now on (the ones rebuilt for a chat from before lines
-  ## were kept, say).
-  if not validLog(game, agent, chat): return false
-  writeWhole(logPath(root, game, agent, chat), fitted(lines.mapIt(encodeLine(it))))
+type
+  ChatRead* = object
+    found*: bool            ## false when the chat has no file
+    lines*: seq[ChatLine]
+    lastN*: int             ## the number of the last kept line, which the desk goes on counting from
 
-proc readLines*(root, game, agent: string, chat: int): tuple[found: bool, lines: seq[ChatLine]] =
-  ## Chat `chat`'s kept lines. `found` is false when it has no file: a chat from before lines were
-  ## kept, or one with no line yet. A file that cannot be read gives no lines; a line the studio
-  ## did not write is left out.
+proc trimNoteLine(): ChatLine =
+  (you: false, ev: UiEvent(kind: ukNotice, code: "chat-trimmed",
+    text: "The oldest part of this chat was left out to keep it small (each chat keeps about its last 500 KB of messages)."))
+
+proc readChat*(root, game, agent: string, chat: int): ChatRead =
+  ## Chat `chat`'s kept lines, in either form (the kit's, or an older studio's). A file that cannot
+  ## be read gives no lines; a line the studio did not write is left out. When the file's first line
+  ## is not the chat's first (the cap took the oldest), one note says so, in front.
   if not validLog(game, agent, chat): return
   let path = logPath(root, game, agent, chat)
   if not fileExists(path): return
@@ -337,12 +419,171 @@ proc readLines*(root, game, agent: string, chat: int): tuple[found: bool, lines:
   var text: string
   try: text = readFile(path)
   except IOError, OSError: return
+  var trimmed = false
+  var first = true
   for raw in text.splitLines:
+    if raw.len == 0: continue
+    var n: JsonNode
+    try: n = parseJson(raw)
+    except CatchableError: continue
     var line: ChatLine
-    if raw.len > 0 and decodeLine(raw, line): result.lines.add line
+    if n.kind != JObject: continue
+    if isEnvelope(n):
+      if n["kind"].getStr != lineKind or not lineOfBody(n["data"]{"line"}, line): continue
+      let num = int(n["data"].intField("n"))
+      if first: trimmed = num > 1
+      first = false
+      result.lastN = num
+      result.lines.add line
+    elif decodeLine(raw, line):
+      first = false
+      inc result.lastN
+      result.lines.add line
+  if trimmed:
+    result.lines = @[trimNoteLine()] & result.lines.filterIt(it.ev.code != "chat-trimmed")
+
+proc readLines*(root, game, agent: string, chat: int): tuple[found: bool, lines: seq[ChatLine]] =
+  ## Chat `chat`'s kept lines. `found` is false when it has no file: a chat from before lines were
+  ## kept, or one with no line yet.
+  let r = readChat(root, game, agent, chat)
+  (r.found, r.lines)
+
+proc lastOf(log: seq[Envelope]): tuple[seqNo: int64, num: int] =
+  for i in countdown(log.high, 0):
+    if result.seqNo == 0: result.seqNo = log[i].seq
+    if log[i].kind == lineKind:
+      result.num = int(log[i].data.intField("n"))
+      return
+
+proc appendLine*(root, game, agent: string, chat: int, line: ChatLine): bool =
+  ## Adds one line to chat `chat`'s file, through the file store; false when it could not be written
+  ## (the line still shows while the studio runs). The studio's own lines go through the desk's
+  ## runtime and `ChatFilesStore`; this is the same write for a caller that has no runtime.
+  if not validLog(game, agent, chat): return false
+  try:
+    createDir(studioFiles(root))
+    migrateLog(root, game, agent, chat)
+    let fs = openChatStore(logPath(root, game, agent, chat))
+    defer: fs.close
+    let (seqNo, num) = lastOf(fs.load)
+    fs.append([Envelope(seq: seqNo + 1, at: nowMs(), kind: lineKind, data: lineData(game, agent, chat, num + 1, line))])
+    true
+  except CatchableError:
+    false
 
 proc dropLines*(root, game, agent: string, chat: int) =
-  ## Removes chat `chat`'s file, if it has one.
+  ## Forgets chat `chat`'s lines: the store takes its stream out of the file, and a file with nothing
+  ## else in it goes. Does nothing for a chat with no file.
   if not validLog(game, agent, chat): return
-  try: removeFile(logPath(root, game, agent, chat))
+  let path = logPath(root, game, agent, chat)
+  if not fileExists(path): return
+  try:
+    migrateLog(root, game, agent, chat)
+    let fs = openChatStore(path)
+    try: fs.forget(streamKey(game, agent, chat))
+    finally: fs.close
+  except CatchableError:
+    discard
+  try: removeFile(path)
   except OSError: discard
+
+# --- the desk's store ---------------------------------------------------------------
+
+type
+  ChatFilesStore* = ref object of Store
+    ## The store behind the desk's runtime: a kept line goes to its chat's file, a forgotten chat's
+    ## file goes, and every other event (a turn, a step, a pick, a page restore) is not kept on disk.
+    root*: string
+    stores: Table[string, FileStore]
+    checked: Table[string, bool]
+
+proc newChatFiles*(root: string): ChatFilesStore =
+  ChatFilesStore(root: root)
+
+proc chatFiles(s: ChatFilesStore): seq[tuple[game, agent: string, chat: int]] =
+  ## The chats that have a file: `chat-<game>-<agent>-<number>.jsonl`. A game's name has no `-`.
+  let dir = studioDir(s.root)
+  if not dirExists(dir): return
+  for kind, path in walkDir(dir):
+    if kind != pcFile: continue
+    let name = path.extractFilename
+    if not (name.startsWith("chat-") and name.endsWith(".jsonl")): continue
+    let core = name[5 ..< name.len - 6]
+    let a = core.find('-')
+    let b = core.rfind('-')
+    if a < 1 or b <= a: continue
+    let num = core[b + 1 .. ^1]
+    if num.len == 0 or not num.allCharsInSet(Digits) or num.len > 9: continue
+    result.add (core[0 ..< a], core[a + 1 ..< b], parseInt(num))
+
+proc envelopesOf(path: string): seq[Envelope] =
+  ## The events of one file; a line that is not an event is skipped.
+  var text: string
+  try: text = readFile(path)
+  except IOError, OSError: return
+  for raw in text.splitLines:
+    if raw.len == 0: continue
+    try:
+      let n = parseJson(raw)
+      if isEnvelope(n): result.add fromLine(raw)
+    except CatchableError: discard
+
+proc prepare(s: ChatFilesStore) =
+  ## Every file an older studio wrote is rewritten in the kit's form (once), so a log read from them is whole.
+  for (game, agent, chat) in s.chatFiles:
+    if validLog(game, agent, chat): migrateLog(s.root, game, agent, chat)
+
+proc highestSeq*(s: ChatFilesStore): int64 =
+  ## The last log position any chat's file holds, so the runtime goes on from there after a restart.
+  s.prepare()
+  for (game, agent, chat) in s.chatFiles:
+    for e in envelopesOf(logPath(s.root, game, agent, chat)): result = max(result, e.seq)
+
+proc storeFor(s: ChatFilesStore, game, agent: string, chat: int): FileStore =
+  if not validLog(game, agent, chat): raise newException(ValueError, "not a chat the studio keeps")
+  let path = logPath(s.root, game, agent, chat)
+  if path notin s.stores:
+    if path notin s.checked:
+      migrateLog(s.root, game, agent, chat)
+      s.checked[path] = true
+    s.stores[path] = openChatStore(path)
+  s.stores[path]
+
+proc forgetChat(s: ChatFilesStore, game, agent: string, chat: int) =
+  let path = logPath(s.root, game, agent, chat)
+  if path in s.stores:
+    s.stores[path].close
+    s.stores.del(path)
+  s.checked.del(path)
+  dropLines(s.root, game, agent, chat)
+
+method append*(s: ChatFilesStore, evs: openArray[Envelope]) =
+  for e in evs:
+    try:
+      let d = e.data
+      case e.kind
+      of lineKind:
+        if d.intField("n") > 0: s.storeFor(d.strField("game"), d.strField("agent"), int(d.intField("chat"))).append([e])
+      of forgetKind:
+        s.forgetChat(d.strField("game"), d.strField("agent"), int(d.intField("chat")))
+      else: discard
+    except CatchableError:
+      discard # the disk refused, or the name was not a chat's: the line shows until the studio closes
+
+method load*(s: ChatFilesStore): seq[Envelope] =
+  ## Every chat's events, in log order (for a replay).
+  s.prepare()
+  for (game, agent, chat) in s.chatFiles:
+    result.add envelopesOf(logPath(s.root, game, agent, chat))
+  result.sort(proc (x, y: Envelope): int = cmp(x.seq, y.seq))
+
+method forget*(s: ChatFilesStore, stream: string) =
+  ## `stream` is "<game>/<agent>/<number>".
+  let p = stream.split('/')
+  if p.len != 3 or not p[2].allCharsInSet(Digits) or p[2].len == 0 or p[2].len > 9:
+    raise newException(ValueError, "forget: not a chat's stream")
+  s.forgetChat(p[0], p[1], parseInt(p[2]))
+
+method close*(s: ChatFilesStore) =
+  for fs in s.stores.values: fs.close
+  s.stores.clear()

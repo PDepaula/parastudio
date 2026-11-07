@@ -76,6 +76,8 @@ REQUIRED = [
     f"{FOLDER}/nim-{NIM_VERSION}/bin/nimble.exe",
     f"{FOLDER}/mingw64/bin/gcc.exe",
     f"{FOLDER}/parastudio/paraloop.nimble",
+    f"{FOLDER}/parastudio/nimble.lock",       # the pins the first start fetches (paranim, pararules, ... and eversince, the studio's chat-log kit)
+    f"{FOLDER}/parastudio/THIRD_PARTY.md",
     f"{FOLDER}/parastudio/tools/para/para.nim",
     f"{FOLDER}/parastudio/.git/HEAD",
     f"{FOLDER}/licenses/NOTICES.txt",
@@ -99,8 +101,10 @@ administrator password. Full guide: parastudio\\docs\\windows.md
 
 NOTICES = """Para Studio portable zip: what is in it, under which terms
 
-paraloop (parastudio\\) is MIT-licensed: parastudio\\LICENSE. Its libraries are listed in
-parastudio\\THIRD_PARTY.md; nimble fetches them the first time you start it.
+paraloop (parastudio\\) is MIT-licensed: parastudio\\LICENSE. Its libraries (paranim, pararules,
+parasound, ... and eversince, MIT, the event-modelling kit behind Studio's chat log) are pinned in
+parastudio\\nimble.lock and listed in parastudio\\THIRD_PARTY.md; nimble fetches them the first
+time you start it.
 
 Nim {nim} (nim-{nim}\\), the compiler: MIT, nim-{nim}\\copying.txt. Unmodified, from
 {nim_url}
