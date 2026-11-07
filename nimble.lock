@@ -47,6 +47,18 @@
         "sha1": "1ded7703fa978165a5a63cbf62966e1d982a18c8"
       }
     },
+    "eversince": {
+      "version": "0.0.1",
+      "vcsRevision": "ece12c4ee92678e9ee39b3827951100133a92fff",
+      "url": "https://github.com/PDepaula/eversince",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim"
+      ],
+      "checksums": {
+        "sha1": "913256a10030ebb3c0d2fd8b17d305e5c9b7ce09"
+      }
+    },
     "stb_image": {
       "version": "2.5",
       "vcsRevision": "ba5f45286bfa9bed93d8d6b941949cd6218ec888",

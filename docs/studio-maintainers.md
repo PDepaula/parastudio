@@ -36,8 +36,9 @@ For whoever changes Studio. The guide for the friend using it is [studio.md](stu
 The code is `tools/para/studiohttp.nim` (the server and its checks),
 `studioapi.nim` (the routes and jobs), `preflight.nim` (the startup checks, below),
 `studiocmd.nim` (the command),
-`studiochat.nim` (the chat's turns, the chats and the pick per game), `chatstore.nim` (the list
-of chats on disk), `agent.nim`
+`studiochat.nim` (the chat's turns, the chats and the pick per game), `studiodesk.nim` and
+`studiodesk.em` (the desk: what may start now, and what each chat has said; below), `chatstore.nim`
+(the list of chats on disk, and the chats' lines in the kit's file store), `agent.nim`
 (the interface every agent adapter fills in), `claudeagent.nim` (the Claude adapter),
 `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
 raising), `agents.nim` (which adapters exist), `studioplay.nim` (the game window),
@@ -230,6 +231,27 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   signed in, or out of credit the chat says so and what to do. The studio sends nothing
   until the friend presses one of the suggestions or sends a message; the startup checks
   and the help (?) say so.
+- **The desk.** Every "may this start now?" is one decision in `studiodesk.nim`, written with
+  [eversince](https://github.com/PDepaula/eversince), a pinned nimble dependency (MIT; see
+  `paraloop.nimble`, `nimble.lock`, THIRD_PARTY.md). It is a pure core: commands (`StartTurn`,
+  `EndTurn`, `StartStep`, `EndStep`, `PickProducer`, `PickSpeed`, `NewChat`, `OpenChat`,
+  `DeleteChat`, plus `AddLine` and `RestoreChat` for the chat's lines), events, two views (`Desk`:
+  turns, step, picks; `Chat`: the lines the page polls) and two queries, with no thread, lock,
+  clock, file or process (the compiler enforces it). `studiodesk.em` lists the same blocks and the
+  stories; the build stops when the two disagree. The rules each have a scenario in
+  `tests/studiodesk/scenarios.jsonl` (`test_para_studio_desk.nim` runs them against the real core).
+  `studiochat.nim` is the shell: **one lock**, `ChatState.lock`, serialises the runtime, every
+  command is executed and every question answered under it, and the turn thread and the job thread
+  hand their ends back as commands (`EndTurn`, `EndStep`); only plain values leave the lock. There is
+  no start gate: a turn and a step cannot both be accepted, because both ask the same desk under the
+  same lock. What stays outside the events: the HTTP checks, the agent adapters, `TurnControl`,
+  killing process trees, the job's 200,000-byte output buffer, the chats' titles and session ids, and
+  "a third game is refused while two have helpers building" (the routes look the helpers' folders up
+  and hand the games they found to `StartTurn`). To change a rule: edit `studiodesk.em` first, then
+  the code, add a scenario, and run `eversince check tools/para/studiodesk.em --app
+  tools/para/studiodesk.nim` and `eversince scenarios tests/studiodesk/scenarios.jsonl --app
+  tools/para/studiodesk.nim --model tools/para/studiodesk.em` (the kit's command line, `nimble tool` in
+  its repository); the build already runs the model check.
 - **One turn at a time for each game.** `ChatState.turns` holds a turn per game (its own
   `TurnControl`, threads and clock), so two games can have the producer working at once: a
   second message to the same game, its Check, Save, Land, Backup, New chat, chat list and
@@ -253,13 +275,18 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   the next message goes to. A fresh chat has a number but no entry until its first message,
   numbers are never reused, and the file is written whole (a new file moved over the old one).
   **New chat** opens a fresh chat for the game's current agent and keeps the rest.
-- **Each chat's lines** go to `tmp/studio/chat-<game>-<agent>-<number>.jsonl` as they are shown,
-  one JSON object a line (`kind` as the page's `GET /api/chat` names it, `text`, and the helper,
-  note and error fields, with a note's or error's link kept only when it starts with `https://`).
-  Not kept: the end-of-turn marker and a helper card's in-between `working` updates (its start and
-  end are). Text goes through `redactSecrets`
-  first, one message is cut past 16,000 bytes with a note, and a file past 512 KB is rewritten
-  with its newest lines up to 384 KB behind one `chat-trimmed` note. Opening a chat, and the chat
+- **Each chat's lines** go to `tmp/studio/chat-<game>-<agent>-<number>.jsonl` as they are shown.
+  Each file is the kit's forgetting file store: one event a line (`{"seq","at","kind","data"}`, kind
+  `LineAdded`, `data.line` holding `kind` as the page's `GET /api/chat` names it, `text`, and the
+  helper, note and error fields, with a note's or error's link kept only when it starts with
+  `https://`). The three duties are the store's hooks: **clean** (text goes through `redactSecrets`
+  first and one message is cut past 16,000 bytes with a note; the page shows the line as it was, the
+  file and a replay have the cleaned one), **cap** (a file past 512 KB drops its oldest lines down to
+  384 KB, and reading it puts one `chat-trimmed` note in front) and **forget** (deleting a chat takes
+  its lines out of the file, which then goes). Not kept: the end-of-turn marker and a helper card's
+  in-between `working` updates (its start and end are), and every event that is not a line (a turn,
+  a step, a pick). A file an older studio wrote (one compact `{"kind": "say", "text": ...}` line
+  each) is read as before and rewritten in this form the first time the studio opens it. Opening a chat, and the chat
   that was open at a restart (once, when the game's chats are first read from disk, before any
   other line of it), replace whatever memory holds of it with the lines read back from its file.
   These files are the repository's `tmp/` (gitignored, outside every game's own repository, so

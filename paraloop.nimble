@@ -15,6 +15,8 @@ requires "pararules == 1.4.0"
 requires "stb_image == 2.5"
 requires "paratext == 0.13.0"
 requires "parasound == 1.0.0"
+# The event-modelling kit behind the studio chat log (https://github.com/PDepaula/eversince, MIT), pinned to one commit by nimble.lock.
+requires "https://github.com/PDepaula/eversince >= 0.0.1"
 
 bin = @["tools/para/para"]
 
