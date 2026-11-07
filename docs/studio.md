@@ -369,7 +369,8 @@ when its `art/style.toml` names one. New games leave `review/` out of their save
 
 They do what the same commands do in a terminal (`para check`, `para save -m`,
 `para backup --push --yes`), so their guards still hold: a save needs a fresh passing check, and a
-backup only goes to the remote named `backup`, never to `origin`, and only after you click yes.
+backup only goes to the remote named `backup`, never to `origin`, and only after you click yes. A
+save's note is one short line (up to 200 characters, no control characters).
 Save and Backup work in the game's own git repository (`games/<game>/.git`, which `para new`
 makes); a game without one is saved in the repository that contains `games/`, as before.
 
