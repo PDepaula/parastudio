@@ -48,7 +48,7 @@
       }
     },
     "eversince": {
-      "version": "#ece12c4ee92678e9ee39b3827951100133a92fff",
+      "version": "0.0.1",
       "vcsRevision": "ece12c4ee92678e9ee39b3827951100133a92fff",
       "url": "https://github.com/PDepaula/eversince",
       "downloadMethod": "git",
