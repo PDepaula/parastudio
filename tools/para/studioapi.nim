@@ -98,8 +98,6 @@ const
   defaultJobSeconds* = 1800 ## a Check, Save, Land or Backup step still running after this is stopped
   indexHtml = staticRead("studio" / "index.html").replace("/*__FONTS__*/", fontFaces)
   nonceMarker = "__NONCE__"
-  maxGameName = 40
-  maxMessage = 200
   maxJobOutput = 200_000 ## bytes of a job's output kept; the oldest go first
 
 type
@@ -351,10 +349,17 @@ proc jobMain(st: ptr Studio) {.thread.} =
   release(st.lock)
   endStep(addr st.chat, step, code) # the job is over: the desk is free, and this is the thread's last act
 
-proc startJob(st: ptr Studio, kind, game: string, args: seq[string], message = ""): Response =
+proc startJob(st: ptr Studio, kind, game: string, args: seq[string], message = "",
+              existing: seq[string] = @[], lanes: seq[string] = @[]): Response =
+  ## `existing` (a new game) and `lanes` (landing a helper's work, `args[^1]` the one asked for) are
+  ## what the caller looked up on disk for the desk's rule.
   acquire(st.lock)
   defer: release(st.lock)
-  let started = startStep(addr st.chat, game, kind, message) # the desk decides: a turn of this game, or another step, refuses it
+  let started = # the desk decides: a name, a note or a lane that does not fit, a turn of this game, or another step, refuses it
+    case kind
+    of "new": startNewGame(addr st.chat, game, existing)
+    of "land": startLand(addr st.chat, game, args[^1], lanes)
+    else: startStep(addr st.chat, game, kind, message)
   if not started.ok: return fail(started.status, started.message, started.code)
   if st.jobThreadStarted:
     joinThread(st.jobThread) # its last act was ending the step, so this returns at once
@@ -516,16 +521,11 @@ proc terminalRoute(st: ptr Studio): Response =
   jsonResponse(200, %*{"ok": true})
 
 proc newGameRoute(st: ptr Studio, body: JsonNode): Response =
-  ## `para new NAME` as a job, with the name checked first so a mistake is told in plain words.
+  ## `para new NAME` as a job. Whether the name will do is the desk's call; whether there is a folder
+  ## for it already is looked up here and handed to it.
   let name = body.fieldString("name").strip()
-  if name.len == 0:
-    return fail(400, "Give the game a name first, for example: space_frogs", "needs-name")
-  if name.len > maxGameName or not validGameName(name):
-    return fail(400, "A game's name uses only small letters (a to z), digits and _, starts with a letter, and is at most " &
-      $maxGameName & " characters. For example: space_frogs", "bad-name")
-  if dirExists(gameDirOf(st.root, name)):
-    return fail(409, "There is already a game called " & name & ". Pick another name.", "exists")
-  startJob(st, "new", name, @["new", name])
+  let existing = if validGameName(name) and dirExists(gameDirOf(st.root, name)): @[name] else: @[]
+  startJob(st, "new", name, @["new", name], existing = existing)
 
 proc agentPickJson(st: ptr Studio, body: JsonNode): Response =
   ## With a game: that game's producer. With none (`""`): the studio-wide pick the setup checklist
@@ -619,10 +619,8 @@ proc playStartJson(st: ptr Studio, body: JsonNode): Response =
   var game: string
   let picked = pickGame(st, body.fieldString("game"), game)
   if picked.status != 0: return picked
-  if not fileExists(gameDirOf(st.root, game) / (game & ".nim")):
-    return fail(404, "There is no game to play yet: games/" & game & "/" & game & ".nim is not there. Ask the producer to build the first version.", "no-source")
-  if deskFacts(addr st.chat).stepRunning:
-    return fail(409, "A step (Check, Save or Backup) is still running, and it builds the game too. Wait for it to finish, then press Play.", "busy")
+  let asked = askPlay(addr st.chat, game, fileExists(gameDirOf(st.root, game) / (game & ".nim")))
+  if not asked.ok: return fail(asked.status, asked.message, asked.code)
   if not startPlay(addr st.play, game):
     return fail(500, "The studio could not close the game window it opened before. Close that window yourself, then press Play again.", "restart")
   playJson(st)
@@ -632,8 +630,8 @@ proc shotRoute(st: ptr Studio, body: JsonNode): Response =
   let picked = pickGame(st, body.fieldString("game"), game)
   if picked.status != 0: return picked
   let window = playView(addr st.play)
-  if window.state in ["starting", "running"] and window.game != game:
-    return fail(409, "The game window that is open is " & window.game & ", not " & game & ". Pick " & window.game & " to take its picture, or press Play for " & game & " first.", "other-game")
+  let asked = askShot(addr st.chat, game, if window.state in ["starting", "running"]: window.game else: "", windowOpen(st.root))
+  if not asked.ok: return fail(asked.status, asked.message, asked.code)
   if not tryAcquire(st.shotLock):
     return fail(409, "A picture is already being taken. Wait a moment.", "busy")
   defer: release(st.shotLock)
@@ -692,17 +690,14 @@ proc handle(st: ptr Studio, req: Request): Response =
     let picked = pickGame(st, body.fieldString("game"), game)
     if picked.status != 0: return picked
     let message = body.fieldString("message").strip()
-    if message.len > maxMessage or message.anyIt(it < ' ' or it == '\x7f'):
-      return fail(400, "Keep the note to one short line (up to " & $maxMessage & " characters).", "bad-message")
     startJob(st, "save", game, @["save", "--game", game, "-m", message], message)
   of "/api/new": newGameRoute(st, body)
   of "/api/lane/land":
     let picked = pickGame(st, body.fieldString("game"), game)
     if picked.status != 0: return picked
     let id = body.fieldString("id")
-    if not validLaneId(id) or id notin lanesOf(st.root, game, quick = true).mapIt(it.id):
-      return fail(404, "That helper's work is not here any more.", "no-such-lane")
-    startJob(st, "land", game, @["lane", "land", game, id])
+    startJob(st, "land", game, @["lane", "land", game, id],
+             lanes = lanesOf(st.root, game, quick = true).mapIt(it.id).filterIt(validLaneId(it)))
   of "/api/terminal": terminalRoute(st)
   of "/api/play/start": playStartJson(st, body)
   of "/api/play/stop":

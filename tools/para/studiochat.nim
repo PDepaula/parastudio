@@ -209,6 +209,13 @@ proc refusal(d: Decision): Started =
     of "badMessage": (400, "bad-message")
     of "needsMessage": (400, "needs-message")
     of "staleTurn", "staleStep": (409, "busy")
+    of "needsName": (400, "needs-name")
+    of "badName": (400, "bad-name")
+    of "taken": (409, "exists")
+    of "noSuchLane": (404, "no-such-lane")
+    of "noSource": (404, "no-source")
+    of "otherGame": (409, "other-game")
+    of "notRunning": (409, "no-window")
     else: (409, d.code)
   Started(status: status, code: code, message: d.message)
 
@@ -721,13 +728,48 @@ proc pickAgent*(c: ptr ChatState, game, name: string): Started =
 # thread); whether it may start, and when it is over, is the desk's, so a step and a turn never
 # decide at the same moment.
 
+proc startedStep(c: ptr ChatState, name: string, data: JsonNode): Started =
+  ## One of the commands that starts a step, through the desk. Called with `lock` held.
+  let decision = c.run(name, data)
+  if decision.refused: return refusal(decision)
+  Started(ok: true, status: 200, turnId: decision.events[0].data["step"].getInt)
+
 proc startStep*(c: ptr ChatState, game, kind, message: string): Started =
   ## The desk's answer to "may this step start": `turnId` is the step's number when it may.
   acquire(c.lock)
   defer: release(c.lock)
-  let decision = c.run("StartStep", %*{"game": game, "kind": kind, "message": message})
+  c.startedStep("StartStep", %*{"game": game, "kind": kind, "message": message})
+
+proc startNewGame*(c: ptr ChatState, name: string, existing: seq[string]): Started =
+  ## The desk's answer to "may a game called `name` be made": `existing` are the games there are
+  ## (the caller looked in the games folder).
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.startedStep("NewGame", %*{"name": name, "existing": existing})
+
+proc startLand*(c: ptr ChatState, game, lane: string, lanes: seq[string]): Started =
+  ## The desk's answer to "may this helper's work go into the game": `lanes` are the game's helpers'
+  ## work (the caller looked next to the game's folder).
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.startedStep("LandLane", %*{"game": game, "lane": lane, "lanes": lanes})
+
+proc askPlay*(c: ptr ChatState, game: string, hasSource: bool): Started =
+  ## The desk's answer to "may Play open this game": `hasSource` is whether its source file is there.
+  acquire(c.lock)
+  defer: release(c.lock)
+  let decision = c.run("StartPlay", %*{"game": game, "hasSource": hasSource})
   if decision.refused: return refusal(decision)
-  Started(ok: true, status: 200, turnId: decision.events[0].data["step"].getInt)
+  Started(ok: true, status: 200, turnId: decision.events[0].data["run"].getInt)
+
+proc askShot*(c: ptr ChatState, game, windowGame: string, windowRunning: bool): Started =
+  ## The desk's answer to "may a picture be asked of the game window": `windowGame` is the game of
+  ## the window that is starting or running ("" when none) and `windowRunning` whether it answers.
+  acquire(c.lock)
+  defer: release(c.lock)
+  let decision = c.run("TakeShot", %*{"game": game, "windowGame": windowGame, "windowRunning": windowRunning})
+  if decision.refused: return refusal(decision)
+  Started(ok: true, status: 200)
 
 proc endStep*(c: ptr ChatState, step, code: int) =
   ## Step `step` is over (a number that is not the running step is ignored).

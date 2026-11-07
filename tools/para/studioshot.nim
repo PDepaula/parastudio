@@ -43,6 +43,10 @@ proc channelPath*(root: string): string =
   ## Where the game's dev channel lives: `tmp/dev.sock` in the folder the studio starts the game in.
   root / "tmp" / "dev.sock"
 
+proc windowOpen*(root: string): bool =
+  ## Whether a game window's control channel is there (what `takeShot` needs before it asks).
+  socketExists(channelPath(root))
+
 proc shotsDir*(root: string): string =
   root / "tmp" / "studio" / "shots"
 

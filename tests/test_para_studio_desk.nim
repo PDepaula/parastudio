@@ -69,11 +69,11 @@ suite "the desk's rules, as scenarios against the real core":
       inc commands
       check b.name in accepted
       for code in b.edge("refuses"): check (b.name, code) in refused
-    check commands == 11
+    check commands == 15
 
   test "the model file and the code agree (the build stops when they do not): the blocks are all there":
     check processors(StudioDesk()).len == 0 # no processor: the shell's threads issue the commands back
-    check studioDeskCatalog.splitLines.len == 32 # 11 commands, 9 events, 2 views, 2 queries, 8 records
+    check studioDeskCatalog.splitLines.len == 38 # 15 commands, 11 events, 2 views, 2 queries, 8 records
 
 suite "the desk on the chats' own files":
   var root: string
