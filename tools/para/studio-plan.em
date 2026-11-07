@@ -17,8 +17,9 @@
 #   slice 5  command StartPlay game:string hasSource:bool | reads Desk,PlayWindow | produces PlayStarted | refuses busy,noSource
 #            command TakeShot  game:string windowGame:string windowRunning:bool | reads PlayWindow | produces ShotAsked | refuses notRunning,otherGame
 #            (the window facts then come from the PlayWindow view, not from the route)
-# Slice 3 (chat books, picks and what the producer last ran with as durable events) has landed: its blocks
-# are in studiodesk.em, and the lines below are the same.
+# Slice 3 (chat books, picks and what the producer last ran with as durable events) and slice 4 (the shell's
+# threads as the processors TurnRunner, TurnClock, StepRunner and StepClock, and Stop as the fact StopRequested)
+# have landed: their blocks are in studiodesk.em, and the lines below are the same.
 
 # --- what the friend sees: the page's panels, and who else acts (a superset of the checked screens) ---
 screen SetupPanel   | commands PickProducer
@@ -56,13 +57,13 @@ slice start a game       : NewGameSheet -> NewGame -> StepStarted -> Desk -> Des
 slice land a helper's work : GamesPanel -> LandLane -> StepStarted -> Desk -> DeskNow -> StepsPanel
 slice press play         : PlayPanel -> StartPlay -> PlayStarted -> Desk
 slice take a picture     : PlayPanel -> TakeShot -> ShotAsked -> Desk
-
-# --- the stories the later slices add ---
 slice the turn runs               : TurnRunner -> AddLine -> LineAdded -> Chat -> ChatSince -> ChatPanel
 slice the turn is stopped         : ChatPanel -> StopTurn -> StopRequested -> TurnRunner -> EndTurn -> TurnEnded -> Desk -> ChatSince -> ChatPanel
 slice the turn runs out of time   : TurnClock -> EndTurn -> TurnEnded -> Desk -> ChatSince -> ChatPanel
 slice the step runs               : StepRunner -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
 slice the step runs out of time   : StepClock -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
+
+# --- the stories the later slices add ---
 slice the window sees Play        : PlayPanel -> StartPlay -> PlayStarted -> PlayWindow -> PlayNow -> PlayPanel
 slice the window opens            : PlayThread -> PlayPhase -> PlayPhased -> PlayWindow -> PlayNow -> PlayPanel
 slice the window closes           : PlayThread -> EndPlay -> PlayEnded -> PlayWindow -> PlayNow -> PlayPanel
@@ -71,6 +72,7 @@ slice stop the game               : PlayPanel -> StopPlay -> PlayStopRequested -
 # --- requests ---
 command StartTurn   game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy
 command EndTurn     game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn
+command StopTurn    game:string | reads Desk | produces StopRequested | refuses idle
 command AddLine     game:string agent:string chat:int line:LineBody | reads Chat | produces LineAdded
 command StartStep   game:string kind:string message:string | reads Desk | produces StepStarted | refuses badMessage,busy,needsMessage
 command NewGame     name:string existing:list[string] | reads Desk | produces StepStarted | refuses badName,busy,needsName,taken
@@ -91,6 +93,7 @@ command RestoreChat game:string agent:string chat:int lines:list[LineBody] lastN
 # --- facts ---
 event TurnStarted   game:string agent:string chat:int turn:int
 event TurnEnded     game:string agent:string chat:int turn:int outcome:string
+event StopRequested game:string turn:int
 event LineAdded     game:string agent:string chat:int n:int line:LineBody
 event ChatRestored  game:string agent:string chat:int lastN:int lines:list[LineBody]
 event ChatForgotten game:string agent:string chat:int
@@ -117,6 +120,13 @@ query DeskNow game:string | reads Desk | returns DeskFacts
 query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage
 query ChatList game:string agent:string | reads ChatBook | returns ChatListing
 query ProducerNow game:string agent:string | reads Producers | returns Ran
+query JobNow | reads Desk | returns JobFacts
+
+# --- background work: the shell's threads, named ---
+processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession
+processor TurnClock  | consumes TurnStarted | issues EndTurn
+processor StepRunner | consumes StepStarted | issues EndStep
+processor StepClock  | consumes StepStarted | issues EndStep
 
 # --- value types ---
 record LineBody  you:bool kind:string text:string id:string role:string status:string tools:int code:string detail:string url:string
@@ -127,19 +137,18 @@ record Pick      game:string agent:string
 record SpeedPick game:string speed:string
 record DeskFacts working:list[string] running:bool turn:int lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string stepCode:int
 record ChatPage  running:bool working:list[string] turn:int next:int entries:list[ChatEntry]
+record JobFacts  running:bool step:int kind:string game:string code:int
 record ChatRecord id:int title:string started:int updated:int session:string
 record Book game:string agent:string current:int next:int chats:list[ChatRecord]
 record ChatListing agent:string current:int chats:list[ChatRecord]
 record Ran game:string agent:string started:bool speed:string askedModel:string askedEffort:string model:string effort:string
 
 # --- requests the later slices add ---
-command StopTurn      game:string | reads Desk | produces StopRequested | refuses idle                                                           # slice 4
 command PlayPhase     run:int phase:string message:string | reads PlayWindow | produces PlayPhased | refuses staleRun                              # slice 5
 command EndPlay       run:int code:int message:string detail:string | reads PlayWindow | produces PlayEnded | refuses staleRun                    # slice 5
 command StopPlay      | reads PlayWindow | produces PlayStopRequested | refuses idle                                                              # slice 5
 
 # --- facts the later slices add ---
-event StopRequested     game:string turn:int                                  # slice 4
 event PlayPhased        run:int phase:string message:string                   # slice 5
 event PlayEnded         run:int code:int message:string detail:string         # slice 5
 event PlayStopRequested run:int                                               # slice 5
@@ -148,16 +157,10 @@ event PlayStopRequested run:int                                               # 
 view PlayWindow phase:string game:string run:int code:int message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested   # slice 5
 
 # --- questions, later ---
-query JobNow      | reads Desk | returns JobFacts                                         # slice 4
 query PlayNow     | reads PlayWindow | returns PlayFacts                                 # slice 5
 
 # --- background work, later: the shell's threads, named ---
-processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession   # slice 4
-processor TurnClock  | consumes TurnStarted | issues EndTurn                                                   # slice 4
-processor StepRunner | consumes StepStarted | issues EndStep                                                   # slice 4
-processor StepClock  | consumes StepStarted | issues EndStep                                                   # slice 4
 processor PlayRunner | consumes PlayStarted,PlayStopRequested | issues EndPlay,PlayPhase                       # slice 5
 
 # --- value types, later ---
-record JobFacts     running:bool step:int kind:string game:string code:int
 record PlayFacts    state:string game:string run:int message:string code:string detail:string

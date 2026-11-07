@@ -43,10 +43,23 @@
 #   deleting the current chat starts a fresh one DeleteChat
 #   a session id is one a command line may take  ReportSession refuses badSession
 #
+# Stop is a fact too, and the shell's threads are named processors:
+#   a stop needs a turn running                     StopTurn    refuses idle (it makes StopRequested)
+#   TurnRunner   starts the turn thread on TurnStarted, and on StopRequested ends that turn's child
+#   TurnClock    starts the turn's clock on TurnStarted
+#   StepRunner   starts the job thread on StepStarted
+#   StepClock    starts the job's clock on StepStarted
+# A processor is the one block with side effects, so each does its start through `hands` (below) and
+# nothing else: it runs inside the command call, under the shell's one lock, so it only STARTS a
+# thread and never waits for one. What a thread hands back is the commands its processor's `issues`
+# line lists, and `handBack` is the one door for them: it takes only those commands, so the compiler
+# refuses any other. A stop, a timeout and the end of a turn or a step are in the log, with a position
+# like any other fact.
+#
 # Kept apart on purpose (not events): the HTTP checks, the agent adapters, TurnControl, killing a
 # process tree and the 200,000-byte job output buffer.
 
-import std/[os, options, strutils, sequtils]
+import std/[os, options, strutils, sequtils, json]
 import eversince
 from agent import validSessionToken
 
@@ -129,6 +142,12 @@ record ChatPage:
   turn: int
   next: int                 ## the last number handed out: the page asks for more after it
   entries: seq[ChatEntry]
+record JobFacts:
+  running: bool             ## a step (Check, Save, Land, Backup or New) is running
+  step: int                 ## the running step's number, or the last one that ended; 0 before the first
+  kind: string
+  game: string
+  code: int                 ## how the last step ended (meaningful once it has)
 
 event TurnStarted:
   game: string
@@ -157,6 +176,9 @@ event ChatForgotten:
   game: string
   agent: string
   chat: int
+event StopRequested:
+  game: string
+  turn: int                 ## the turn the friend (or the studio closing) asked to end
 event StepStarted:
   game: string
   step: int
@@ -480,6 +502,17 @@ command EndTurn:
     if desk.turnOf(cmd.game) != cmd.turn: refuse staleTurn, "That turn is over."
     emit TurnEnded(game: cmd.game, agent: cmd.agent, chat: cmd.chat, turn: cmd.turn, outcome: cmd.outcome)
 
+command StopTurn:
+  fields:
+    game: string
+  reads Desk
+  produces StopRequested
+  refuses idle
+  decide:
+    let turn = desk.turnOf(cmd.game)
+    if turn == 0: refuse idle, "There is no turn running to stop."
+    emit StopRequested(game: cmd.game, turn: turn)
+
 command AddLine:
   fields:
     game: string
@@ -749,6 +782,16 @@ query DeskNow:
     result.stepGame = desk.stepGame
     result.stepCode = desk.lastStepCode
 
+query JobNow:
+  reads Desk
+  returns JobFacts
+  answer:
+    result.running = desk.stepRunning
+    result.step = desk.stepId
+    result.kind = desk.stepKind
+    result.game = desk.stepGame
+    result.code = desk.lastStepCode
+
 query ChatSince:
   fields:
     game: string
@@ -785,5 +828,65 @@ query ProducerNow:
   returns Ran
   answer:
     result = producers.ran.ranOf(q.game, q.agent)
+
+# --- the shell's threads, named ----------------------------------------------------------------
+# A processor reacts to a fact with a side effect, and the only one it has here is to start a thread
+# (or, for a stop, to ask a turn's child to end). The thread itself, and the child process, belong to
+# the shell; the processor reaches them through `hands`, which the shell fills in. `execute` delivers
+# to the processors under the shell's one lock, so a hand only starts a thread and never waits for one:
+# the thread hands its results back later, as commands, under the same lock.
+
+type
+  Hands* = object
+    ## What the processors do in the world. A hand returns false when it could not start its thread,
+    ## and the processor then issues the command that ends the turn or the step as failed. Every field
+    ## may be nil (a runtime with no shell, as in a scenario): that processor then does nothing.
+    state*: pointer         ## the shell's own state, handed back to each hand
+    runTurn*: proc (state: pointer, e: TurnStarted): bool {.nimcall, gcsafe.}     ## starts the turn thread
+    watchTurn*: proc (state: pointer, e: TurnStarted): bool {.nimcall, gcsafe.}   ## starts the turn's clock
+    endTurn*: proc (state: pointer, e: StopRequested) {.nimcall, gcsafe.}         ## asks that turn's child to end (a stale one is ignored)
+    runStep*: proc (state: pointer, e: StepStarted): bool {.nimcall, gcsafe.}     ## starts the job thread
+    watchStep*: proc (state: pointer, e: StepStarted): bool {.nimcall, gcsafe.}   ## starts the job's clock
+
+var hands* {.threadvar.}: Hands
+  ## Set by the shell around each command it runs (and by a test for its stand-ins), on the thread
+  ## that runs the command: processors are delivered on that thread.
+
+# The clocks are declared first: a turn or a step whose clock cannot start does not run at all.
+
+processor TurnClock:
+  issues EndTurn
+  on TurnStarted:
+    if hands.watchTurn != nil and not hands.watchTurn(hands.state, e):
+      issue EndTurn(game: e.game, agent: e.agent, chat: e.chat, turn: e.turn, outcome: "failed")
+
+processor TurnRunner:
+  issues AddLine, ReportSession, ReportModel, EndTurn
+  on TurnStarted:
+    if hands.runTurn != nil and not hands.runTurn(hands.state, e):
+      issue EndTurn(game: e.game, agent: e.agent, chat: e.chat, turn: e.turn, outcome: "failed")
+  on StopRequested:
+    if hands.endTurn != nil: hands.endTurn(hands.state, e)
+
+processor StepClock:
+  issues EndStep
+  on StepStarted:
+    if hands.watchStep != nil and not hands.watchStep(hands.state, e):
+      issue EndStep(step: e.step, code: 1)
+
+processor StepRunner:
+  issues EndStep
+  on StepStarted:
+    if hands.runStep != nil and not hands.runStep(hands.state, e):
+      issue EndStep(step: e.step, code: 1)
+
+proc handBack*(who: typedesc[TurnRunner], c: AddLine | ReportSession | ReportModel | EndTurn): tuple[name: string, data: JsonNode] =
+  ## The one door for what the turn thread gives back: only the commands TurnRunner's `issues` line
+  ## lists go through, and the compiler refuses the rest.
+  (name: $typeof(c), data: %c)
+
+proc handBack*(who: typedesc[StepRunner], c: EndStep): tuple[name: string, data: JsonNode] =
+  ## The same for the job thread: it can only end its step.
+  (name: $typeof(c), data: %c)
 
 sealModel(StudioDesk, currentSourcePath().parentDir / "studiodesk.em")
