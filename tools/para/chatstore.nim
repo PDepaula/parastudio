@@ -499,7 +499,7 @@ proc dropLines*(root, game, agent: string, chat: int) =
 
 const
   studioKinds = ["ChatStarted", "ChatOpened", "ChatUsed", "SessionReported", "AgentPicked", "SpeedPicked", "ModelReported"]
-  maxStudioStreamBytes = 64 * 1024 ## one stream of studio.jsonl; only what a producer last ran with ever grows
+  maxStudioStreamBytes = 1024 * 1024 ## every stream of studio.jsonl is capped at 1 MiB; only the ran: stream is expected to reach it, a chat stream needs thousands of messages
 
 proc studioPath*(root: string): string = studioDir(root) / "studio.jsonl"
 

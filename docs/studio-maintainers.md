@@ -325,7 +325,7 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   routes by event kind). Its `streamOf` is `<game>/<agent>/<chat>` for the chat-scoped events, so
   forgetting a chat takes its `ChatStarted`, `ChatOpened`, `ChatUsed` and `SessionReported` out of
   this file as well as its lines from the chat's own file (the session id leaves the log in the
-  same call); `ran:<game>/<agent>` (capped at 64 KB) for `ModelReported`; none for the picks. The
+  same call); `ran:<game>/<agent>` (capped at 1 MiB) for `ModelReported`; none for the picks. The
   clean hook writes a session id only in `validSessionToken`'s shape and a title with keys out.
   Turn, step and Play events are not written. When the studio starts, `initChat` replays
   `studio.jsonl` and nothing else (a few lines per chat and pick; the views are the cache, the file

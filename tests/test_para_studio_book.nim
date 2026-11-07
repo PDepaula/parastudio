@@ -104,6 +104,20 @@ suite "the book, the picks and what ran survive a restart":
     check seenSessions == @["", "", "sess-one"] # the third turn resumed chat 1's conversation, the second was a new one
     check chat.openChat("pong", 9).status == 404
 
+  test "a long chat keeps its first title, start time and session id past the old 64 KB cap":
+    discard turn("pong", "The very first message")
+    let first = chat.listChats("pong").chats[0]
+    check first.session == "sess-one"
+    for i in 1 .. 300:
+      discard turn("pong", "message number " & $i)
+    check getFileSize(studioFile()) > 64 * 1024 and getFileSize(studioFile()) < 1024 * 1024
+    restart()
+    let list = chat.listChats("pong")
+    check list.chats.len == 1
+    check list.chats[0].title == "The very first message"
+    check list.chats[0].started == first.started
+    check list.chats[0].session == "sess-one"
+
   test "the book comes back after a restart, from studio.jsonl alone":
     discard turn("pong", "Make the ship move")
     check chat.newConversation("pong")
