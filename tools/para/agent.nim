@@ -27,7 +27,9 @@
 
 import std/[locks, os, strutils, strtabs, times]
 import nimutil
-when not defined(windows):
+when defined(windows):
+  import std/osproc
+else:
   import std/posix
 
 type
