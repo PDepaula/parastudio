@@ -12,21 +12,18 @@
 # `eversince check tools/para/studio-plan.em` without --app must pass with no error; the lints (an event no
 # command produces yet, a command on no screen) are expected until the slices land.
 #
-# Slices 3 to 5 also CHANGE a few checked lines, which this file may not show (it may not disagree
+# Slice 5 also CHANGES a few checked lines, which this file may not show (it may not disagree
 # with the code). They are listed here, as comments, for whoever builds that slice:
-#   slice 3  command NewChat   game:string | reads ChatBook,Desk | produces ChatStarted | refuses busy
-#            command OpenChat  game:string chat:int | reads ChatBook,Desk | produces ChatOpened | refuses busy,noSuchChat
-#            command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten | refuses busy,noSuchChat
-#            view ChatBook consumes ChatForgotten too; the stories "a new chat" and "open another chat" are
-#            ChatPanel -> NewChat -> ChatStarted -> ChatBook -> ChatList -> ChatPanel (and OpenChat, ChatOpened)
 #   slice 5  command StartPlay game:string hasSource:bool | reads Desk,PlayWindow | produces PlayStarted | refuses busy,noSource
 #            command TakeShot  game:string windowGame:string windowRunning:bool | reads PlayWindow | produces ShotAsked | refuses notRunning,otherGame
 #            (the window facts then come from the PlayWindow view, not from the route)
+# Slice 3 (chat books, picks and what the producer last ran with as durable events) has landed: its blocks
+# are in studiodesk.em, and the lines below are the same.
 
 # --- what the friend sees: the page's panels, and who else acts (a superset of the checked screens) ---
 screen SetupPanel   | commands PickProducer
 screen GamesPanel   | queries DeskNow   | commands LandLane
-screen ChatPanel    | queries ChatList,ChatSince,ProducerNow | commands StartTurn,StopTurn,PickProducer,PickSpeed,NewChat,OpenChat,DeleteChat
+screen ChatPanel    | queries ChatList,ChatSince,ProducerNow | commands StartTurn,UseChat,StopTurn,PickProducer,PickSpeed,NewChat,OpenChat,DeleteChat
 screen PlayPanel    | queries PlayNow | commands StartPlay,StopPlay,TakeShot
 screen StepsPanel   | queries DeskNow,JobNow | commands StartStep
 screen ResumePanel
@@ -46,7 +43,14 @@ slice a step ends        : JobThread -> EndStep -> StepEnded -> Desk -> DeskNow 
 slice pick a producer    : ChatPanel -> PickProducer -> AgentPicked -> Desk -> StartTurn
 slice pick the first one : SetupPanel -> PickProducer -> AgentPicked -> Desk -> StartTurn
 slice pick a speed       : ChatPanel -> PickSpeed -> SpeedPicked -> Desk -> StartTurn
+slice a message names its chat : ChatPanel -> UseChat -> ChatUsed -> ChatBook -> ChatList -> ChatPanel
+slice a new chat         : ChatPanel -> NewChat -> ChatStarted -> ChatBook -> ChatList -> ChatPanel
+slice open another chat  : ChatPanel -> OpenChat -> ChatOpened -> ChatBook -> ChatList -> ChatPanel
+slice the agent names its session : TurnThread -> ReportSession -> SessionReported -> ChatBook -> ChatList -> ChatPanel
+slice the agent says what it ran  : TurnThread -> ReportModel -> ModelReported -> Producers -> ProducerNow -> ChatPanel
 slice delete a chat      : ChatPanel -> DeleteChat -> ChatForgotten -> Chat -> ChatSince -> ChatPanel
+slice delete a chat from the list : ChatPanel -> DeleteChat -> ChatForgotten -> ChatBook -> ChatList -> ChatPanel
+slice delete the open chat : ChatPanel -> DeleteChat -> ChatStarted -> ChatBook -> ChatList -> ChatPanel
 slice open a chat again  : TurnThread -> RestoreChat -> ChatRestored -> Chat -> ChatSince -> ChatPanel
 slice start a game       : NewGameSheet -> NewGame -> StepStarted -> Desk -> DeskNow -> StepsPanel
 slice land a helper's work : GamesPanel -> LandLane -> StepStarted -> Desk -> DeskNow -> StepsPanel
@@ -59,8 +63,6 @@ slice the turn is stopped         : ChatPanel -> StopTurn -> StopRequested -> Tu
 slice the turn runs out of time   : TurnClock -> EndTurn -> TurnEnded -> Desk -> ChatSince -> ChatPanel
 slice the step runs               : StepRunner -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
 slice the step runs out of time   : StepClock -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
-slice the agent names its session : TurnThread -> ReportSession -> SessionReported -> ChatBook -> ChatList -> ChatPanel
-slice the agent says what it ran  : TurnThread -> ReportModel -> ModelReported -> Producers -> ProducerNow -> ChatPanel
 slice the window sees Play        : PlayPanel -> StartPlay -> PlayStarted -> PlayWindow -> PlayNow -> PlayPanel
 slice the window opens            : PlayThread -> PlayPhase -> PlayPhased -> PlayWindow -> PlayNow -> PlayPanel
 slice the window closes           : PlayThread -> EndPlay -> PlayEnded -> PlayWindow -> PlayNow -> PlayPanel
@@ -78,9 +80,12 @@ command TakeShot    game:string windowGame:string windowRunning:bool | produces 
 command EndStep     step:int code:int | reads Desk | produces StepEnded | refuses staleStep
 command PickProducer game:string agent:string | reads Desk | produces AgentPicked | refuses busy
 command PickSpeed   game:string speed:string | reads Desk | produces SpeedPicked | refuses busy
-command NewChat     game:string | reads Desk | refuses busy
-command OpenChat    game:string chat:int | reads Desk | refuses busy
-command DeleteChat  game:string agent:string chat:int | reads Desk | produces ChatForgotten | refuses busy
+command NewChat game:string agent:Option[string] | reads ChatBook,Desk | produces ChatStarted | refuses busy
+command OpenChat game:string chat:int agent:Option[string] | reads ChatBook,Desk | produces ChatOpened | refuses busy
+command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten,ChatStarted | refuses busy
+command UseChat game:string agent:string chat:int title:string | produces ChatUsed
+command ReportSession game:string agent:string chat:int session:string | reads ChatBook | produces SessionReported | refuses badSession
+command ReportModel game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string | reads Producers | produces ModelReported
 command RestoreChat game:string agent:string chat:int lines:list[LineBody] lastN:int persist:bool | reads Chat | produces ChatRestored,LineAdded
 
 # --- facts ---
@@ -93,16 +98,25 @@ event StepStarted   game:string step:int kind:string
 event StepEnded     step:int code:int
 event AgentPicked   game:string agent:string
 event SpeedPicked   game:string speed:string
+event ChatStarted game:string agent:string chat:int at:int
+event ChatOpened game:string agent:string chat:int next:int
+event ChatUsed game:string agent:string chat:int at:int title:string
+event SessionReported game:string agent:string chat:int session:string
+event ModelReported game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string
 event PlayStarted   game:string run:int
 event ShotAsked     game:string
 
 # --- what is remembered ---
 view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted
 view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded
+view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported
+view Producers ran:list[Ran] | consumes ModelReported
 
 # --- questions ---
 query DeskNow game:string | reads Desk | returns DeskFacts
 query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage
+query ChatList game:string agent:string | reads ChatBook | returns ChatListing
+query ProducerNow game:string agent:string | reads Producers | returns Ran
 
 # --- value types ---
 record LineBody  you:bool kind:string text:string id:string role:string status:string tools:int code:string detail:string url:string
@@ -113,33 +127,27 @@ record Pick      game:string agent:string
 record SpeedPick game:string speed:string
 record DeskFacts working:list[string] running:bool turn:int lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string stepCode:int
 record ChatPage  running:bool working:list[string] turn:int next:int entries:list[ChatEntry]
+record ChatRecord id:int title:string started:int updated:int session:string
+record Book game:string agent:string current:int next:int chats:list[ChatRecord]
+record ChatListing agent:string current:int chats:list[ChatRecord]
+record Ran game:string agent:string started:bool speed:string askedModel:string askedEffort:string model:string effort:string
 
 # --- requests the later slices add ---
 command StopTurn      game:string | reads Desk | produces StopRequested | refuses idle                                                           # slice 4
-command ReportSession game:string agent:string chat:int session:string | reads ChatBook | produces SessionReported | refuses badSession          # slice 3
-command ReportModel   game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string | reads Producers | produces ModelReported   # slice 3
 command PlayPhase     run:int phase:string message:string | reads PlayWindow | produces PlayPhased | refuses staleRun                              # slice 5
 command EndPlay       run:int code:int message:string detail:string | reads PlayWindow | produces PlayEnded | refuses staleRun                    # slice 5
 command StopPlay      | reads PlayWindow | produces PlayStopRequested | refuses idle                                                              # slice 5
 
 # --- facts the later slices add ---
 event StopRequested     game:string turn:int                                  # slice 4
-event ChatStarted       game:string agent:string chat:int at:int              # slice 3
-event ChatOpened        game:string agent:string chat:int                     # slice 3
-event SessionReported   game:string agent:string chat:int session:string      # slice 3
-event ModelReported     game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string   # slice 3
 event PlayPhased        run:int phase:string message:string                   # slice 5
 event PlayEnded         run:int code:int message:string detail:string         # slice 5
 event PlayStopRequested run:int                                               # slice 5
 
 # --- what is remembered, later ---
-view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,LineAdded,SessionReported,TurnStarted   # slice 3
-view Producers ran:list[Ran] | consumes ModelReported                                                                  # slice 3
 view PlayWindow phase:string game:string run:int code:int message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested   # slice 5
 
 # --- questions, later ---
-query ChatList    game:string agent:string | reads ChatBook | returns ChatListing         # slice 3
-query ProducerNow game:string agent:string | reads Desk,Producers | returns Ran           # slice 3
 query JobNow      | reads Desk | returns JobFacts                                         # slice 4
 query PlayNow     | reads PlayWindow | returns PlayFacts                                 # slice 5
 
@@ -151,9 +159,5 @@ processor StepClock  | consumes StepStarted | issues EndStep                    
 processor PlayRunner | consumes PlayStarted,PlayStopRequested | issues EndPlay,PlayPhase                       # slice 5
 
 # --- value types, later ---
-record Book         game:string agent:string current:int next:int chats:list[ChatRecord]
-record ChatRecord   id:int title:string started:int updated:int session:string
-record ChatListing  agent:string current:int chats:list[ChatRecord]
-record Ran          game:string agent:string started:bool speed:string askedModel:string askedEffort:string model:string effort:string
 record JobFacts     running:bool step:int kind:string game:string code:int
 record PlayFacts    state:string game:string run:int message:string code:string detail:string

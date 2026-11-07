@@ -72,8 +72,8 @@ backup still only goes to the remote named `backup`, after a click on a yes.
 The chat starts the friend's own `claude` program (`claude -p --output-format
 stream-json --verbose --setting-sources project,local`, the message on its standard
 input, `PARALOOP_UI=studio` in its environment) in the repo root, one turn at a
-time. Each game keeps any number of chats per agent in `tmp/studio/chats-<game>-<agent>.json`
-(each chat's title, times and session id) and each chat's lines in
+time. Each game keeps any number of chats per agent (each chat's title, times and session id are events in
+`tmp/studio/studio.jsonl`) and each chat's lines in
 `tmp/studio/chat-<game>-<agent>-<number>.jsonl` (keys taken out; on this computer only, removed
 with the chat's Delete), listed in the page's sidebar; the open one, or one picked from the list,
 shows its messages again and resumes its own conversation. It sends nothing until the friend sends a

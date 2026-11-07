@@ -235,9 +235,11 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   [eversince](https://github.com/PDepaula/eversince), a pinned nimble dependency (MIT; see
   `paraloop.nimble`, `nimble.lock`, THIRD_PARTY.md). It is a pure core: commands (`StartTurn`,
   `EndTurn`, `StartStep`, `EndStep`, `NewGame`, `LandLane`, `StartPlay`, `TakeShot`, `PickProducer`,
-  `PickSpeed`, `NewChat`, `OpenChat`, `DeleteChat`, plus `AddLine` and `RestoreChat` for the chat's
-  lines), events, two views (`Desk`: turns, step, picks, the last Play and picture; `Chat`: the lines
-  the page polls) and two queries, with no thread, lock, clock, file or process (the compiler enforces
+  `PickSpeed`, `NewChat`, `OpenChat`, `DeleteChat`, `UseChat`, `ReportSession` and `ReportModel`,
+  plus `AddLine` and `RestoreChat` for the chat's lines), events, four views (`Desk`: turns, step,
+  picks, the last Play and picture; `Chat`: the lines the page polls; `ChatBook`: each chat's
+  record; `Producers`: what each producer last ran with) and four queries (`DeskNow`, `ChatSince`,
+  `ChatList`, `ProducerNow`), with no thread, lock, clock, file or process (the compiler enforces
   it). `studiodesk.em` lists the same blocks and the stories; the build stops when the two disagree.
   Every refusal a route used to decide is a rule here, with its words and a scenario: a new game's
   name (`needsName`, `badName`, `taken`), a save's note (`badMessage`), landing a helper's work
@@ -253,7 +255,7 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   hand their ends back as commands (`EndTurn`, `EndStep`); only plain values leave the lock. There is
   no start gate: a turn and a step cannot both be accepted, because both ask the same desk under the
   same lock. What stays outside the events: the HTTP checks, the agent adapters, `TurnControl`,
-  killing process trees, the job's 200,000-byte output buffer, the chats' titles and session ids, and
+  killing process trees, the job's 200,000-byte output buffer, and
   "a third game is refused while two have helpers building" (the routes look the helpers' folders up
   and hand the games they found to `StartTurn`). To change a rule: edit `studiodesk.em` first, then
   the code, add a scenario, and run `eversince check tools/para/studiodesk.em --app
@@ -264,8 +266,9 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   code goes: a `screen` for each panel of the page (`SetupPanel`, `GamesPanel`, `ChatPanel`,
   `PlayPanel`, `StepsPanel`, `ResumePanel`, `BackupSheet`, `NewGameSheet`) and for the shell's
   threads, with the commands and queries each really offers, and a `slice` for each story. Beside
-  it, `tools/para/studio-plan.em` is the same app plus the blocks the later slices add (chat books,
-  the threads as named processors, Stop, the Play window as a view); nothing builds against it. The
+  it, `tools/para/studio-plan.em` is the same app plus the blocks the later slices add (the threads as
+  named processors, Stop, the Play window as a view; the chat books, the picks and what ran have
+  landed); nothing builds against it. The
   rule, held by `tests/test_para_studio_model.nim`: the plan may be ahead of the code and never
   behind it, so every block of `studiodesk.em` is in the plan with the same line, every slice is there
   as it is and every screen has at least its commands and queries. When a slice lands, move its
@@ -300,13 +303,46 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   hold the one-job-at-a-time gate for good.
   A visual board does not need a turn: the producer opens it, says so and ends the turn; the
   friend's next message is the cue to read the answers.
-- **Conversations.** Any number per game and agent, in `chatstore.nim`'s
-  `tmp/studio/chats-<game>-<agent>.json`: for each chat its number, title (the start of its first
-  message: one line, at most 60 letters, anything key-like taken out by `redactSecrets`), when it
-  started and was last used (seconds), and the agent's session id once reported, plus which chat
-  the next message goes to. A fresh chat has a number but no entry until its first message,
-  numbers are never reused, and the file is written whole (a new file moved over the old one).
+- **Conversations.** Any number per game and agent. They are the desk's `ChatBook` view, a fold of
+  events: for each chat its number, title (the start of its first message: one line, at most 60
+  letters, anything key-like taken out by `redactSecrets`), when it started and was last used
+  (seconds), and the agent's session id once reported, plus which chat the next message goes to.
+  `NewChat`, `OpenChat` and `DeleteChat` produce `ChatStarted`, `ChatOpened` and `ChatForgotten`
+  (deleting the open chat also starts a fresh one); `UseChat`, which the shell issues once a message
+  is accepted, produces `ChatUsed` (it names a new chat and times every message); `ReportSession`,
+  issued from the turn thread when the agent names its session, produces `SessionReported` and
+  refuses `badSession` unless the id has the shape `validSessionToken` accepts (`validSessionToken`
+  is still the gate before an id reaches a command line: the shell passes every id through it again
+  when it reads one back). A fresh chat has a number but no record until its first message, and
+  numbers are never reused (`ChatOpened` carries the next number, so a forgotten chat's number
+  stays used after a restart). `query ChatList` answers `GET /api/chats`, newest first.
   **New chat** opens a fresh chat for the game's current agent and keeps the rest.
+- **What survives a restart.** The book, the producer and speed picks (`AgentPicked`,
+  `SpeedPicked`, read by `agentOf` and `speedOf` from the `Desk` view) and what each producer last
+  ran with (`ReportModel` produces `ModelReported`, the `Producers` view holds it and `query
+  ProducerNow` answers the line under the producer's name) are events kept in ONE studio-wide file,
+  `tmp/studio/studio.jsonl`, the kit's forgetting file store (chatstore.nim's `ChatFilesStore`
+  routes by event kind). Its `streamOf` is `<game>/<agent>/<chat>` for the chat-scoped events, so
+  forgetting a chat takes its `ChatStarted`, `ChatOpened`, `ChatUsed` and `SessionReported` out of
+  this file as well as its lines from the chat's own file (the session id leaves the log in the
+  same call); `ran:<game>/<agent>` (capped at 64 KB) for `ModelReported`; none for the picks. The
+  clean hook writes a session id only in `validSessionToken`'s shape and a title with keys out.
+  Turn, step and Play events are not written. When the studio starts, `initChat` replays
+  `studio.jsonl` and nothing else (a few lines per chat and pick; the views are the cache, the file
+  is not read again while the studio runs): a line that is not an event, or whose field has the
+  wrong type, is left out and never stops the studio. The kit decodes a stored event tolerantly (a
+  field it lacks takes the type's default, a key it no longer has is ignored; eversince
+  `9937b8e`, `spec/13`), so **a field may be added to a durable event**: older lines replay with the
+  default (`tests/test_para_studio_book.nim` pins it). A container field (`list`, a `Table`) is
+  strict, so one added later needs a default of its own written by a migration.
+- **Files older studios kept.** `chats-<game>-<agent>.json`, `session-<game>-<agent>.id` (and
+  Claude's `session-<game>.id`), `agent-<game>.txt`, `speed-<game>.txt` and `default-agent.txt`
+  are read once and written as events, then removed, with nothing asked of the friend:
+  `initChat` moves every one it finds, and a book file that appears after the studio started is
+  moved when its game's book is first used (`moveOldBook`, `moveOldPicks` in studiochat.nim;
+  `chatstore.nim` still reads the old formats). A pick that is not a producer or a speed is left
+  out, and a pick the log already has is not overwritten. If the disk refuses the write the files
+  stay for the next start.
 - **Each chat's lines** go to `tmp/studio/chat-<game>-<agent>-<number>.jsonl` as they are shown.
   Each file is the kit's forgetting file store: one event a line (`{"seq","at","kind","data"}`, kind
   `LineAdded`, `data.line` holding `kind` as the page's `GET /api/chat` names it, `text`, and the
@@ -317,10 +353,11 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   384 KB, and reading it puts one `chat-trimmed` note in front) and **forget** (deleting a chat takes
   its lines out of the file, which then goes). Not kept: the end-of-turn marker and a helper card's
   in-between `working` updates (its start and end are), and every event that is not a line (a turn,
-  a step, a pick). A file an older studio wrote (one compact `{"kind": "say", "text": ...}` line
+  a step, and the studio's own events, which go to `studio.jsonl`). A file an older studio wrote (one compact `{"kind": "say", "text": ...}` line
   each) is read as before and rewritten in this form the first time the studio opens it. Opening a chat, and the chat
-  that was open at a restart (once, when the game's chats are first read from disk, before any
-  other line of it), replace whatever memory holds of it with the lines read back from its file.
+  that was open at a restart (once, the first time the shell looks at the game's chat, before any
+  other line of it: `settle` in studiochat.nim), replace whatever memory holds of it with the lines
+  read back from its file.
   These files are the repository's `tmp/` (gitignored, outside every game's own repository, so
   no Save or Backup takes them) and never leave the computer.
 - **Chats from before lines were kept** (a listed chat with no lines file) are rebuilt once
@@ -340,8 +377,8 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   chat forgets its entry and its lines (on the page and the lines file) and nothing else: the
   agent's own record of the conversation and the game's folder are not touched. The one
   conversation an older studio kept, `session-<game>-<agent>.id` (and Claude's `session-<game>.id`
-  from before there was a second agent), is read as one chat with no title and removed once the
-  new file is written. Tests: `tests/test_para_studio_chats.nim` (the store and the lines files,
+  from before there was a second agent), is read as one chat with no title and removed once its
+  events are written. Tests: `tests/test_para_studio_chats.nim` (the store and the lines files,
   Claude's record read from a stand-in folder, and the routes through the server: many chats,
   reopen, restart, rebuild, delete) and `test_para_studio_chat.nim`.
 - **Helpers** show as cards (builder, checker, scout, found from the playbook the
@@ -361,7 +398,8 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
 
 ## Claude or Codex
 
-The pick per game is remembered in `tmp/studio/agent-<game>.txt` (a name and nothing else).
+The pick per game is remembered as an `AgentPicked` event in `tmp/studio/studio.jsonl` (the studio-wide
+one, made in the setup checklist, has no game).
 **Claude is the default** until Codex is picked for a game. A pick takes effect from the next
 message and is refused while a turn is running. Each agent has its own chats.
 
