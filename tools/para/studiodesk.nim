@@ -17,20 +17,35 @@
 #   a save needs a note                      StartStep   refuses needsMessage
 #   no producer, speed or chat change while  PickProducer, PickSpeed, NewChat, OpenChat, DeleteChat
 #   that game's turn runs                                refuse busy
+#   a save's note is one short line          StartStep   refuses badMessage
+#   a new game has a name no game has        NewGame     refuses needsName, badName, taken, busy
+#   a helper's work lands only if it is      LandLane    refuses noSuchLane, busy
+#   one of the game's
+#   Play needs the game's source file, and   StartPlay   refuses noSource, busy
+#   waits for a step
+#   a picture is of the window that is open  TakeShot    refuses otherGame, notRunning
 # and, from the shell, "a third game is refused while two have helpers building": the shell looks
-# the helpers' folders up and hands the games it found to StartTurn as `busyGames`.
+# the helpers' folders up and hands the games it found to StartTurn as `busyGames`. The same way, the
+# shell looks up what is on disk or in a process and hands it in as a command's field: `existing` (the
+# games there are), `lanes` (a game's helpers' work), `hasSource` (the game's source file is there),
+# `windowGame` and `windowRunning` (the game window). The desk never looks at a disk or a process.
+#
+# "A picture is already being taken" stays the shell's `shotLock` (a tryAcquire, not a second lock
+# around the desk): it is about the one picture in flight, not about what the desk may start.
 #
 # Kept apart on purpose (not events): the HTTP checks, the agent adapters, TurnControl, killing a
 # process tree, the 200,000-byte job output buffer, the chats' titles and session ids (chatstore.nim's
 # books), and what a game's producer was last asked to run with.
 
-import std/[os, strutils]
+import std/[os, strutils, sequtils]
 import eversince
 
 const
   maxMessageChars* = 8000   ## the longest message the friend may send
   maxLiveGames* = 2         ## games whose helpers may be building at once; a turn for a third is refused
   maxLines* = 8000          ## chat lines the Chat view holds; the oldest go first (a chat opened again is read back from its file)
+  maxGameName* = 40         ## the longest name a new game may get
+  maxNoteChars* = 200       ## the longest note a save may carry
 
 record LineBody:
   you: bool                 ## the friend's own message (kind "say")
@@ -120,11 +135,25 @@ event AgentPicked:
 event SpeedPicked:
   game: string
   speed: string
+event PlayStarted:
+  game: string
+  run: int                  ## how many times Play was accepted, this one included
+event ShotAsked:
+  game: string
 
 func keptLine*(line: LineBody): bool =
   ## Whether a line goes into its chat's file: not the end-of-turn marker, and of a helper card only
   ## where it started and how it ended.
   line.kind != "done" and not (line.kind == "helper" and line.status == "working")
+
+func goodGameName*(name: string): bool =
+  ## The names `para new` makes (savepoint.nim's `validGameName`, which a test holds this equal to):
+  ## small letters, digits and `_`, starting with a letter.
+  name.len > 0 and name[0] in {'a'..'z'} and name.allCharsInSet({'a'..'z', '0'..'9', '_'})
+
+func validNote*(note: string): bool =
+  ## A save's note: one short line.
+  note.len <= maxNoteChars and not note.anyIt(it < ' ' or it == '\x7f')
 
 func validMessage*(text: string): string =
   ## "" when `text` can be sent, else the plain reason it cannot.
@@ -147,6 +176,9 @@ view Desk:
     lastStepCode: int
     picks: seq[Pick]        ## "" for the game: the studio-wide pick
     speeds: seq[SpeedPick]
+    playGame: string        ## the game Play was last accepted for
+    playRun: int            ## how many times Play was accepted
+    shotGame: string        ## the game a picture was last asked for
   on TurnStarted:
     state.turns.add GameTurn(game: e.game, turn: e.turn)
     state.lastTurn = e.turn
@@ -180,6 +212,11 @@ view Desk:
       if p.game != e.game: kept.add p
     kept.add SpeedPick(game: e.game, speed: e.speed)
     state.speeds = kept
+  on PlayStarted:
+    state.playGame = e.game
+    state.playRun = e.run
+  on ShotAsked:
+    state.shotGame = e.game
 
 func turnOf*(desk: Desk, game: string): int =
   ## The running turn of `game`, 0 when none runs.
@@ -304,8 +341,10 @@ command StartStep:
     message: string
   reads Desk
   produces StepStarted
-  refuses busy, needsMessage
+  refuses busy, needsMessage, badMessage
   decide:
+    if not cmd.message.validNote:
+      refuse badMessage, "Keep the note to one short line (up to " & $maxNoteChars & " characters)."
     if cmd.kind == "save" and cmd.message.strip.len == 0:
       refuse needsMessage, "Write a few words about what changed, then save."
     if cmd.game.len > 0 and desk.turnOf(cmd.game) != 0:
@@ -313,6 +352,73 @@ command StartStep:
     if desk.stepRunning:
       refuse busy, "Another step is still running (" & desk.stepKind & "). Wait for it to finish."
     emit StepStarted(game: cmd.game, step: desk.stepId + 1, kind: cmd.kind)
+
+command NewGame:
+  fields:
+    name: string
+    existing: seq[string]   ## the games there already are, as far as the shell looked: it names the one asked about when its folder is there
+  reads Desk
+  produces StepStarted
+  refuses needsName, badName, taken, busy
+  decide:
+    if cmd.name.len == 0:
+      refuse needsName, "Give the game a name first, for example: space_frogs"
+    if cmd.name.len > maxGameName or not cmd.name.goodGameName:
+      refuse badName, "A game's name uses only small letters (a to z), digits and _, starts with a letter, and is at most " &
+        $maxGameName & " characters. For example: space_frogs"
+    if cmd.name in cmd.existing:
+      refuse taken, "There is already a game called " & cmd.name & ". Pick another name."
+    if desk.turnOf(cmd.name) != 0:
+      refuse busy, "The producer is working on " & cmd.name & " right now. Wait for it, or press Stop in the chat, then try again."
+    if desk.stepRunning:
+      refuse busy, "Another step is still running (" & desk.stepKind & "). Wait for it to finish."
+    emit StepStarted(game: cmd.name, step: desk.stepId + 1, kind: "new")
+
+command LandLane:
+  fields:
+    game: string
+    lane: string
+    lanes: seq[string]      ## the helpers' work this game has (the shell looked at the folders next to it)
+  reads Desk
+  produces StepStarted
+  refuses noSuchLane, busy
+  decide:
+    if cmd.lane notin cmd.lanes:
+      refuse noSuchLane, "That helper's work is not here any more."
+    if desk.turnOf(cmd.game) != 0:
+      refuse busy, "The producer is working on " & cmd.game & " right now. Wait for it, or press Stop in the chat, then try again."
+    if desk.stepRunning:
+      refuse busy, "Another step is still running (" & desk.stepKind & "). Wait for it to finish."
+    emit StepStarted(game: cmd.game, step: desk.stepId + 1, kind: "land")
+
+command StartPlay:
+  fields:
+    game: string
+    hasSource: bool         ## games/<game>/<game>.nim is there (the shell looked)
+  reads Desk
+  produces PlayStarted
+  refuses noSource, busy
+  decide:
+    if not cmd.hasSource:
+      refuse noSource, "There is no game to play yet: games/" & cmd.game & "/" & cmd.game & ".nim is not there. Ask the producer to build the first version."
+    if desk.stepRunning:
+      refuse busy, "A step (Check, Save or Backup) is still running, and it builds the game too. Wait for it to finish, then press Play."
+    emit PlayStarted(game: cmd.game, run: desk.playRun + 1)
+
+command TakeShot:
+  fields:
+    game: string
+    windowGame: string      ## the game of the window that is starting or running, "" when none (the shell looked)
+    windowRunning: bool     ## the window answers on its channel (the shell looked)
+  produces ShotAsked
+  refuses otherGame, notRunning
+  decide:
+    if cmd.windowGame.len > 0 and cmd.windowGame != cmd.game:
+      refuse otherGame, "The game window that is open is " & cmd.windowGame & ", not " & cmd.game & ". Pick " & cmd.windowGame &
+        " to take its picture, or press Play for " & cmd.game & " first."
+    if not cmd.windowRunning:
+      refuse notRunning, "There is no game window open to take a picture of. Press Play first."
+    emit ShotAsked(game: cmd.game)
 
 command EndStep:
   fields:

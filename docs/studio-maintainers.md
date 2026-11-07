@@ -37,7 +37,7 @@ The code is `tools/para/studiohttp.nim` (the server and its checks),
 `studioapi.nim` (the routes and jobs), `preflight.nim` (the startup checks, below),
 `studiocmd.nim` (the command),
 `studiochat.nim` (the chat's turns, the chats and the pick per game), `studiodesk.nim` and
-`studiodesk.em` (the desk: what may start now, and what each chat has said; below), `chatstore.nim`
+`studiodesk.em` (the desk: what may start now, and what each chat has said; below), `studio-plan.em` (the plan beside it, below), `chatstore.nim`
 (the list of chats on disk, and the chats' lines in the kit's file store), `agent.nim`
 (the interface every agent adapter fills in), `claudeagent.nim` (the Claude adapter),
 `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
@@ -234,11 +234,19 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
 - **The desk.** Every "may this start now?" is one decision in `studiodesk.nim`, written with
   [eversince](https://github.com/PDepaula/eversince), a pinned nimble dependency (MIT; see
   `paraloop.nimble`, `nimble.lock`, THIRD_PARTY.md). It is a pure core: commands (`StartTurn`,
-  `EndTurn`, `StartStep`, `EndStep`, `PickProducer`, `PickSpeed`, `NewChat`, `OpenChat`,
-  `DeleteChat`, plus `AddLine` and `RestoreChat` for the chat's lines), events, two views (`Desk`:
-  turns, step, picks; `Chat`: the lines the page polls) and two queries, with no thread, lock,
-  clock, file or process (the compiler enforces it). `studiodesk.em` lists the same blocks and the
-  stories; the build stops when the two disagree. The rules each have a scenario in
+  `EndTurn`, `StartStep`, `EndStep`, `NewGame`, `LandLane`, `StartPlay`, `TakeShot`, `PickProducer`,
+  `PickSpeed`, `NewChat`, `OpenChat`, `DeleteChat`, plus `AddLine` and `RestoreChat` for the chat's
+  lines), events, two views (`Desk`: turns, step, picks, the last Play and picture; `Chat`: the lines
+  the page polls) and two queries, with no thread, lock, clock, file or process (the compiler enforces
+  it). `studiodesk.em` lists the same blocks and the stories; the build stops when the two disagree.
+  Every refusal a route used to decide is a rule here, with its words and a scenario: a new game's
+  name (`needsName`, `badName`, `taken`), a save's note (`badMessage`), landing a helper's work
+  (`noSuchLane`), Play (`noSource`, `busy`) and a picture (`otherGame`, `notRunning`). What is on disk
+  or in a process is looked up by the route and handed in as a field of the command (`existing`,
+  `lanes`, `hasSource`, `windowGame`, `windowRunning`, like `busyGames`); the desk never looks. The
+  routes only turn a refusal's word into a status and a code, in the one table in `studiochat.nim`'s
+  `refusal`. A picture in flight stays the shell's `shotLock` (a `tryAcquire`, the only other lock);
+  it is not a rule of the desk. The rules each have a scenario in
   `tests/studiodesk/scenarios.jsonl` (`test_para_studio_desk.nim` runs them against the real core).
   `studiochat.nim` is the shell: **one lock**, `ChatState.lock`, serialises the runtime, every
   command is executed and every question answered under it, and the turn thread and the job thread
@@ -252,6 +260,30 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   tools/para/studiodesk.nim` and `eversince scenarios tests/studiodesk/scenarios.jsonl --app
   tools/para/studiodesk.nim --model tools/para/studiodesk.em` (the kit's command line, `nimble tool` in
   its repository); the build already runs the model check.
+- **The model files and the pictures.** `tools/para/studiodesk.em` is the whole app as far as the
+  code goes: a `screen` for each panel of the page (`SetupPanel`, `GamesPanel`, `ChatPanel`,
+  `PlayPanel`, `StepsPanel`, `ResumePanel`, `BackupSheet`, `NewGameSheet`) and for the shell's
+  threads, with the commands and queries each really offers, and a `slice` for each story. Beside
+  it, `tools/para/studio-plan.em` is the same app plus the blocks the later slices add (chat books,
+  the threads as named processors, Stop, the Play window as a view); nothing builds against it. The
+  rule, held by `tests/test_para_studio_model.nim`: the plan may be ahead of the code and never
+  behind it, so every block of `studiodesk.em` is in the plan with the same line, every slice is there
+  as it is and every screen has at least its commands and queries. When a slice lands, move its
+  lines from the plan into `studiodesk.em` in the same change (and, for a line a slice changes,
+  change it in both: the plan's comment at the top lists those). The two pictures,
+  `docs/studio-model.svg` and `docs/studio-plan.svg`, are drawn from the two files and the same test
+  fails when either is stale. Redraw them after any change to either model file:
+
+  ```
+  eversince check tools/para/studiodesk.em --app tools/para/studiodesk.nim --strict
+  eversince check tools/para/studio-plan.em
+  eversince pic tools/para/studiodesk.em docs/studio-model.svg
+  eversince pic tools/para/studio-plan.em docs/studio-plan.svg
+  ```
+
+  The plan has two warnings by design until its slices land (an event no command produces yet);
+  the checked file passes `--strict`. `eversince catalog tools/para/studiodesk.em` is the quick way
+  to read the blocks before opening a source file.
 - **One turn at a time for each game.** `ChatState.turns` holds a turn per game (its own
   `TurnControl`, threads and clock), so two games can have the producer working at once: a
   second message to the same game, its Check, Save, Land, Backup, New chat, chat list and
