@@ -346,6 +346,8 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   eversince pic tools/para/studio-plan.em docs/studio-plan.svg
   ```
 
+  `eversince pic` draws the swimlane timeline by default; `--fields`, `--spacious` and `--reads` change what it shows, and `eversince pic tools/para/studiodesk.em docs/studio-model.html --html` redraws the interactive page committed beside the picture.
+
   The plan may have warnings by design until its slices land (an event no command produces yet);
   the checked file passes `--strict`. `eversince catalog tools/para/studiodesk.em` is the quick way
   to read the blocks before opening a source file.
