@@ -1,4 +1,4 @@
-<svg class="em-pic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1614 6894" width="1614" height="6894" role="img" aria-label="Event model, grouped by screen, one band per slice">
+<svg class="em-pic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1758 8148" width="1758" height="8148" role="img" aria-label="Event model, grouped by screen, one band per slice">
 <style>
 .em-lane-name{font:10px system-ui,sans-serif}.em-group{font:600 15px system-ui,sans-serif}.em-rule{stroke-width:1}
 .em-title{font:600 13px system-ui,sans-serif}.em-edge{stroke-width:1.5;fill:none}.em-empty{font:13px system-ui,sans-serif}
@@ -8,519 +8,617 @@
 @media (prefers-color-scheme:dark){.em-bg{fill:#16191d}.em-lane{fill:#1d2126}.em-lane-name,.em-kind,.em-empty{fill:#9aa3ad}.em-group,.em-title,.em-name{fill:#e6e8eb}.em-rule{stroke:#323840}.em-edge{stroke:#8d96a1}.em-head{fill:#8d96a1}.em-screen rect{fill:#4a3c14;stroke:#d6ad3b}.em-command rect{fill:#17324f;stroke:#5ea3ee}.em-event rect{fill:#4d2c17;stroke:#f08d4c}.em-view rect{fill:#173b25;stroke:#52c07c}.em-query rect{fill:#2e2650;stroke:#a08aeb}.em-processor rect{fill:#2a2e34;stroke:#8d96a1}.em-missing rect{fill:#4b1d1d;stroke:#ef6b6b}}
 </style>
 <defs><marker id="em-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="em-head"/></marker></defs>
-<rect class="em-bg" x="0" y="0" width="1614" height="6894"/>
+<rect class="em-bg" x="0" y="0" width="1758" height="8148"/>
 <g class="em-group-box" id="group-chatpanel">
 <text class="em-group" x="18" y="22">ChatPanel  ·  screen</text>
-<line class="em-rule" x1="0" y1="28" x2="1614" y2="28"/>
+<line class="em-rule" x1="0" y1="28" x2="1758" y2="28"/>
 <g transform="translate(0 34)" id="slice-send-a-message">
 <text class="em-title" x="18" y="18">send a message</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">StartTurn</text></g>
-<g class="em-box em-event"><title>event TurnStarted game:string agent:string chat:int turn:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">TurnStarted</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StartTurn</text></g>
+<g class="em-box em-event"><title>event TurnStarted game:string agent:string chat:int turn:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">TurnStarted</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 278)" id="slice-a-message-names-its-chat">
 <text class="em-title" x="18" y="18">a message names its chat</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command UseChat game:string agent:string chat:int title:string | produces ChatUsed</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">UseChat</text></g>
-<g class="em-box em-event"><title>event ChatUsed game:string agent:string chat:int at:int title:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ChatUsed</text></g>
-<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">ChatBook</text></g>
-<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatList</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command UseChat game:string agent:string chat:int title:string | produces ChatUsed</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">UseChat</text></g>
+<g class="em-box em-event"><title>event ChatUsed game:string agent:string chat:int at:int title:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ChatUsed</text></g>
+<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">ChatBook</text></g>
+<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatList</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 522)" id="slice-pick-a-producer">
 <text class="em-title" x="18" y="18">pick a producer</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command PickProducer game:string agent:string | reads Desk | produces AgentPicked | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">PickProducer</text></g>
-<g class="em-box em-event"><title>event AgentPicked game:string agent:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">AgentPicked</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">COMMAND</text><text class="em-name" x="791" y="134">StartTurn</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command PickProducer game:string agent:string | reads Desk | produces AgentPicked | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">PickProducer</text></g>
+<g class="em-box em-event"><title>event AgentPicked game:string agent:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">AgentPicked</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">COMMAND</text><text class="em-name" x="855" y="134">StartTurn</text></g>
 </g>
 <g transform="translate(0 766)" id="slice-pick-a-speed">
 <text class="em-title" x="18" y="18">pick a speed</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command PickSpeed game:string speed:string | reads Desk | produces SpeedPicked | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">PickSpeed</text></g>
-<g class="em-box em-event"><title>event SpeedPicked game:string speed:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">SpeedPicked</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">COMMAND</text><text class="em-name" x="791" y="134">StartTurn</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command PickSpeed game:string speed:string | reads Desk | produces SpeedPicked | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">PickSpeed</text></g>
+<g class="em-box em-event"><title>event SpeedPicked game:string speed:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">SpeedPicked</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">COMMAND</text><text class="em-name" x="855" y="134">StartTurn</text></g>
 </g>
 <g transform="translate(0 1010)" id="slice-a-new-chat">
 <text class="em-title" x="18" y="18">a new chat</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command NewChat game:string agent:Option[string] | reads ChatBook,Desk | produces ChatStarted | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">NewChat</text></g>
-<g class="em-box em-event"><title>event ChatStarted game:string agent:string chat:int at:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ChatStarted</text></g>
-<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">ChatBook</text></g>
-<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatList</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command NewChat game:string agent:Option[string] | reads ChatBook,Desk | produces ChatStarted | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">NewChat</text></g>
+<g class="em-box em-event"><title>event ChatStarted game:string agent:string chat:int at:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ChatStarted</text></g>
+<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">ChatBook</text></g>
+<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatList</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 1254)" id="slice-open-another-chat">
 <text class="em-title" x="18" y="18">open another chat</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command OpenChat game:string chat:int agent:Option[string] | reads ChatBook,Desk | produces ChatOpened | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">OpenChat</text></g>
-<g class="em-box em-event"><title>event ChatOpened game:string agent:string chat:int next:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ChatOpened</text></g>
-<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">ChatBook</text></g>
-<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatList</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command OpenChat game:string chat:int agent:Option[string] | reads ChatBook,Desk | produces ChatOpened | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">OpenChat</text></g>
+<g class="em-box em-event"><title>event ChatOpened game:string agent:string chat:int next:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ChatOpened</text></g>
+<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">ChatBook</text></g>
+<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatList</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 1498)" id="slice-delete-a-chat">
 <text class="em-title" x="18" y="18">delete a chat</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten,ChatStarted | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">DeleteChat</text></g>
-<g class="em-box em-event"><title>event ChatForgotten game:string agent:string chat:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ChatForgotten</text></g>
-<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Chat</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten,ChatStarted | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">DeleteChat</text></g>
+<g class="em-box em-event"><title>event ChatForgotten game:string agent:string chat:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ChatForgotten</text></g>
+<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Chat</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 1742)" id="slice-delete-a-chat-from-the-list">
 <text class="em-title" x="18" y="18">delete a chat from the list</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten,ChatStarted | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">DeleteChat</text></g>
-<g class="em-box em-event"><title>event ChatForgotten game:string agent:string chat:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ChatForgotten</text></g>
-<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">ChatBook</text></g>
-<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatList</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten,ChatStarted | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">DeleteChat</text></g>
+<g class="em-box em-event"><title>event ChatForgotten game:string agent:string chat:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ChatForgotten</text></g>
+<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">ChatBook</text></g>
+<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatList</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 1986)" id="slice-delete-the-open-chat">
 <text class="em-title" x="18" y="18">delete the open chat</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten,ChatStarted | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">DeleteChat</text></g>
-<g class="em-box em-event"><title>event ChatStarted game:string agent:string chat:int at:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ChatStarted</text></g>
-<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">ChatBook</text></g>
-<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatList</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command DeleteChat game:string agent:string chat:int | reads ChatBook,Desk | produces ChatForgotten,ChatStarted | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">DeleteChat</text></g>
+<g class="em-box em-event"><title>event ChatStarted game:string agent:string chat:int at:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ChatStarted</text></g>
+<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">ChatBook</text></g>
+<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatList</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 2230)" id="slice-the-turn-runs">
 <text class="em-title" x="18" y="18">the turn runs</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-processor"><title>processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">TurnRunner</text></g>
-<g class="em-box em-command"><title>command AddLine game:string agent:string chat:int line:LineBody | reads Chat | produces LineAdded</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">AddLine</text></g>
-<g class="em-box em-event"><title>event LineAdded game:string agent:string chat:int n:int line:LineBody</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">LineAdded</text></g>
-<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Chat</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-processor"><title>processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">TurnRunner</text></g>
+<g class="em-box em-command"><title>command AddLine game:string agent:string chat:int line:LineBody | reads Chat | produces LineAdded</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">AddLine</text></g>
+<g class="em-box em-event"><title>event LineAdded game:string agent:string chat:int n:int line:LineBody</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">LineAdded</text></g>
+<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Chat</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 2474)" id="slice-the-turn-is-stopped">
 <text class="em-title" x="18" y="18">the turn is stopped</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="60"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="60" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="1092" y1="188" x2="1115" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="1260" y1="124" x2="1283" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="1428" y1="124" x2="1451" y2="60"/>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
-<g class="em-box em-command"><title>command StopTurn game:string | reads Desk | produces StopRequested | refuses idle</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">StopTurn</text></g>
-<g class="em-box em-event"><title>event StopRequested game:string turn:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StopRequested</text></g>
-<g class="em-box em-processor"><title>processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession</title><rect x="614" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="52">PROCESSOR</text><text class="em-name" x="623" y="70">TurnRunner</text></g>
-<g class="em-box em-command"><title>command EndTurn game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">COMMAND</text><text class="em-name" x="791" y="134">EndTurn</text></g>
-<g class="em-box em-event"><title>event TurnEnded game:string agent:string chat:int turn:int outcome:string</title><rect x="950" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="180">EVENT</text><text class="em-name" x="959" y="198">TurnEnded</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="1118" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="1127" y="116">VIEW</text><text class="em-name" x="1127" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="1286" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="1295" y="116">QUERY</text><text class="em-name" x="1295" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1454" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="1463" y="52">SCREEN</text><text class="em-name" x="1463" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="60"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="60" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1188" y1="188" x2="1211" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1372" y1="124" x2="1395" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1556" y1="124" x2="1579" y2="60"/>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">ChatPanel</text></g>
+<g class="em-box em-command"><title>command StopTurn game:string | reads Desk | produces StopRequested | refuses idle</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StopTurn</text></g>
+<g class="em-box em-event"><title>event StopRequested game:string turn:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StopRequested</text></g>
+<g class="em-box em-processor"><title>processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession</title><rect x="662" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="52">PROCESSOR</text><text class="em-name" x="671" y="70">TurnRunner</text></g>
+<g class="em-box em-command"><title>command EndTurn game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">COMMAND</text><text class="em-name" x="855" y="134">EndTurn</text></g>
+<g class="em-box em-event"><title>event TurnEnded game:string agent:string chat:int turn:int outcome:string</title><rect x="1030" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="180">EVENT</text><text class="em-name" x="1039" y="198">TurnEnded</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="1214" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="1223" y="116">VIEW</text><text class="em-name" x="1223" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="1398" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="1407" y="116">QUERY</text><text class="em-name" x="1407" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1582" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1591" y="52">SCREEN</text><text class="em-name" x="1591" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 2718)" id="slice-the-turn-runs-out-of-time">
 <text class="em-title" x="18" y="18">the turn runs out of time</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-processor"><title>processor TurnClock | consumes TurnStarted | issues EndTurn</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">TurnClock</text></g>
-<g class="em-box em-command"><title>command EndTurn game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">EndTurn</text></g>
-<g class="em-box em-event"><title>event TurnEnded game:string agent:string chat:int turn:int outcome:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">TurnEnded</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-processor"><title>processor TurnClock | consumes TurnStarted | issues EndTurn</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">TurnClock</text></g>
+<g class="em-box em-command"><title>command EndTurn game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">EndTurn</text></g>
+<g class="em-box em-event"><title>event TurnEnded game:string agent:string chat:int turn:int outcome:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">TurnEnded</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-turnthread">
 <text class="em-group" x="18" y="2984">TurnThread  ·  screen</text>
-<line class="em-rule" x1="0" y1="2990" x2="1614" y2="2990"/>
+<line class="em-rule" x1="0" y1="2990" x2="1758" y2="2990"/>
 <g transform="translate(0 2996)" id="slice-the-producer-talks">
 <text class="em-title" x="18" y="18">the producer talks</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
-<g class="em-box em-command"><title>command AddLine game:string agent:string chat:int line:LineBody | reads Chat | produces LineAdded</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">AddLine</text></g>
-<g class="em-box em-event"><title>event LineAdded game:string agent:string chat:int n:int line:LineBody</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">LineAdded</text></g>
-<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Chat</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
+<g class="em-box em-command"><title>command AddLine game:string agent:string chat:int line:LineBody | reads Chat | produces LineAdded</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">AddLine</text></g>
+<g class="em-box em-event"><title>event LineAdded game:string agent:string chat:int n:int line:LineBody</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">LineAdded</text></g>
+<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Chat</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 3240)" id="slice-the-turn-ends">
 <text class="em-title" x="18" y="18">the turn ends</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
-<g class="em-box em-command"><title>command EndTurn game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">EndTurn</text></g>
-<g class="em-box em-event"><title>event TurnEnded game:string agent:string chat:int turn:int outcome:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">TurnEnded</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
+<g class="em-box em-command"><title>command EndTurn game:string agent:string chat:int turn:int outcome:string | reads Desk | produces TurnEnded | refuses staleTurn</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">EndTurn</text></g>
+<g class="em-box em-event"><title>event TurnEnded game:string agent:string chat:int turn:int outcome:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">TurnEnded</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 3484)" id="slice-the-agent-names-its-session">
 <text class="em-title" x="18" y="18">the agent names its session</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
-<g class="em-box em-command"><title>command ReportSession game:string agent:string chat:int session:string | reads ChatBook | produces SessionReported | refuses badSession</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">ReportSession</text></g>
-<g class="em-box em-event"><title>event SessionReported game:string agent:string chat:int session:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">SessionReported</text></g>
-<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">ChatBook</text></g>
-<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatList</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
+<g class="em-box em-command"><title>command ReportSession game:string agent:string chat:int session:string | reads ChatBook | produces SessionReported | refuses badSession</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">ReportSession</text></g>
+<g class="em-box em-event"><title>event SessionReported game:string agent:string chat:int session:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">SessionReported</text></g>
+<g class="em-box em-view"><title>view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">ChatBook</text></g>
+<g class="em-box em-query"><title>query ChatList game:string agent:string | reads ChatBook | returns ChatListing</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatList</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 3728)" id="slice-the-agent-says-what-it-ran">
 <text class="em-title" x="18" y="18">the agent says what it ran</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
-<g class="em-box em-command"><title>command ReportModel game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string | reads Producers | produces ModelReported</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">ReportModel</text></g>
-<g class="em-box em-event"><title>event ModelReported game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ModelReported</text></g>
-<g class="em-box em-view"><title>view Producers ran:list[Ran] | consumes ModelReported</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Producers</text></g>
-<g class="em-box em-query"><title>query ProducerNow game:string agent:string | reads Producers | returns Ran</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ProducerNow</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
+<g class="em-box em-command"><title>command ReportModel game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string | reads Producers | produces ModelReported</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">ReportModel</text></g>
+<g class="em-box em-event"><title>event ModelReported game:string agent:string speed:string askedModel:string askedEffort:string model:string effort:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ModelReported</text></g>
+<g class="em-box em-view"><title>view Producers ran:list[Ran] | consumes ModelReported</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Producers</text></g>
+<g class="em-box em-query"><title>query ProducerNow game:string agent:string | reads Producers | returns Ran</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ProducerNow</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 <g transform="translate(0 3972)" id="slice-open-a-chat-again">
 <text class="em-title" x="18" y="18">open a chat again</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
-<g class="em-box em-command"><title>command RestoreChat game:string agent:string chat:int lines:list[LineBody] lastN:int persist:bool | reads Chat | produces ChatRestored,LineAdded</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">RestoreChat</text></g>
-<g class="em-box em-event"><title>event ChatRestored game:string agent:string chat:int lastN:int lines:list[LineBody]</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ChatRestored</text></g>
-<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Chat</text></g>
-<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">ChatSince</text></g>
-<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">ChatPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen TurnThread | commands AddLine,EndTurn,ReportModel,ReportSession,RestoreChat</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">TurnThread</text></g>
+<g class="em-box em-command"><title>command RestoreChat game:string agent:string chat:int lines:list[LineBody] lastN:int persist:bool | reads Chat | produces ChatRestored,LineAdded</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">RestoreChat</text></g>
+<g class="em-box em-event"><title>event ChatRestored game:string agent:string chat:int lastN:int lines:list[LineBody]</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ChatRestored</text></g>
+<g class="em-box em-view"><title>view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatForgotten,ChatRestored,LineAdded,TurnEnded</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Chat</text></g>
+<g class="em-box em-query"><title>query ChatSince game:string agent:string chat:int since:int | reads Chat,Desk | returns ChatPage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">ChatSince</text></g>
+<g class="em-box em-screen"><title>screen ChatPanel | queries ChatList,ChatSince,ProducerNow | commands DeleteChat,NewChat,OpenChat,PickProducer,PickSpeed,StartTurn,StopTurn,UseChat</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">ChatPanel</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-stepspanel">
 <text class="em-group" x="18" y="4238">StepsPanel  ·  screen</text>
-<line class="em-rule" x1="0" y1="4244" x2="1614" y2="4244"/>
+<line class="em-rule" x1="0" y1="4244" x2="1758" y2="4244"/>
 <g transform="translate(0 4250)" id="slice-run-a-step">
 <text class="em-title" x="18" y="18">run a step</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">StepsPanel</text></g>
-<g class="em-box em-command"><title>command StartStep game:string kind:string message:string | reads Desk | produces StepStarted | refuses badMessage,busy,needsMessage</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">StartStep</text></g>
-<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StepStarted</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">DeskNow</text></g>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">StepsPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">StepsPanel</text></g>
+<g class="em-box em-command"><title>command StartStep game:string kind:string message:string | reads Desk,PlayWindow | produces StepStarted | refuses badMessage,busy,needsMessage</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StartStep</text></g>
+<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StepStarted</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">DeskNow</text></g>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">StepsPanel</text></g>
 </g>
 <g transform="translate(0 4494)" id="slice-the-step-runs">
 <text class="em-title" x="18" y="18">the step runs</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-processor"><title>processor StepRunner | consumes StepStarted | issues EndStep</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">StepRunner</text></g>
-<g class="em-box em-command"><title>command EndStep step:int code:int | reads Desk | produces StepEnded | refuses staleStep</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">EndStep</text></g>
-<g class="em-box em-event"><title>event StepEnded step:int code:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StepEnded</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query JobNow | reads Desk | returns JobFacts</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">JobNow</text></g>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">StepsPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-processor"><title>processor StepRunner | consumes StepStarted | issues EndStep</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">StepRunner</text></g>
+<g class="em-box em-command"><title>command EndStep step:int code:int | reads Desk | produces StepEnded | refuses staleStep</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">EndStep</text></g>
+<g class="em-box em-event"><title>event StepEnded step:int code:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StepEnded</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query JobNow | reads Desk | returns JobFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">JobNow</text></g>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">StepsPanel</text></g>
 </g>
 <g transform="translate(0 4738)" id="slice-the-step-runs-out-of-time">
 <text class="em-title" x="18" y="18">the step runs out of time</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-processor"><title>processor StepClock | consumes StepStarted | issues EndStep</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">StepClock</text></g>
-<g class="em-box em-command"><title>command EndStep step:int code:int | reads Desk | produces StepEnded | refuses staleStep</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">EndStep</text></g>
-<g class="em-box em-event"><title>event StepEnded step:int code:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StepEnded</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query JobNow | reads Desk | returns JobFacts</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">JobNow</text></g>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">StepsPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-processor"><title>processor StepClock | consumes StepStarted | issues EndStep</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">PROCESSOR</text><text class="em-name" x="119" y="70">StepClock</text></g>
+<g class="em-box em-command"><title>command EndStep step:int code:int | reads Desk | produces StepEnded | refuses staleStep</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">EndStep</text></g>
+<g class="em-box em-event"><title>event StepEnded step:int code:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StepEnded</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query JobNow | reads Desk | returns JobFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">JobNow</text></g>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">StepsPanel</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-backupsheet">
 <text class="em-group" x="18" y="5004">BackupSheet  ·  screen</text>
-<line class="em-rule" x1="0" y1="5010" x2="1614" y2="5010"/>
+<line class="em-rule" x1="0" y1="5010" x2="1758" y2="5010"/>
 <g transform="translate(0 5016)" id="slice-back-up-online">
 <text class="em-title" x="18" y="18">back up online</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen BackupSheet | commands StartStep</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">BackupSheet</text></g>
-<g class="em-box em-command"><title>command StartStep game:string kind:string message:string | reads Desk | produces StepStarted | refuses badMessage,busy,needsMessage</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">StartStep</text></g>
-<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StepStarted</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">DeskNow</text></g>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">StepsPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen BackupSheet | commands StartStep</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">BackupSheet</text></g>
+<g class="em-box em-command"><title>command StartStep game:string kind:string message:string | reads Desk,PlayWindow | produces StepStarted | refuses badMessage,busy,needsMessage</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StartStep</text></g>
+<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StepStarted</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">DeskNow</text></g>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">StepsPanel</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-jobthread">
 <text class="em-group" x="18" y="5282">JobThread  ·  screen</text>
-<line class="em-rule" x1="0" y1="5288" x2="1614" y2="5288"/>
+<line class="em-rule" x1="0" y1="5288" x2="1758" y2="5288"/>
 <g transform="translate(0 5294)" id="slice-a-step-ends">
 <text class="em-title" x="18" y="18">a step ends</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen JobThread | commands EndStep</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">JobThread</text></g>
-<g class="em-box em-command"><title>command EndStep step:int code:int | reads Desk | produces StepEnded | refuses staleStep</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">EndStep</text></g>
-<g class="em-box em-event"><title>event StepEnded step:int code:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StepEnded</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">DeskNow</text></g>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">StepsPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen JobThread | commands EndStep</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">JobThread</text></g>
+<g class="em-box em-command"><title>command EndStep step:int code:int | reads Desk | produces StepEnded | refuses staleStep</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">EndStep</text></g>
+<g class="em-box em-event"><title>event StepEnded step:int code:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StepEnded</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">DeskNow</text></g>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">StepsPanel</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-setuppanel">
 <text class="em-group" x="18" y="5560">SetupPanel  ·  screen</text>
-<line class="em-rule" x1="0" y1="5566" x2="1614" y2="5566"/>
+<line class="em-rule" x1="0" y1="5566" x2="1758" y2="5566"/>
 <g transform="translate(0 5572)" id="slice-pick-the-first-one">
 <text class="em-title" x="18" y="18">pick the first one</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<g class="em-box em-screen"><title>screen SetupPanel | commands PickProducer</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">SetupPanel</text></g>
-<g class="em-box em-command"><title>command PickProducer game:string agent:string | reads Desk | produces AgentPicked | refuses busy</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">PickProducer</text></g>
-<g class="em-box em-event"><title>event AgentPicked game:string agent:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">AgentPicked</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">COMMAND</text><text class="em-name" x="791" y="134">StartTurn</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<g class="em-box em-screen"><title>screen SetupPanel | commands PickProducer</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">SetupPanel</text></g>
+<g class="em-box em-command"><title>command PickProducer game:string agent:string | reads Desk | produces AgentPicked | refuses busy</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">PickProducer</text></g>
+<g class="em-box em-event"><title>event AgentPicked game:string agent:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">AgentPicked</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-command"><title>command StartTurn game:string agent:string chat:int text:string busyGames:list[string] | reads Chat,Desk | produces LineAdded,TurnStarted | refuses badMessage,busy,tooBusy</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">COMMAND</text><text class="em-name" x="855" y="134">StartTurn</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-newgamesheet">
 <text class="em-group" x="18" y="5838">NewGameSheet  ·  screen</text>
-<line class="em-rule" x1="0" y1="5844" x2="1614" y2="5844"/>
+<line class="em-rule" x1="0" y1="5844" x2="1758" y2="5844"/>
 <g transform="translate(0 5850)" id="slice-start-a-game">
 <text class="em-title" x="18" y="18">start a game</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen NewGameSheet | commands NewGame</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">NewGameSheet</text></g>
-<g class="em-box em-command"><title>command NewGame name:string existing:list[string] | reads Desk | produces StepStarted | refuses badName,busy,needsName,taken</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">NewGame</text></g>
-<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StepStarted</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">DeskNow</text></g>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">StepsPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen NewGameSheet | commands NewGame</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">NewGameSheet</text></g>
+<g class="em-box em-command"><title>command NewGame name:string existing:list[string] | reads Desk,PlayWindow | produces StepStarted | refuses badName,busy,needsName,taken</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">NewGame</text></g>
+<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StepStarted</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">DeskNow</text></g>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">StepsPanel</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-gamespanel">
 <text class="em-group" x="18" y="6116">GamesPanel  ·  screen</text>
-<line class="em-rule" x1="0" y1="6122" x2="1614" y2="6122"/>
+<line class="em-rule" x1="0" y1="6122" x2="1758" y2="6122"/>
 <g transform="translate(0 6128)" id="slice-land-a-helper-s-work">
 <text class="em-title" x="18" y="18">land a helper&apos;s work</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="756" y1="124" x2="779" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="924" y1="124" x2="947" y2="60"/>
-<g class="em-box em-screen"><title>screen GamesPanel | queries DeskNow | commands LandLane</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">GamesPanel</text></g>
-<g class="em-box em-command"><title>command LandLane game:string lane:string lanes:list[string] | reads Desk | produces StepStarted | refuses busy,noSuchLane</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">LandLane</text></g>
-<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">StepStarted</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
-<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="782" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="791" y="116">QUERY</text><text class="em-name" x="791" y="134">DeskNow</text></g>
-<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="950" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="959" y="52">SCREEN</text><text class="em-name" x="959" y="70">StepsPanel</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen GamesPanel | queries DeskNow | commands LandLane</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">GamesPanel</text></g>
+<g class="em-box em-command"><title>command LandLane game:string lane:string lanes:list[string] | reads Desk,PlayWindow | produces StepStarted | refuses busy,noSuchLane</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">LandLane</text></g>
+<g class="em-box em-event"><title>event StepStarted game:string step:int kind:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">StepStarted</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+<g class="em-box em-query"><title>query DeskNow game:string | reads Desk | returns DeskFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">DeskNow</text></g>
+<g class="em-box em-screen"><title>screen StepsPanel | queries DeskNow,JobNow | commands StartStep</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">StepsPanel</text></g>
 </g>
 </g>
 <g class="em-group-box" id="group-playpanel">
 <text class="em-group" x="18" y="6394">PlayPanel  ·  screen</text>
-<line class="em-rule" x1="0" y1="6400" x2="1614" y2="6400"/>
+<line class="em-rule" x1="0" y1="6400" x2="1758" y2="6400"/>
 <g transform="translate(0 6406)" id="slice-press-play">
 <text class="em-title" x="18" y="18">press play</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<g class="em-box em-screen"><title>screen PlayPanel | commands StartPlay,TakeShot</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayPanel</text></g>
-<g class="em-box em-command"><title>command StartPlay game:string hasSource:bool | reads Desk | produces PlayStarted | refuses busy,noSource</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">StartPlay</text></g>
-<g class="em-box em-event"><title>event PlayStarted game:string run:int</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">PlayStarted</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayPanel</text></g>
+<g class="em-box em-command"><title>command StartPlay game:string hasSource:bool | reads Desk | produces PlayStarted | refuses busy,noSource</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StartPlay</text></g>
+<g class="em-box em-event"><title>event PlayStarted game:string run:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">PlayStarted</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
 </g>
 <g transform="translate(0 6650)" id="slice-take-a-picture">
 <text class="em-title" x="18" y="18">take a picture</text>
 <text class="em-lane-name" x="18" y="63">who acts</text>
-<rect class="em-lane" x="92" y="92" width="1522" height="64"/>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
 <text class="em-lane-name" x="18" y="127">requests and answers</text>
 <text class="em-lane-name" x="18" y="191">facts</text>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="252" y1="60" x2="275" y2="124"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="420" y1="124" x2="443" y2="188"/>
-<line class="em-edge" marker-end="url(#em-arrow)" x1="588" y1="188" x2="611" y2="124"/>
-<g class="em-box em-screen"><title>screen PlayPanel | commands StartPlay,TakeShot</title><rect x="110" y="37" width="142" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayPanel</text></g>
-<g class="em-box em-command"><title>command TakeShot game:string windowGame:string windowRunning:bool | produces ShotAsked | refuses notRunning,otherGame</title><rect x="278" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="287" y="116">COMMAND</text><text class="em-name" x="287" y="134">TakeShot</text></g>
-<g class="em-box em-event"><title>event ShotAsked game:string</title><rect x="446" y="165" width="142" height="46" rx="7"/><text class="em-kind" x="455" y="180">EVENT</text><text class="em-name" x="455" y="198">ShotAsked</text></g>
-<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="614" y="101" width="142" height="46" rx="7"/><text class="em-kind" x="623" y="116">VIEW</text><text class="em-name" x="623" y="134">Desk</text></g>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayPanel</text></g>
+<g class="em-box em-command"><title>command TakeShot game:string windowGame:string windowRunning:bool | reads PlayWindow | produces ShotAsked | refuses notRunning,otherGame</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">TakeShot</text></g>
+<g class="em-box em-event"><title>event ShotAsked game:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">ShotAsked</text></g>
+<g class="em-box em-view"><title>view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">Desk</text></g>
+</g>
+<g transform="translate(0 6894)" id="slice-the-window-sees-play">
+<text class="em-title" x="18" y="18">the window sees Play</text>
+<text class="em-lane-name" x="18" y="63">who acts</text>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
+<text class="em-lane-name" x="18" y="127">requests and answers</text>
+<text class="em-lane-name" x="18" y="191">facts</text>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayPanel</text></g>
+<g class="em-box em-command"><title>command StartPlay game:string hasSource:bool | reads Desk | produces PlayStarted | refuses busy,noSource</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StartPlay</text></g>
+<g class="em-box em-event"><title>event PlayStarted game:string run:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">PlayStarted</text></g>
+<g class="em-box em-view"><title>view PlayWindow phase:string game:string run:int code:string message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">PlayWindow</text></g>
+<g class="em-box em-query"><title>query PlayNow | reads PlayWindow | returns PlayFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">PlayNow</text></g>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">PlayPanel</text></g>
+</g>
+<g transform="translate(0 7138)" id="slice-a-step-waits-for-play-s-build">
+<text class="em-title" x="18" y="18">a step waits for Play&apos;s build</text>
+<text class="em-lane-name" x="18" y="63">who acts</text>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
+<text class="em-lane-name" x="18" y="127">requests and answers</text>
+<text class="em-lane-name" x="18" y="191">facts</text>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayPanel</text></g>
+<g class="em-box em-command"><title>command StartPlay game:string hasSource:bool | reads Desk | produces PlayStarted | refuses busy,noSource</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StartPlay</text></g>
+<g class="em-box em-event"><title>event PlayStarted game:string run:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">PlayStarted</text></g>
+<g class="em-box em-view"><title>view PlayWindow phase:string game:string run:int code:string message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">PlayWindow</text></g>
+<g class="em-box em-command"><title>command StartStep game:string kind:string message:string | reads Desk,PlayWindow | produces StepStarted | refuses badMessage,busy,needsMessage</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">COMMAND</text><text class="em-name" x="855" y="134">StartStep</text></g>
+</g>
+<g transform="translate(0 7382)" id="slice-stop-the-game">
+<text class="em-title" x="18" y="18">stop the game</text>
+<text class="em-lane-name" x="18" y="63">who acts</text>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
+<text class="em-lane-name" x="18" y="127">requests and answers</text>
+<text class="em-lane-name" x="18" y="191">facts</text>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="60"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="60" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1188" y1="188" x2="1211" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1372" y1="124" x2="1395" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1556" y1="124" x2="1579" y2="60"/>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayPanel</text></g>
+<g class="em-box em-command"><title>command StopPlay | reads PlayWindow | produces PlayStopRequested | refuses idle</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">StopPlay</text></g>
+<g class="em-box em-event"><title>event PlayStopRequested run:int</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">PlayStopRequested</text></g>
+<g class="em-box em-processor"><title>processor PlayRunner | consumes PlayStarted,PlayStopRequested | issues EndPlay,PlayPhase</title><rect x="662" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="52">PROCESSOR</text><text class="em-name" x="671" y="70">PlayRunner</text></g>
+<g class="em-box em-command"><title>command EndPlay run:int code:string message:string detail:string | reads PlayWindow | produces PlayEnded | refuses staleRun</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">COMMAND</text><text class="em-name" x="855" y="134">EndPlay</text></g>
+<g class="em-box em-event"><title>event PlayEnded run:int code:string message:string detail:string</title><rect x="1030" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="180">EVENT</text><text class="em-name" x="1039" y="198">PlayEnded</text></g>
+<g class="em-box em-view"><title>view PlayWindow phase:string game:string run:int code:string message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested</title><rect x="1214" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="1223" y="116">VIEW</text><text class="em-name" x="1223" y="134">PlayWindow</text></g>
+<g class="em-box em-query"><title>query PlayNow | reads PlayWindow | returns PlayFacts</title><rect x="1398" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="1407" y="116">QUERY</text><text class="em-name" x="1407" y="134">PlayNow</text></g>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="1582" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1591" y="52">SCREEN</text><text class="em-name" x="1591" y="70">PlayPanel</text></g>
+</g>
+</g>
+<g class="em-group-box" id="group-playthread">
+<text class="em-group" x="18" y="7648">PlayThread  ·  screen</text>
+<line class="em-rule" x1="0" y1="7654" x2="1758" y2="7654"/>
+<g transform="translate(0 7660)" id="slice-the-window-opens">
+<text class="em-title" x="18" y="18">the window opens</text>
+<text class="em-lane-name" x="18" y="63">who acts</text>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
+<text class="em-lane-name" x="18" y="127">requests and answers</text>
+<text class="em-lane-name" x="18" y="191">facts</text>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen PlayThread | commands EndPlay,PlayPhase</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayThread</text></g>
+<g class="em-box em-command"><title>command PlayPhase run:int phase:string message:string code:string | reads PlayWindow | produces PlayPhased | refuses staleRun</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">PlayPhase</text></g>
+<g class="em-box em-event"><title>event PlayPhased run:int phase:string message:string code:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">PlayPhased</text></g>
+<g class="em-box em-view"><title>view PlayWindow phase:string game:string run:int code:string message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">PlayWindow</text></g>
+<g class="em-box em-query"><title>query PlayNow | reads PlayWindow | returns PlayFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">PlayNow</text></g>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">PlayPanel</text></g>
+</g>
+<g transform="translate(0 7904)" id="slice-the-window-closes">
+<text class="em-title" x="18" y="18">the window closes</text>
+<text class="em-lane-name" x="18" y="63">who acts</text>
+<rect class="em-lane" x="92" y="92" width="1666" height="64"/>
+<text class="em-lane-name" x="18" y="127">requests and answers</text>
+<text class="em-lane-name" x="18" y="191">facts</text>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="268" y1="60" x2="291" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="452" y1="124" x2="475" y2="188"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="636" y1="188" x2="659" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="820" y1="124" x2="843" y2="124"/>
+<line class="em-edge" marker-end="url(#em-arrow)" x1="1004" y1="124" x2="1027" y2="60"/>
+<g class="em-box em-screen"><title>screen PlayThread | commands EndPlay,PlayPhase</title><rect x="110" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="119" y="52">SCREEN</text><text class="em-name" x="119" y="70">PlayThread</text></g>
+<g class="em-box em-command"><title>command EndPlay run:int code:string message:string detail:string | reads PlayWindow | produces PlayEnded | refuses staleRun</title><rect x="294" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="303" y="116">COMMAND</text><text class="em-name" x="303" y="134">EndPlay</text></g>
+<g class="em-box em-event"><title>event PlayEnded run:int code:string message:string detail:string</title><rect x="478" y="165" width="158" height="46" rx="7"/><text class="em-kind" x="487" y="180">EVENT</text><text class="em-name" x="487" y="198">PlayEnded</text></g>
+<g class="em-box em-view"><title>view PlayWindow phase:string game:string run:int code:string message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested</title><rect x="662" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="671" y="116">VIEW</text><text class="em-name" x="671" y="134">PlayWindow</text></g>
+<g class="em-box em-query"><title>query PlayNow | reads PlayWindow | returns PlayFacts</title><rect x="846" y="101" width="158" height="46" rx="7"/><text class="em-kind" x="855" y="116">QUERY</text><text class="em-name" x="855" y="134">PlayNow</text></g>
+<g class="em-box em-screen"><title>screen PlayPanel | queries PlayNow | commands StartPlay,StopPlay,TakeShot</title><rect x="1030" y="37" width="158" height="46" rx="7"/><text class="em-kind" x="1039" y="52">SCREEN</text><text class="em-name" x="1039" y="70">PlayPanel</text></g>
 </g>
 </g>
 </svg>

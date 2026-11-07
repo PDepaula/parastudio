@@ -10,7 +10,7 @@
 #
 # `-d:dev` is what puts the control channel in the game (paraloop/dev: `tmp/dev.sock`, or on
 # Windows a loopback port written to that same path), which is how this file asks "are you up?"
-# (`ping`, the request `para live status` makes) and how studioshot.nim asks for a picture. The
+# (`pingGame`, the request `para live status` makes) and how studioshot.nim asks for a picture. The
 # binary goes in its own folder, so it never overwrites the `tmp/<game>` that `para build` makes,
 # and the compiler keeps the nimcache of a terminal `nim c -r -d:dev` run, so the two warm each other.
 #
@@ -22,14 +22,32 @@
 # `TurnControl`, the same code that stops a chat turn). No unix signal is used on Windows, and
 # nothing here runs through `sh -c` or `cmd /c`.
 #
-# One thread runs one Play from the build to the window's exit; the HTTP side only reads the state
-# (`playView`), which also pings the game to see whether it is answering. The start, stop and
-# shutdown calls take `gate`, so two clicks never interleave.
+# What the window IS (idle, building, starting, running, failed or exited, and for which run) is not
+# kept here: it is the desk's `PlayWindow` view (studiodesk.nim), so every "may this start" (Play while
+# a step runs, a step while Play builds, a picture of another game's window, Stop with nothing to stop)
+# is one rule in one place. This file is the shell around it:
+#
+#   - `PlayRunner`, the desk's processor, calls `playOpen` when Play was accepted and `playStop` when
+#     Stop was pressed. Both run inside the command, under the studio's ONE lock (`studiochat.nim`'s
+#     `ChatState.lock`; this file has no lock of its own), so they only start a thread or hand a stop
+#     on, and never wait: ending a program waits a few seconds for it to go, so that is a small thread
+#     of its own (`stopMain`).
+#   - one thread runs one Play run from the build to the window's exit (`playMain`) and reports back
+#     with the commands `PlayPhase` and `EndPlay`, which the desk refuses (`staleRun`) once another
+#     Play has replaced the run. A second Play therefore starts at once: its thread first waits (it,
+#     not the lock) until the older runs' threads have ended, so the program being replaced is gone
+#     before the build overwrites it (Windows will not overwrite a running program).
+#   - what is kept here is what the desk must not hold: each run's output lines, its programs'
+#     controls and its threads. They are guarded by the studio's one lock too.
+#   - the page's poll (`playView`) reads the desk's answer, adds the build's latest `CC:` line and
+#     pings the game, and tells the desk when the window has started answering (or has not, in time).
 
-import std/[locks, os, osproc, streams, strutils, times, sequtils]
+import std/[os, osproc, streams, strutils, times, sequtils]
 import agent
 import devclient
 import nimutil
+import studiochat
+import studiodesk
 import studioshot
 
 const
@@ -37,7 +55,7 @@ const
   maxLineChars = 400
   maxDetailLines = 8
   pingMs = 1000
-  stopWaitSeconds = 15.0 ## how long a stop waits for the run's thread to finish before giving up on it
+  stopWaitSeconds = 15.0 ## how long a stop, a second Play or the studio closing waits for a run's thread to finish before giving up on it
 
 var startWaitSeconds* = 45.0 ## a started window that has not answered by now is shown as open but not answering (a var so a test can shorten it)
 
@@ -51,27 +69,28 @@ type
   Planner* = proc (root, game: string): PlayLaunch {.nimcall, gcsafe.}
     ## What to run for `game`. The studio uses `defaultPlan`; a test passes a stand-in.
 
-  PlayPhase = enum
-    ppIdle, ppBuilding, ppStarting, ppRunning, ppFailed, ppExited
-
   Play* = object
-    lock: Lock
-    gate: Lock ## held by start, stop and shutdown
+    chat: ptr ChatState ## the desk, and its ONE lock
     root: string
     planner: Planner
-    plan: PlayLaunch
-    phase: PlayPhase
+    runs: seq[ptr PlayRun] ## the runs whose threads or controls are not freed yet, oldest first (under the lock)
+
+  PlayRun = object
+    play: ptr Play
+    id: int ## the run's number, the desk's `PlayStarted.run`
     game: string
-    runId: int
+    plan: PlayLaunch
     lines: seq[string]
-    code, message, detail: string
+    ctl: ptr TurnControl ## the program running now (the build, then the window); nil between them and after the end
+    ctls: seq[ptr TurnControl]
     startedAt: float ## when the window was launched
     stopRequested: bool
-    active: bool ## the thread has not finished
-    ctl: ptr TurnControl
-    ctls: seq[ptr TurnControl]
-    thread: Thread[ptr Play]
-    threadStarted: bool
+    done: bool ## the thread's last act: nothing of this run is left running but the thread's exit
+    started: bool ## the thread was started
+    thread: Thread[ptr PlayRun]
+    stopper: Thread[ptr PlayRun]
+    stopperStarted: bool
+    stopperDone: bool
 
   PlayView* = object
     state*: string ## idle, building, starting, running, failed or exited
@@ -82,6 +101,13 @@ type
     detail*: string ## the few lines that say what went wrong, redacted
     progress*: string ## while building: the latest `CC: <module>` line, "" before the C compiler starts
     live*: bool ## the window answered a ping just now
+
+template locked(play: ptr Play, body: untyped) =
+  lockDesk(play.chat)
+  try:
+    body
+  finally:
+    unlockDesk(play.chat)
 
 # --- what to run -----------------------------------------------------------------
 
@@ -164,27 +190,16 @@ proc cleanLine(line: string): string =
     if c >= ' ' and c != '\x7f': result.add c
     elif c == '\t': result.add ' '
 
-proc addLine(play: ptr Play, line: string) =
+proc addLine(run: ptr PlayRun, line: string) =
   let clean = cleanLine(line)
-  acquire(play.lock)
-  play.lines.add clean
-  if play.lines.len > maxLines: play.lines = play.lines[play.lines.len - maxLines .. ^1]
-  release(play.lock)
+  locked(run.play):
+    run.lines.add clean
+    if run.lines.len > maxLines: run.lines = run.lines[run.lines.len - maxLines .. ^1]
 
-proc initPlay*(play: ptr Play, root: string, planner: Planner) =
-  initLock(play.lock)
-  initLock(play.gate)
-  play.root = root
-  play.planner = planner
-
-proc settle(play: ptr Play, phase: PlayPhase, code, message, detail: string) =
-  acquire(play.lock)
-  play.phase = phase
-  play.code = code
-  play.message = message
-  play.detail = detail
-  play.ctl = nil
-  release(play.lock)
+proc runOf(play: ptr Play, id: int): ptr PlayRun =
+  ## Called with the lock held.
+  for r in play.runs:
+    if r.id == id: return r
 
 # --- the thread ------------------------------------------------------------------
 
@@ -192,199 +207,254 @@ type Child = object
   started: bool
   code: int
 
-proc runChild(play: ptr Play, exe: string, args: seq[string], ctl: ptr TurnControl, onStarted: bool): Child =
+proc runChild(run: ptr PlayRun, exe: string, args: seq[string], ctl: ptr TurnControl, onStarted: bool): Child =
   ## Starts `exe` in the repository root, reads its output into the line buffer until it ends, and
   ## waits for it. `onStarted`: the window phase, so the clock for "not answering" starts.
   var p: Process
   try:
-    p = startLocked(exe, workingDir = play.root, args = args, options = {poUsePath, poStdErrToStdOut, poDaemon})
+    p = startLocked(exe, workingDir = run.play.root, args = args, options = {poUsePath, poStdErrToStdOut, poDaemon})
   except OSError as e:
-    play.addLine "cannot run " & exe & ": " & e.msg
+    run.addLine "cannot run " & exe & ": " & e.msg
     return Child(started: false, code: 127)
   result.started = true
   ctl.attach(p.processID)
   if onStarted:
-    acquire(play.lock)
-    play.startedAt = epochTime()
-    release(play.lock)
+    locked(run.play):
+      run.startedAt = epochTime()
   var line: string
   try:
-    while p.outputStream.readLine(line): play.addLine line
+    while p.outputStream.readLine(line): run.addLine line
   except IOError, OSError:
     discard # the program is gone; its exit code tells the story
   result.code = p.waitForExit()
   ctl.markExited()
   p.close()
 
-proc wasStopped(play: ptr Play): bool =
-  acquire(play.lock)
-  result = play.stopRequested
-  release(play.lock)
+proc wasStopped(run: ptr PlayRun): bool =
+  locked(run.play):
+    result = run.stopRequested
 
-proc finishStopped(play: ptr Play) =
-  settle(play, ppIdle, "", "The game was stopped.", "")
+proc endRun(run: ptr PlayRun, code, message, detail: string) =
+  ## The run's end, told to the desk: the code decides whether the window shows idle, exited or
+  ## failed. The desk refuses it when another Play has replaced this run, and that is fine.
+  locked(run.play):
+    run.ctl = nil
+    discard endPlayLocked(run.play.chat, run.id, code, message, detail)
 
-proc playRun(play: ptr Play) =
-  var plan: PlayLaunch
+proc finishStopped(run: ptr PlayRun) =
+  endRun(run, "", "The game was stopped.", "")
+
+proc waitForEarlier(run: ptr PlayRun): string =
+  ## A second Play replaced older runs; this run's thread (never the lock) waits until their threads
+  ## are done, so a program being replaced is gone before the build writes over it. "go", "stopped"
+  ## (this run was stopped meanwhile) or "stuck" (an older run did not end in time).
+  let until = epochTime() + stopWaitSeconds
+  while true:
+    var clear = true
+    var stopped = false
+    locked(run.play):
+      stopped = run.stopRequested
+      for r in run.play.runs:
+        if r.id < run.id and not r.done: clear = false
+    if stopped: return "stopped"
+    if clear: return "go"
+    if epochTime() > until: return "stuck"
+    sleep(20)
+
+proc playRun(run: ptr PlayRun) =
+  let play = run.play
   var ctl: ptr TurnControl
-  acquire(play.lock)
-  plan = play.plan
-  ctl = play.ctl
-  release(play.lock)
+  case waitForEarlier(run)
+  of "stopped":
+    finishStopped(run)
+    return
+  of "stuck":
+    endRun(run, "restart", "The studio could not close the game window it opened before. Close that window yourself, then press Play again.", "")
+    return
+  else: discard
+  let plan = run.plan
+  locked(play):
+    ctl = run.ctl
 
   if plan.buildExe.len > 0:
     try: createDir(plan.gameExe.parentDir)
     except OSError: discard
-    let built = runChild(play, plan.buildExe, plan.buildArgs, ctl, false)
-    if wasStopped(play):
-      finishStopped(play)
+    let built = runChild(run, plan.buildExe, plan.buildArgs, ctl, false)
+    if wasStopped(run):
+      finishStopped(run)
       return
     if not built.started or built.code != 0:
       var lines: seq[string]
-      acquire(play.lock)
-      lines = play.lines
-      release(play.lock)
+      locked(play):
+        lines = run.lines
       let why = classifyBuildFailure(lines, not built.started)
       # the compiler spells paths out in full; the friend knows the game by its folder
       let shortDetail = why.detail.replace(play.root & "/", "").replace(play.root & "\\", "")
-      settle(play, ppFailed, why.code, why.message, shortDetail)
+      endRun(run, why.code, why.message, shortDetail)
       return
 
   if not fileExists(plan.gameExe):
-    settle(play, ppFailed, "no-program",
+    endRun(run, "no-program",
       "The build said it worked, but the game program is not where the studio expects it. Press Play again; if it still happens, tell the producer.", "")
     return
 
-  acquire(play.lock)
-  if play.stopRequested:
-    release(play.lock)
-    finishStopped(play)
+  var stopped = false
+  locked(play):
+    if run.stopRequested:
+      stopped = true
+    else:
+      ctl = newTurnControl() # the window's own control: the build's has already seen its program exit
+      run.ctls.add ctl
+      run.ctl = ctl
+      run.lines = @[]
+      run.startedAt = epochTime()
+      discard phasePlayLocked(play.chat, run.id, "starting", playOpeningMessage, "")
+  if stopped:
+    finishStopped(run)
     return
-  ctl = newTurnControl() # the window's own control: the build's has already seen its program exit
-  play.ctls.add ctl
-  play.ctl = ctl
-  play.lines = @[]
-  play.phase = ppStarting
-  play.startedAt = epochTime()
-  release(play.lock)
 
-  let ran = runChild(play, plan.gameExe, plan.gameArgs, ctl, true)
-  if wasStopped(play):
-      finishStopped(play)
-      return
+  let ran = runChild(run, plan.gameExe, plan.gameArgs, ctl, true)
+  if wasStopped(run):
+    finishStopped(run)
+    return
   var lines: seq[string]
   var wasStarting: bool
-  acquire(play.lock)
-  lines = play.lines
-  # still "starting" only if nothing has answered and it ended soon enough to be a failed start
-  wasStarting = play.phase == ppStarting and epochTime() - play.startedAt < startWaitSeconds
-  release(play.lock)
+  locked(play):
+    lines = run.lines
+    # still "starting" only if nothing has answered and it ended soon enough to be a failed start
+    let w = windowLocked(play.chat)
+    wasStarting = w.run == run.id and w.state == "starting" and epochTime() - run.startedAt < startWaitSeconds
   if not ran.started:
-    settle(play, ppFailed, "cannot-start",
+    endRun(run, "cannot-start",
       "The studio could not start the game program. " & (if lines.len > 0: oneLine(redactSecrets(lines[^1]), 160) else: ""), "")
     return
   let why = classifyGameExit(lines, ran.code, wasStarting, displayEnvMissing())
-  let phase = if why.code == "closed": ppExited elif wasStarting: ppFailed else: ppExited
-  settle(play, phase, why.code, why.message, why.detail)
+  endRun(run, why.code, why.message, why.detail)
 
-proc playMain(play: ptr Play) {.thread.} =
+proc playMain(run: ptr PlayRun) {.thread.} =
   {.cast(gcsafe).}:
     try:
-      playRun(play)
+      playRun(run)
     except CatchableError as e:
-      settle(play, ppFailed, "studio-error", "The studio hit a problem while running the game: " & oneLine(redactSecrets(e.msg), 160), "")
-  acquire(play.lock)
-  play.active = false
-  release(play.lock)
+      endRun(run, "studio-error", "The studio hit a problem while running the game: " & oneLine(redactSecrets(e.msg), 160), "")
+  locked(run.play):
+    run.done = true # the last act: after this the run's pieces may be freed
 
-# --- start, stop, shutdown -----------------------------------------------------------
-
-proc isActive*(play: ptr Play): bool =
-  acquire(play.lock)
-  result = play.active
-  release(play.lock)
-
-proc reap(play: ptr Play) =
-  ## Joins the last run's thread and frees its controls. Only called when no run is active.
-  if play.threadStarted:
-    joinThread(play.thread)
-    play.threadStarted = false
-  for c in play.ctls: freeTurnControl(c)
-  play.ctls.setLen(0)
-  play.ctl = nil
-
-proc stopLocked(play: ptr Play): bool =
-  ## Ends the running build or window and waits until its thread is done. Needs `gate`.
+proc stopMain(run: ptr PlayRun) {.thread.} =
+  ## Ends the program the run has going now. `cancel` waits a few seconds for it to go, which nothing
+  ## under the lock may do, so a stop is handed to this thread.
   var ctl: ptr TurnControl
-  acquire(play.lock)
-  if play.active:
-    result = true
-    play.stopRequested = true
-    ctl = play.ctl
-  release(play.lock)
-  if not result: return
-  if ctl != nil: ctl.cancel("stop")
-  # the thread sees the request between steps too (a stop that came while one program was
-  # ending and the next not yet started): give it a moment either way
-  let until = epochTime() + stopWaitSeconds
-  while isActive(play) and epochTime() < until: sleep(20)
-  if not isActive(play): reap(play)
+  locked(run.play):
+    ctl = run.ctl
+  {.cast(gcsafe).}:
+    if ctl != nil: ctl.cancel("stop")
+  locked(run.play):
+    run.stopperDone = true
+
+# --- what the desk's processor calls (the lock is held: start, hand on, never wait) ---------
+
+proc reapLocked(play: ptr Play) =
+  ## Joins and frees every run that is over (its thread has made its last act, so a join returns at
+  ## once). Called with the lock held.
+  var kept: seq[ptr PlayRun]
+  for r in play.runs:
+    if r.done and (not r.stopperStarted or r.stopperDone):
+      if r.started: joinThread(r.thread)
+      if r.stopperStarted: joinThread(r.stopper)
+      for c in r.ctls: freeTurnControl(c)
+      reset(r.lines)
+      reset(r.ctls)
+      reset(r.plan)
+      reset(r.game)
+      dealloc(r)
+    else:
+      kept.add r
+  play.runs = kept
+
+proc haltLocked(run: ptr PlayRun) =
+  ## Asks a run to end: its thread sees the flag between its two programs, and the stopper thread
+  ## ends the program that is going now. Called with the lock held.
+  if run.done or run.stopRequested: return
+  run.stopRequested = true
+  try:
+    createThread(run.stopper, stopMain, run)
+    run.stopperStarted = true
+  except CatchableError:
+    discard # the flag alone still ends the run between its programs
+
+proc playOpen(data: pointer, e: PlayStarted): string {.nimcall, gcsafe.} =
+  ## Play was accepted: end the run that is open (a second Play restarts), and start this run's
+  ## thread. Answers the phase the run is in: "building", "starting" (nothing to build) or "" (it
+  ## did not start).
+  let play = cast[ptr Play](data)
+  play.reapLocked()
+  for r in play.runs: haltLocked(r)
+  let r = create(PlayRun)
+  r.play = play
+  r.id = e.run
+  r.game = e.game
+  try:
+    r.plan = play.planner(play.root, e.game)
+  except CatchableError:
+    dealloc(r)
+    return ""
+  r.ctl = newTurnControl()
+  r.ctls.add r.ctl
+  r.startedAt = epochTime()
+  play.runs.add r
+  try:
+    createThread(r.thread, playMain, r)
+    r.started = true
+  except CatchableError:
+    r.done = true # reaped with the next Play
+    return ""
+  if r.plan.buildExe.len > 0: "building" else: "starting"
+
+proc playStop(data: pointer, e: PlayStopRequested): bool {.nimcall, gcsafe.} =
+  ## Stop was pressed: hand it on to the run. False when no run is left to end it.
+  let play = cast[ptr Play](data)
+  let r = play.runOf(e.run)
+  if r == nil or r.done: return false
+  haltLocked(r)
+  true
+
+proc initPlay*(play: ptr Play, chat: ptr ChatState, root: string, planner: Planner) =
+  ## Tells the desk's processor PlayRunner how to start and stop a run (its two hooks, kept in the
+  ## chat state; the processor reaches them through the desk's `hands`).
+  play.chat = chat
+  play.root = root
+  play.planner = planner
+  chat.setPlay(PlayHooks(data: play, open: playOpen, stop: playStop))
+
+# --- stop, shutdown ------------------------------------------------------------------
 
 proc stopPlay*(play: ptr Play): bool =
-  ## True when a build or a window was running and has been ended.
-  acquire(play.gate)
-  defer: release(play.gate)
-  stopLocked(play)
-
-proc startPlay*(play: ptr Play, game: string): bool =
-  ## Builds and opens `game`, ending whatever was running first. False when the studio could not
-  ## end the earlier run or start its thread.
-  acquire(play.gate)
-  defer: release(play.gate)
-  discard stopLocked(play)
-  if isActive(play): return false
-  reap(play)
-  let plan = play.planner(play.root, game)
-  acquire(play.lock)
-  inc play.runId
-  play.game = game
-  play.plan = plan
-  play.lines = @[]
-  play.code = ""
-  play.message = ""
-  play.detail = ""
-  play.stopRequested = false
-  play.phase = if plan.buildExe.len > 0: ppBuilding else: ppStarting
-  play.startedAt = epochTime()
-  let ctl = newTurnControl()
-  play.ctls.add ctl
-  play.ctl = ctl
-  play.active = true
-  release(play.lock)
-  try:
-    createThread(play.thread, playMain, play)
-    play.threadStarted = true
-    result = true
-  except CatchableError:
-    settle(play, ppFailed, "studio-error", "The studio could not start the game.", "")
-    acquire(play.lock)
-    play.active = false
-    release(play.lock)
+  ## True when a build or a window was running and has been ended: the desk takes the request, its
+  ## processor hands it on, and this call (not the lock) waits until the window is no longer
+  ## building, starting or running, so the page sees "idle" as soon as the stop returns.
+  if not askStopPlay(play.chat): return false
+  let until = epochTime() + stopWaitSeconds
+  while epochTime() < until:
+    if window(play.chat).state notin ["building", "starting", "running"]: break
+    sleep(20)
+  true
 
 proc shutdownPlay*(play: ptr Play) =
   ## The studio is closing: end the build or the window so nothing is left running.
-  discard stopPlay(play)
+  discard askStopPlay(play.chat)
+  let until = epochTime() + stopWaitSeconds
+  while epochTime() < until:
+    var busy = false
+    locked(play):
+      for r in play.runs:
+        if not r.done or (r.stopperStarted and not r.stopperDone): busy = true
+    if not busy: break
+    sleep(20)
+  locked(play):
+    play.reapLocked()
+  play.chat.setPlay(PlayHooks())
 
 # --- what the page reads -----------------------------------------------------------
-
-proc phaseName(ph: PlayPhase): string =
-  case ph
-  of ppIdle: "idle"
-  of ppBuilding: "building"
-  of ppStarting: "starting"
-  of ppRunning: "running"
-  of ppFailed: "failed"
-  of ppExited: "exited"
 
 proc pingGame*(root: string): bool =
   ## `para live status`'s question, asked in this process: does a game answer on the channel?
@@ -396,46 +466,37 @@ proc pingGame*(root: string): bool =
     false
 
 proc playView*(play: ptr Play): PlayView =
-  var phase: PlayPhase
-  var runId: int
+  ## The desk's answer, the build's latest `CC:` line, and whether the window answers a ping. A
+  ## window that starts answering (or does not in time) is told to the desk, which is where "running"
+  ## and "not-answering" come from.
+  var facts: PlayFacts
   var startedAt: float
-  acquire(play.lock)
-  phase = play.phase
-  runId = play.runId
-  startedAt = play.startedAt
-  result.game = play.game
-  result.run = play.runId
-  result.code = play.code
-  result.message = play.message
-  result.detail = play.detail
-  if phase == ppBuilding:
-    for i in countdown(play.lines.high, 0): # the C compiler's latest `CC: <module>` line
-      if play.lines[i].startsWith("CC: "):
-        result.progress = oneLine(play.lines[i], 120)
-        break
-  release(play.lock)
-  if phase in {ppStarting, ppRunning}:
+  locked(play):
+    facts = windowLocked(play.chat)
+    let r = play.runOf(facts.run)
+    if r != nil:
+      startedAt = r.startedAt
+      if facts.state == "building":
+        for i in countdown(r.lines.high, 0): # the C compiler's latest `CC: <module>` line
+          if r.lines[i].startsWith("CC: "):
+            result.progress = oneLine(r.lines[i], 120)
+            break
+  if facts.state in ["starting", "running"] and facts.code != "stopping":
     result.live = pingGame(play.root)
-    acquire(play.lock)
-    if play.runId == runId and play.phase in {ppStarting, ppRunning}:
-      if result.live:
-        play.phase = ppRunning
-        play.code = ""
-      elif play.phase == ppStarting and epochTime() - startedAt > startWaitSeconds:
-        play.phase = ppRunning
-        play.code = "not-answering"
-      phase = play.phase
-      if phase == ppRunning:
-        result.code = play.code
-        result.message = if result.live: "The game window is open."
-          else: "The game window is open, but it is not answering the studio, so screenshots will not work. If it just opened, give it a moment."
-    else:
-      # the run ended while we pinged: say how it ended
-      phase = play.phase
-      result.code = play.code
-      result.message = play.message
-      result.detail = play.detail
-    release(play.lock)
-  result.state = phaseName(phase)
-  if phase == ppStarting: result.message = "Opening the game window…"
-  elif phase == ppBuilding: result.message = "Building the game… the first time takes a few minutes."
+    locked(play):
+      let now = windowLocked(play.chat)
+      if now.run == facts.run and now.state in ["starting", "running"] and now.code != "stopping":
+        if result.live:
+          if now.state == "starting" or now.message != playOpenMessage or now.code.len > 0:
+            discard phasePlayLocked(play.chat, now.run, "running", playOpenMessage, "")
+        elif now.state == "starting" and epochTime() - startedAt > startWaitSeconds:
+          discard phasePlayLocked(play.chat, now.run, "running", playNotAnsweringMessage, "not-answering")
+        elif now.state == "running" and now.message != playNotAnsweringMessage:
+          discard phasePlayLocked(play.chat, now.run, "running", playNotAnsweringMessage, now.code)
+      facts = windowLocked(play.chat) # the run may have ended while we pinged: say how it ended
+  result.state = facts.state
+  result.game = facts.game
+  result.run = facts.run
+  result.message = facts.message
+  result.code = facts.code
+  result.detail = facts.detail

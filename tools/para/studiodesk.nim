@@ -4,9 +4,11 @@
 #
 # This module is the functional core of the chat slice of `para studio`: no thread, no lock, no
 # clock, no file, no process (a `decide`, a view's `on` and a query's `answer` are `func`s with
-# `tags: []`, so the compiler refuses any of those). The shell (studiochat.nim, studioapi.nim) owns
-# them: it runs the commands of this file under its ONE lock, starts the threads and the child
-# processes, and turns an accepted command into those effects.
+# `tags: []`, so the compiler refuses any of those). The shell (studiochat.nim, studioapi.nim,
+# studioplay.nim) owns them: it runs the commands of this file under its ONE lock, starts the threads
+# and the child processes, and turns an accepted command into those effects. The one place in this
+# file that may have an effect is a processor (the kit allows it side effects and checks only what it
+# issues), and its effect is a call into the shell through `hands`, below.
 #
 # The rules, each with a scenario in tests/studiodesk/scenarios.jsonl:
 #   one turn per game                        StartTurn   refuses busy
@@ -23,7 +25,13 @@
 #   one of the game's
 #   Play needs the game's source file, and   StartPlay   refuses noSource, busy
 #   waits for a step
+#   a step waits while Play builds (both     StartStep, NewGame, LandLane   refuse busy
+#   build the game)
 #   a picture is of the window that is open  TakeShot    refuses otherGame, notRunning
+#   Stop needs a build or a window to end    StopPlay    refuses idle
+#   the thread's reports are about the       PlayPhase, EndPlay   refuse staleRun
+#   run that is open (and no phase report
+#   follows a stop request)
 # and, from the shell, "a third game is refused while two have helpers building": the shell looks
 # the helpers' folders up and hands the games it found to StartTurn as `busyGames`. The same way, the
 # shell looks up what is on disk or in a process and hands it in as a command's field: `existing` (the
@@ -32,6 +40,22 @@
 #
 # "A picture is already being taken" stays the shell's `shotLock` (a tryAcquire, not a second lock
 # around the desk): it is about the one picture in flight, not about what the desk may start.
+#
+# The game window is a view, `PlayWindow`: idle, building, starting, running, failed or exited, the
+# game and the run it is for, and the plain words and the short code of how it is going. It is folded
+# from PlayStarted (Play was accepted), PlayPhased (the thread reports the next phase), PlayEnded (the
+# thread reports how the run ended: the code decides idle, exited or failed) and PlayStopRequested
+# (the friend pressed Stop). The thread of one run (studioplay.nim) reports back with the commands
+# PlayPhase and EndPlay, which refuse a run that is not the open one (`staleRun`, the `staleTurn`
+# pattern: a run replaced by a second Play can still say how it ended, and nobody listens). The
+# processor PlayRunner is what starts and stops that thread: it consumes PlayStarted and
+# PlayStopRequested and calls the shell through `hands` (openPlay, stopPlay), like the other processors
+# below. A processor is delivered inside the command call, under the shell's ONE lock, so the shell's
+# two hands only start a thread and hand a stop to a small thread of its own: neither waits for
+# anything or takes the lock. What the processor itself issues is what the shell could not do:
+# a run whose thread did not start ends at once (EndPlay), and one that opens with nothing to build
+# goes straight to starting (PlayPhase). These events are not written anywhere (chatstore.nim keeps
+# only the studio's own kinds): a restart has no window.
 #
 # The chats' books (each chat's number, title, times and session id, and which one is current), the
 # producer and speed picks and what a game's producer last ran with are events too, and they are the
@@ -49,6 +73,7 @@
 #   TurnClock    starts the turn's clock on TurnStarted
 #   StepRunner   starts the job thread on StepStarted
 #   StepClock    starts the job's clock on StepStarted
+#   PlayRunner   starts the Play run's thread on PlayStarted, and on PlayStopRequested hands the stop on
 # A processor is the one block with side effects, so each does its start through `hands` (below) and
 # nothing else: it runs inside the command call, under the shell's one lock, so it only STARTS a
 # thread and never waits for one. What a thread hands back is the commands its processor's `issues`
@@ -69,6 +94,12 @@ const
   maxLines* = 8000          ## chat lines the Chat view holds; the oldest go first (a chat opened again is read back from its file)
   maxGameName* = 40         ## the longest name a new game may get
   maxNoteChars* = 200       ## the longest note a save may carry
+  playBuildingMessage* = "Building the game… the first time takes a few minutes."
+  playOpeningMessage* = "Opening the game window…"
+  playOpenMessage* = "The game window is open."
+  playNotAnsweringMessage* = "The game window is open, but it is not answering the studio, so screenshots will not work. If it just opened, give it a moment."
+  playStoppingMessage* = "Stopping the game…"
+  stepWaitsForPlay = "The game is still being built for Play, and a step builds it too. Wait for that to finish, then try again."
 
 record LineBody:
   you: bool                 ## the friend's own message (kind "say")
@@ -148,6 +179,13 @@ record JobFacts:
   kind: string
   game: string
   code: int                 ## how the last step ended (meaningful once it has)
+record PlayFacts:
+  state: string             ## idle, building, starting, running, failed or exited
+  game: string              ## the game of the last run, "" before the first
+  run: int
+  message: string           ## a plain sentence for the page; "" when there is nothing to say
+  code: string              ## a short stable word when something went wrong ("stopping" while a stop is under way)
+  detail: string            ## the few lines that say what went wrong
 
 event TurnStarted:
   game: string
@@ -224,6 +262,18 @@ event ModelReported:
 event PlayStarted:
   game: string
   run: int                  ## how many times Play was accepted, this one included
+event PlayPhased:
+  run: int
+  phase: string             ## starting or running
+  message: string
+  code: string              ## "" or not-answering (running, but the game does not answer the studio)
+event PlayEnded:
+  run: int
+  code: string              ## "" (stopped), closed or crashed-later (exited), anything else failed
+  message: string
+  detail: string
+event PlayStopRequested:
+  run: int
 event ShotAsked:
   game: string
 
@@ -319,6 +369,57 @@ func workingGames*(desk: Desk): seq[string] =
     var at = result.len
     while at > 0 and result[at - 1] > t.game: dec at
     result.insert(t.game, at)
+
+func endPhase(code: string): string =
+  ## Where a run that ended with `code` stands: stopped is idle, a window the friend closed (or that
+  ## crashed after it was open) is exited, and anything else is a run that did not get as far as a window.
+  case code
+  of "": "idle"
+  of "closed", "crashed-later": "exited"
+  else: "failed"
+
+view PlayWindow:
+  state:
+    phase: string           ## "" before the first Play, then building, starting, running, failed, exited or idle (stopped)
+    game: string            ## the game of the last run
+    run: int                ## the last run's number: the one the thread's reports must name
+    code: string
+    message: string
+    detail: string
+  on PlayStarted:
+    state.phase = "building"
+    state.game = e.game
+    state.run = e.run
+    state.code = ""
+    state.message = playBuildingMessage
+    state.detail = ""
+  on PlayPhased:
+    if e.run == state.run:
+      state.phase = e.phase
+      state.message = e.message
+      state.code = e.code
+  on PlayEnded:
+    if e.run == state.run:
+      state.phase = endPhase(e.code)
+      state.code = e.code
+      state.message = e.message
+      state.detail = e.detail
+  on PlayStopRequested:
+    if e.run == state.run and state.phase in ["building", "starting", "running"]:
+      state.code = "stopping"
+      state.message = playStoppingMessage
+
+func playActive*(window: PlayWindow): bool =
+  ## A build or a window is under way (so a stop has something to end, and a report is about a live run).
+  window.phase in ["building", "starting", "running"]
+
+func playStopping*(window: PlayWindow): bool =
+  ## A stop was asked for and the run has not ended yet.
+  window.code == "stopping"
+
+func playPhaseName*(window: PlayWindow): string =
+  ## The phase the page sees: "idle" before the first Play.
+  if window.phase.len == 0: "idle" else: window.phase
 
 view Chat:
   state:
@@ -530,7 +631,7 @@ command StartStep:
     game: string
     kind: string
     message: string
-  reads Desk
+  reads Desk, PlayWindow
   produces StepStarted
   refuses busy, needsMessage, badMessage
   decide:
@@ -542,13 +643,15 @@ command StartStep:
       refuse busy, "The producer is working on " & cmd.game & " right now. Wait for it, or press Stop in the chat, then try again."
     if desk.stepRunning:
       refuse busy, "Another step is still running (" & desk.stepKind & "). Wait for it to finish."
+    if playWindow.phase == "building":
+      refuse busy, stepWaitsForPlay
     emit StepStarted(game: cmd.game, step: desk.stepId + 1, kind: cmd.kind)
 
 command NewGame:
   fields:
     name: string
     existing: seq[string]   ## the games there already are, as far as the shell looked: it names the one asked about when its folder is there
-  reads Desk
+  reads Desk, PlayWindow
   produces StepStarted
   refuses needsName, badName, taken, busy
   decide:
@@ -563,6 +666,8 @@ command NewGame:
       refuse busy, "The producer is working on " & cmd.name & " right now. Wait for it, or press Stop in the chat, then try again."
     if desk.stepRunning:
       refuse busy, "Another step is still running (" & desk.stepKind & "). Wait for it to finish."
+    if playWindow.phase == "building":
+      refuse busy, stepWaitsForPlay
     emit StepStarted(game: cmd.name, step: desk.stepId + 1, kind: "new")
 
 command LandLane:
@@ -570,7 +675,7 @@ command LandLane:
     game: string
     lane: string
     lanes: seq[string]      ## the helpers' work this game has (the shell looked at the folders next to it)
-  reads Desk
+  reads Desk, PlayWindow
   produces StepStarted
   refuses noSuchLane, busy
   decide:
@@ -580,6 +685,8 @@ command LandLane:
       refuse busy, "The producer is working on " & cmd.game & " right now. Wait for it, or press Stop in the chat, then try again."
     if desk.stepRunning:
       refuse busy, "Another step is still running (" & desk.stepKind & "). Wait for it to finish."
+    if playWindow.phase == "building":
+      refuse busy, stepWaitsForPlay
     emit StepStarted(game: cmd.game, step: desk.stepId + 1, kind: "land")
 
 command StartPlay:
@@ -599,17 +706,59 @@ command StartPlay:
 command TakeShot:
   fields:
     game: string
-    windowGame: string      ## the game of the window that is starting or running, "" when none (the shell looked)
+    windowGame: string      ## the game of a window the shell knows of, "" to take the one the PlayWindow view shows (starting or running)
     windowRunning: bool     ## the window answers on its channel (the shell looked)
+  reads PlayWindow
   produces ShotAsked
   refuses otherGame, notRunning
   decide:
-    if cmd.windowGame.len > 0 and cmd.windowGame != cmd.game:
-      refuse otherGame, "The game window that is open is " & cmd.windowGame & ", not " & cmd.game & ". Pick " & cmd.windowGame &
+    let open = if cmd.windowGame.len > 0: cmd.windowGame
+      elif playWindow.phase in ["starting", "running"]: playWindow.game
+      else: ""
+    if open.len > 0 and open != cmd.game:
+      refuse otherGame, "The game window that is open is " & open & ", not " & cmd.game & ". Pick " & open &
         " to take its picture, or press Play for " & cmd.game & " first."
     if not cmd.windowRunning:
       refuse notRunning, "There is no game window open to take a picture of. Press Play first."
     emit ShotAsked(game: cmd.game)
+
+command StopPlay:
+  reads PlayWindow
+  produces PlayStopRequested
+  refuses idle
+  decide:
+    if not playWindow.playActive:
+      refuse idle, "There is no game window open and nothing is being built, so there is nothing to stop."
+    if playWindow.playStopping: return # a stop is already under way
+    emit PlayStopRequested(run: playWindow.run)
+
+command PlayPhase:
+  fields:
+    run: int
+    phase: string           ## starting or running
+    message: string
+    code: string
+  reads PlayWindow
+  produces PlayPhased
+  refuses staleRun
+  decide:
+    if cmd.run != playWindow.run or not playWindow.playActive or playWindow.playStopping:
+      refuse staleRun, "That run is over."
+    emit PlayPhased(run: cmd.run, phase: cmd.phase, message: cmd.message, code: cmd.code)
+
+command EndPlay:
+  fields:
+    run: int
+    code: string
+    message: string
+    detail: string
+  reads PlayWindow
+  produces PlayEnded
+  refuses staleRun
+  decide:
+    if cmd.run != playWindow.run or not playWindow.playActive:
+      refuse staleRun, "That run is over."
+    emit PlayEnded(run: cmd.run, code: cmd.code, message: cmd.message, detail: cmd.detail)
 
 command EndStep:
   fields:
@@ -829,6 +978,17 @@ query ProducerNow:
   answer:
     result = producers.ran.ranOf(q.game, q.agent)
 
+query PlayNow:
+  reads PlayWindow
+  returns PlayFacts
+  answer:
+    result.state = playWindow.playPhaseName
+    result.game = playWindow.game
+    result.run = playWindow.run
+    result.message = playWindow.message
+    result.code = playWindow.code
+    result.detail = playWindow.detail
+
 # --- the shell's threads, named ----------------------------------------------------------------
 # A processor reacts to a fact with a side effect, and the only one it has here is to start a thread
 # (or, for a stop, to ask a turn's child to end). The thread itself, and the child process, belong to
@@ -847,6 +1007,13 @@ type
     endTurn*: proc (state: pointer, e: StopRequested) {.nimcall, gcsafe.}         ## asks that turn's child to end (a stale one is ignored)
     runStep*: proc (state: pointer, e: StepStarted): bool {.nimcall, gcsafe.}     ## starts the job thread
     watchStep*: proc (state: pointer, e: StepStarted): bool {.nimcall, gcsafe.}   ## starts the job's clock
+    openPlay*: proc (state: pointer, e: PlayStarted): string {.nimcall, gcsafe.}
+      ## ends the run that is open (a second Play restarts) and starts this run's thread. Answers the
+      ## phase the run is in: "building" (it builds first), "starting" (nothing to build) or "" (the
+      ## thread could not be started: the processor then ends the run as failed)
+    stopPlay*: proc (state: pointer, e: PlayStopRequested): bool {.nimcall, gcsafe.}
+      ## hands the stop on to the run (a stale one is ignored); false when no run is left to end it,
+      ## and the processor then ends the run itself
 
 var hands* {.threadvar.}: Hands
   ## Set by the shell around each command it runs (and by a test for its stand-ins), on the thread
@@ -880,6 +1047,19 @@ processor StepRunner:
     if hands.runStep != nil and not hands.runStep(hands.state, e):
       issue EndStep(step: e.step, code: 1)
 
+processor PlayRunner:
+  issues PlayPhase, EndPlay
+  on PlayStarted:
+    if hands.openPlay != nil:
+      let at = hands.openPlay(hands.state, e)
+      if at.len == 0:
+        issue EndPlay(run: e.run, code: "studio-error", message: "The studio could not start the game.", detail: "")
+      elif at == "starting":
+        issue PlayPhase(run: e.run, phase: "starting", message: playOpeningMessage, code: "")
+  on PlayStopRequested:
+    if hands.stopPlay != nil and not hands.stopPlay(hands.state, e):
+      issue EndPlay(run: e.run, code: "", message: "The game was stopped.", detail: "")
+
 proc handBack*(who: typedesc[TurnRunner], c: AddLine | ReportSession | ReportModel | EndTurn): tuple[name: string, data: JsonNode] =
   ## The one door for what the turn thread gives back: only the commands TurnRunner's `issues` line
   ## lists go through, and the compiler refuses the rest.
@@ -887,6 +1067,10 @@ proc handBack*(who: typedesc[TurnRunner], c: AddLine | ReportSession | ReportMod
 
 proc handBack*(who: typedesc[StepRunner], c: EndStep): tuple[name: string, data: JsonNode] =
   ## The same for the job thread: it can only end its step.
+  (name: $typeof(c), data: %c)
+
+proc handBack*(who: typedesc[PlayRunner], c: PlayPhase | EndPlay): tuple[name: string, data: JsonNode] =
+  ## The same for the Play run's thread: it can only report a phase or the end.
   (name: $typeof(c), data: %c)
 
 sealModel(StudioDesk, currentSourcePath().parentDir / "studiodesk.em")
