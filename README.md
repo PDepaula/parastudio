@@ -50,3 +50,6 @@ command: [docs/start.md](docs/start.md).
 ## Licence
 
 MIT, see [LICENSE](LICENSE). Third-party notices are in [THIRD_PARTY.md](THIRD_PARTY.md).
+
+## Acknowledgments
+Inspired by Zach Oakes game engine and Kun Chen's agentic engineering workflow.
