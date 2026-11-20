@@ -60,6 +60,11 @@
 #   POST /api/play/stop         {}: close the game window, or stop its build
 #   POST /api/play/shot         {game}: ask the open window for a picture and put it in the chat as a card
 #   GET  /api/shot?name=        one of the studio's own pictures (image/png); only names the studio made, only from its folder
+#   GET  /api/helpers?game=     the scout helpers this studio started for the game (the desk's Helpers view): id, topic, state (working,
+#                               done, failed, stopped or lost), why, tool calls, what it is doing, and where its report is; and how many work now
+#   POST /api/helper/start      {game, topic, ticket, agent?, speed?}: one scout writing games/<game>/reports/<topic>.md, run by the studio
+#                               (at most 3 work at a time, one per report; refused with 409 otherwise); three counters stop it, none restarts it
+#   POST /api/helper/stop       {game, id}: end a working scout (its report may be missing or partial)
 #
 # The chat is studiochat.nim (turns, the list of chats, stopping) on top of agent.nim's adapter
 # interface; nothing in this file knows which agent it is. Each game has its own turn, so the
@@ -98,6 +103,9 @@ import agent
 import agents
 import studiochat
 import studioplay
+import studiohelpers
+import helperrules
+import helpers
 import studioshot
 import studiofonts
 import boardcmd
@@ -142,6 +150,7 @@ type
     jobWatch: ptr JobWatch ## the running (or last) job's clock
     chat: ChatState
     play: Play
+    helpers: HelperShell
     shotLock: Lock ## one picture at a time
 
 proc jobRunStart(data: pointer, e: StepStarted): bool {.nimcall, gcsafe.}
@@ -149,11 +158,13 @@ proc jobWatchStart(data: pointer, e: StepStarted): bool {.nimcall, gcsafe.}
 
 proc newStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapter(),
                 turnSeconds = defaultTurnSeconds, planner: Planner = defaultPlan,
-                others: seq[AgentAdapter] = @[], jobSeconds = defaultJobSeconds): ptr Studio =
+                others: seq[AgentAdapter] = @[], jobSeconds = defaultJobSeconds,
+                helperClock: Clock = nil, helperTickMs = 0): ptr Studio =
   ## `adapter` is the agent the chat talks to unless a game was given another (tests pass a
   ## stand-in program), `others` are the further agents the page may pick; `turnSeconds` is how
   ## long one chat turn may run before the studio stops it; `planner` says what Play builds and
-  ## opens (tests pass a stand-in game).
+  ## opens (tests pass a stand-in game); `helperClock` and `helperTickMs` are for a test of the scout
+  ## helpers' counters (the real clock, and a look every second, when left out).
   result = create(Studio)
   result.root = root
   result.paraExe = paraExe
@@ -164,9 +175,11 @@ proc newStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapte
   initChat(addr result.chat, root, adapter & others, turnSeconds)
   setSteps(addr result.chat, StepHooks(data: result, run: jobRunStart, watch: jobWatchStart))
   initPlay(addr result.play, addr result.chat, root, planner)
+  initHelpers(addr result.helpers, addr result.chat, root, adapter & others, helperClock, helperTickMs)
 
 proc shutdownStudio*(st: ptr Studio) =
-  ## The studio is closing: end a running chat turn and the game window, so nothing is left running.
+  ## The studio is closing: end a running chat turn, the scout helpers it runs and the game window, so nothing is left running.
+  shutdownHelpers(addr st.helpers)
   shutdownChat(addr st.chat)
   shutdownPlay(addr st.play)
 
@@ -701,6 +714,38 @@ proc shotImage(st: ptr Studio, req: Request): Response =
   if bytes.len == 0: return fail(404, "That picture is not kept any more.", "no-such-shot")
   Response(status: 200, contentType: "image/png", body: bytes)
 
+# --- the scout helpers ----------------------------------------------------------
+
+proc helpersJson(st: ptr Studio, req: Request): Response =
+  var game: string
+  let picked = pickGame(st, req.queryValue("game"), game)
+  if picked.status != 0: return picked
+  jsonResponse(200, %*{"game": game, "working": workingCount(addr st.helpers), "helpers": rowsJson(addr st.helpers, game)})
+
+proc helperStartJson(st: ptr Studio, body: JsonNode): Response =
+  ## {game, topic, ticket, agent?, speed?}. The desk decides; the processor HelperRunner has started
+  ## the supervisor thread by the time this answers.
+  var game: string
+  let picked = pickGame(st, body.fieldString("game"), game)
+  if picked.status != 0: return picked
+  let agentName = body.fieldString("agent")
+  if agentName.len > 0 and agentName notin agentNames(addr st.chat):
+    return fail(400, "There is no agent called that.", "bad-agent")
+  var speed = spQuick
+  if body.fieldString("speed").len > 0:
+    let (ok, sp) = parseSpeed(body.fieldString("speed"))
+    if not ok: return fail(400, "The speed is quick, standard or deep.", "bad-speed")
+    speed = sp
+  let r = startHelper(addr st.helpers, game, body.fieldString("topic"), body.fieldString("ticket"), agentName, speed, defaultLimits)
+  if not r.started.ok: return fail(r.started.status, r.started.message, r.started.code)
+  jsonResponse(200, %*{"id": r.id, "report": r.report})
+
+proc helperStopJson(st: ptr Studio, body: JsonNode): Response =
+  var game: string
+  let picked = pickGame(st, body.fieldString("game"), game)
+  if picked.status != 0: return picked
+  jsonResponse(200, %*{"stopped": stopHelper(addr st.helpers, game, body.fieldString("id"))})
+
 # --- the routes ----------------------------------------------------------------
 
 proc pageResponse(): Response =
@@ -730,6 +775,7 @@ proc handle(st: ptr Studio, req: Request): Response =
       if picked.status != 0: return picked
       return jsonResponse(200, %*{"game": game, "lanes": lanesJson(st, game)})
     of "/api/shot": return shotImage(st, req)
+    of "/api/helpers": return helpersJson(st, req)
     else: return fail(404, "Not found.", "not-found")
   var body: JsonNode
   let parsed = bodyObject(req, body)
@@ -757,6 +803,8 @@ proc handle(st: ptr Studio, req: Request): Response =
   of "/api/play/stop":
     jsonResponse(200, %*{"stopped": stopPlay(addr st.play)})
   of "/api/play/shot": shotRoute(st, body)
+  of "/api/helper/start": helperStartJson(st, body)
+  of "/api/helper/stop": helperStopJson(st, body)
   of "/api/agent/pick": agentPickJson(st, body)
   of "/api/speed/pick": speedPickJson(st, body)
   of "/api/chat/send": sendJson(st, body)

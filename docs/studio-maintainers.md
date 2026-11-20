@@ -43,9 +43,9 @@ The code is `tools/para/studiohttp.nim` (the server and its checks),
 `codexagent.nim` (the Codex adapter), `agentjson.nim` (reading an agent's JSON without
 raising), `agents.nim` (which adapters exist), `studioplay.nim` (the game window: its build, its program and
 the thread of one Play run; what the window *is* is the desk's `PlayWindow` view),
-`studioshot.nim` (the pictures) and `studio/index.html` (the page, compiled
+`studiohelpers.nim` (the shell around the scout helpers the studio runs; below), `studioshot.nim` (the pictures) and `studio/index.html` (the page, compiled
 into the binary with the fonts in `studio/fonts/`, which `studiofonts.nim` inlines; editing either
-needs a rebuild of `para`). Visual boards are `boardcmd.nim` (`para board`, below) and
+needs a rebuild of `para`). `para helper` (scout helpers that outlive a turn) is `helpercmd.nim`, `helpers.nim` and `helperrules.nim`. Visual boards are `boardcmd.nim` (`para board`, below) and
 `browser.nim` (opening the browser, shared with `para studio`). Tests: `para test --filter
 test_para_studio` and `para test --filter test_para_board`.
 
@@ -242,7 +242,7 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   picks, the last Play and picture; `Chat`: the lines the page polls; `ChatBook`: each chat's
   record; `Producers`: what each producer last ran with; `PlayWindow`: the game window) and six queries
   (`DeskNow`, `JobNow`, `ChatSince`, `ChatList`, `ProducerNow`, `PlayNow`), with no thread, lock, clock,
-  file or process (the compiler enforces it for every command, view and query; the five processors below
+  file or process (the compiler enforces it for every command, view and query; the six processors below
   are the one exception). `studiodesk.em` lists the same blocks and the stories; the build stops when the two disagree.
   Every refusal a route used to decide is a rule here, with its words and a scenario: a new game's
   name (`needsName`, `badName`, `taken`), a save's note (`badMessage`), landing a helper's work
@@ -611,3 +611,96 @@ code is `tools/para/lanecmd.nim` (`para lane`); its header has the whole design.
   allow-list in `test_para_producer_cmd.nim`, and the Studio's lanes (after a restart, the land
   job, 409s, a live lane during a turn, the page's words) in `test_para_studio_api.nim` and
   `test_para_studio_chat.nim`.
+
+## Scout helpers (`para helper`, how it works)
+
+For the producer: `.agents/skills/producer/SKILL.md` "Helpers" ("Scouts that outlive the turn"). The
+builder and the checker are not part of this: they stay inside the producer's own turn, in lanes.
+
+- **What it is.** A read-only scout whose process `para` owns, so it keeps working after the producer's
+  turn ends. `para helper start <game> --for scout --topic <name> --ticket "<question>"` starts the
+  friend's own agent program through the same `AgentAdapter.runTurn` the chat uses (`claude` and
+  `codex` both; `--agent` picks, `--speed` defaults to quick) with one prompt (`scoutPrompt`: you are a
+  scout, not the producer; write only `games/<game>/reports/<topic>.md`; the question) on standard
+  input, never on a command line. `list` and `stop` read and end them. Only the role `scout` exists
+  (`helperRoles`).
+- **What it leaves, all plain files** (`helpers.nim`): the report; `tmp/helpers/<game>.<id>.json`, the
+  task record (role, topic, question, agent, speed, limits, start, and at the end the outcome, why
+  and tool calls); `tmp/helpers/<game>.<id>.status`, ONE line rewritten whole (write, then rename) as
+  `working [at=<epoch>] [tools=<n>]: <what it is doing>`, at the start, every five tool calls and at
+  least every `beatSeconds` (30), and at the end `done|failed|stopped [at=] [tools=] [why=]: <text>`;
+  `tmp/helpers/<game>.<id>.stop`, a request to stop. The supervisor is the only writer of its record and
+  line. A reader treats a `working` line older than `lostAfterSeconds` (120) as `lost`: the
+  liveness test is the line's own age, so it is the same on every platform and needs no pid check.
+- **Who runs it.** `para helper start` makes the record and line, then starts `para helper run <game>
+  <id>` detached (`poDaemon`, its own session, its pipes unread) and returns. `run` is the supervisor
+  (`superviseHelper`): it starts the adapter's turn with a `TurnControl`, and a small watchdog thread
+  looks every second for the `.stop` file (`TurnControl.cancel("stop")`, whole process tree) and for
+  a tripped counter. In the studio the supervisor is a thread of the studio instead
+  (`studiohelpers.nim`); the code that runs a helper is the same.
+- **Supervision is three counters, then stop** (`Watch` in `helperrules.nim`, no clock of its own):
+  `--timeout` minutes of wall clock (default 15), `--silence` minutes with no output the adapter
+  turns into an event (default 5), `--tools` tool calls (default 80; a tool call is an activity line
+  or a helper card). The first to trip stays tripped, ends the child's whole tree and the line says
+  why (`failed [why=timeout|silent|budget]`). Nothing relaunches: the producer is told and offers
+  "run it again" or "let it go". Declared waits, captain holds and a wedge ladder do not exist here:
+  the friend is present and a helper never waits on them.
+- **Rules** (`startRefusal`, one function the CLI and the desk share): a plain topic (`goodTopic`),
+  a question, one scout per report (`topicTaken`), at most `maxLiveHelpers` (3) working at once in
+  all games (`tooMany`, counted from the status lines on disk so a helper started from a terminal
+  counts). A re-run of a topic whose helper ended replaces its record.
+- **Read-only is checked after the fact, not enforced while it runs.** Neither adapter can be
+  restricted to one file with what it already supports (Claude's permissions come from the game's
+  allow-list, so the chat's producer may edit anywhere in `games/`; Codex runs `workspace-write`;
+  `TurnRequest` carries no permission mode), and this change adds none. So the prompt says it, and the
+  supervisor takes a listing of `games/<game>/` (names, sizes, times; at most 20,000 files, else no
+  claim is made) before and after. Any file but the helper's own report that differs (other scouts'
+  files in `reports/` do not count, since several scouts run at once) makes the helper
+  `failed [why=touched-files]`, with the first files named on the line and all of them in the record.
+  The listing cannot tell who wrote, so the producer keeps its own edits and landed lanes out of the
+  game while a scout works. Nothing is reverted. A report that was not written (or not rewritten, or is
+  empty) is `failed [why=no-report]`.
+- **Starting is serialized.** `withStartLock` (`helpers.nim`) holds `tmp/helpers/.start.lock`, a folder
+  made exclusively, from reading the cap and the topics through writing the record, in both
+  `para helper start` and the desk's `startHelper`, so two starts at once cannot share an id or pass
+  the cap. A lock left by a dead process is taken over after 30 seconds; one that cannot be had in a
+  few seconds refuses the start ("another helper is starting just now").
+- **The digest line.** `para producer-context` adds one line per game from the records
+  (`helperDigest`): "Scouts: 2 reports ready (story, art); 1 did not finish (menu: took too long); 1
+  still working (levels). ...". Only topics (a plain charset) and fixed words reach it. `para helper
+  stop <game> <id>` on an ended or lost helper forgets its record and line (never the report), which
+  is how the producer tidies the line away once the report is read.
+- **Inside the studio** (`studiodesk.nim`, `studiodesk.em`): the view `Helpers` is folded from
+  `HelperStarted`, `HelperStopRequested` and `HelperEnded`. `StartHelper` refuses `badRole`,
+  `badTopic`, `badBrief`, `topicTaken`, `tooMany` (the shell looks the working helpers up on disk and
+  hands the count and their `game/topic` keys in, the way it hands `busyGames`); `StopHelper` refuses
+  `idle`; `EndHelper` refuses `staleHelper`. `processor HelperRunner` consumes `HelperStarted` and
+  `HelperStopRequested` and reaches the shell through `hands` (`openHelper`, `stopHelper`, from the
+  `HelperHooks` that `initHelpers` registered with `setHelpers`): `helperOpen` writes the record and
+  the first line and starts the supervisor thread, `helperStop` hands a stop to a small thread that
+  calls `TurnControl.cancel` (it waits a few seconds, so the processor, which runs under the one lock,
+  does not). The thread hands back `EndHelper`, the one command `HelperRunner` issues; what the
+  processor issues itself is `EndHelper` failed for a thread that did not start and `EndHelper`
+  stopped for a stop with nothing left to end. Routes: `GET /api/helpers`, `POST /api/helper/start`,
+  `POST /api/helper/stop` (there is no panel on the page for them yet).
+- **The journal.** `HelperStarted` and `HelperEnded` are kept in `tmp/studio/studio.jsonl` like the
+  chats' books (`studioKinds`, stream `helpers:<game>`, capped like `ran:`); the studio is the one writer
+  of that file, so a helper never writes it and the journal needs no inter-process lock. After a
+  restart the view is replayed, and a helper the log says was still working is ended as `lost` (its
+  supervisor was a thread of the studio that closed), once. The journal does **not** see a helper
+  started by `para helper start` (its supervisor is another process): that one leaves its files and the
+  digest line only. Handing the terminal's start to the studio is a follow-up.
+- **Not done here** (follow-ups): relaunch with a note, firstmate's wedge and declared-wait
+  vocabulary, a page panel for helpers, a per-helper cost cap, and any change to the builder or the
+  checker path. The helpers were exercised with stand-in agents only (below); a real `claude` or
+  `codex` scout through `para helper start` was not run in the test suite.
+- **Windows and macOS (not run).** The code uses `poDaemon`, `moveFile` over an existing file and
+  `TurnControl.cancel` (`taskkill /T` on Windows), as the studio's other children do; no new platform
+  call was added. A detached supervisor on Windows is `poDaemon` (no console window).
+- **Tests.** `tests/test_para_helpers.nim` (the rules, the status line, the three counters as numbers,
+  the files, the listing, a supervised run against a stand-in agent with a stand-in clock for every end
+  there is, the digest and the commands), `tests/test_para_studio_helpers.nim` (the processor with
+  stand-in hands, the real shell against the real handler, the cap with a helper started from a
+  terminal, Stop, closing the studio, a restart) and the scenarios in `tests/studiodesk/scenarios.jsonl`.
+  No test asserts on elapsed time: the clock and the limits are injected, and the only waits are
+  bounded polls for a thread to have finished.

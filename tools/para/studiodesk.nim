@@ -81,12 +81,30 @@
 # refuses any other. A stop, a timeout and the end of a turn or a step are in the log, with a position
 # like any other fact.
 #
+# The scout helpers `para` runs are a view too, `Helpers`: working, done, failed, stopped or lost for each
+# helper the studio started, folded from HelperStarted, HelperStopRequested and HelperEnded. The rules, each
+# with a scenario:
+#   a helper is a scout with a plain report name   StartHelper  refuses badRole, badTopic
+#   and a question                                 StartHelper  refuses badBrief
+#   one scout writes a report at a time            StartHelper  refuses topicTaken
+#   at most maxLiveHelpers work at once, all       StartHelper  refuses tooMany
+#   games (the shell looked the working ones up on
+#   disk, so one started from a terminal counts)
+#   a stop needs a helper working                  StopHelper   refuses idle
+#   only the helper that is working can end        EndHelper    refuses staleHelper
+# The processor HelperRunner starts the helper's supervisor thread on HelperStarted and hands a stop on at
+# HelperStopRequested (studiohelpers.nim), like PlayRunner. HelperStarted and HelperEnded are kept in
+# studio.jsonl (chatstore.nim), so after a restart the view knows them, and a helper the log shows as
+# working is ended as lost (its supervisor was a thread of the studio that closed). The counters that watch
+# a helper, its files and its status line are not the desk's: helperrules.nim and helpers.nim.
+#
 # Kept apart on purpose (not events): the HTTP checks, the agent adapters, TurnControl, killing a
 # process tree and the 200,000-byte job output buffer.
 
 import std/[os, options, strutils, sequtils, json]
 import eversince
 from agent import validSessionToken
+import helperrules
 
 const
   maxMessageChars* = 8000   ## the longest message the friend may send
@@ -94,6 +112,7 @@ const
   maxLines* = 8000          ## chat lines the Chat view holds; the oldest go first (a chat opened again is read back from its file)
   maxGameName* = 40         ## the longest name a new game may get
   maxNoteChars* = 200       ## the longest note a save may carry
+  maxHelperRows* = 100      ## helpers the Helpers view holds; the oldest ended ones go first
   playBuildingMessage* = "Building the game… the first time takes a few minutes."
   playOpeningMessage* = "Opening the game window…"
   playOpenMessage* = "The game window is open."
@@ -179,6 +198,19 @@ record JobFacts:
   kind: string
   game: string
   code: int                 ## how the last step ended (meaningful once it has)
+record HelperRow:
+  game: string
+  helper: string            ## the helper's id (`scout`, `scout2`, ...), the file name's second half
+  role: string
+  topic: string
+  state: string             ## working, done, failed, stopped or lost
+  why: string               ## "" or the word that says why it failed (timeout, silent, budget, ...)
+  tools: int
+  report: string            ## the report's path from the repository root, "" while it works
+  stopping: bool            ## a stop was asked for and the helper has not ended yet
+record HelperFacts:
+  working: int              ## helpers working now, in every game
+  rows: seq[HelperRow]      ## the asked game's helpers, or every game's when none is asked
 record PlayFacts:
   state: string             ## idle, building, starting, running, failed or exited
   game: string              ## the game of the last run, "" before the first
@@ -276,6 +308,21 @@ event PlayStopRequested:
   run: int
 event ShotAsked:
   game: string
+event HelperStarted:
+  game: string
+  helper: string
+  role: string
+  topic: string
+event HelperStopRequested:
+  game: string
+  helper: string
+event HelperEnded:
+  game: string
+  helper: string
+  outcome: string           ## done, failed, stopped or lost
+  why: string
+  tools: int
+  report: string
 
 func keptLine*(line: LineBody): bool =
   ## Whether a line goes into its chat's file: not the end-of-turn marker, and of a helper card only
@@ -420,6 +467,45 @@ func playStopping*(window: PlayWindow): bool =
 func playPhaseName*(window: PlayWindow): string =
   ## The phase the page sees: "idle" before the first Play.
   if window.phase.len == 0: "idle" else: window.phase
+
+view Helpers:
+  state:
+    rows: seq[HelperRow]    ## the helpers the studio has started (this run and earlier ones), the newest last
+  on HelperStarted:
+    var kept: seq[HelperRow]
+    for r in state.rows:
+      if not (r.game == e.game and r.helper == e.helper): kept.add r
+    kept.add HelperRow(game: e.game, helper: e.helper, role: e.role, topic: e.topic, state: "working")
+    while kept.len > maxHelperRows:
+      var at = -1
+      for i, r in kept:
+        if r.state != "working":
+          at = i
+          break
+      if at < 0: break
+      kept.delete(at)
+    state.rows = kept
+  on HelperStopRequested:
+    for r in state.rows.mitems:
+      if r.game == e.game and r.helper == e.helper and r.state == "working": r.stopping = true
+  on HelperEnded:
+    for r in state.rows.mitems:
+      if r.game == e.game and r.helper == e.helper and r.state == "working":
+        r.state = e.outcome
+        r.why = e.why
+        r.tools = e.tools
+        r.report = e.report
+        r.stopping = false
+
+func helperOf*(helpers: Helpers, game, id: string): int =
+  ## The index of `game`'s helper `id` in the view, -1 when the studio never started one by that name.
+  result = -1
+  for i, r in helpers.rows:
+    if r.game == game and r.helper == id: return i
+
+func helpersWorking*(helpers: Helpers): int =
+  for r in helpers.rows:
+    if r.state == "working": inc result
 
 view Chat:
   state:
@@ -760,6 +846,59 @@ command EndPlay:
       refuse staleRun, "That run is over."
     emit PlayEnded(run: cmd.run, code: cmd.code, message: cmd.message, detail: cmd.detail)
 
+command StartHelper:
+  fields:
+    game: string
+    helper: string          ## the id the shell chose (`scout`, `scout2`, ...: the first with no record on disk)
+    role: string
+    topic: string
+    brief: string           ## the question; it goes to the agent and never into an event
+    liveCount: int          ## helpers working now, all games (the shell looked at their status lines)
+    liveTopics: seq[string] ## their reports, as "<game>/<topic>"
+  reads Helpers
+  produces HelperStarted
+  refuses badRole, badTopic, badBrief, topicTaken, tooMany
+  decide:
+    let no = startRefusal(cmd.role, cmd.topic, cmd.brief, cmd.liveCount, cmd.liveTopics, cmd.game)
+    case no.code
+    of "badRole": refuse badRole, no.message
+    of "badTopic": refuse badTopic, no.message
+    of "badBrief": refuse badBrief, no.message
+    of "topicTaken": refuse topicTaken, no.message
+    of "tooMany": refuse tooMany, no.message
+    else: discard
+    emit HelperStarted(game: cmd.game, helper: cmd.helper, role: cmd.role, topic: cmd.topic)
+
+command StopHelper:
+  fields:
+    game: string
+    helper: string
+  reads Helpers
+  produces HelperStopRequested
+  refuses idle
+  decide:
+    let at = helpers.helperOf(cmd.game, cmd.helper)
+    if at < 0 or helpers.rows[at].state != "working":
+      refuse idle, "That helper is not working, so there is nothing to stop."
+    if helpers.rows[at].stopping: return # a stop is already under way
+    emit HelperStopRequested(game: cmd.game, helper: cmd.helper)
+
+command EndHelper:
+  fields:
+    game: string
+    helper: string
+    outcome: string         ## done, failed, stopped or lost
+    why: string
+    tools: int
+    report: string
+  reads Helpers
+  produces HelperEnded
+  refuses staleHelper
+  decide:
+    let at = helpers.helperOf(cmd.game, cmd.helper)
+    if at < 0 or helpers.rows[at].state != "working": refuse staleHelper, "That helper is over."
+    emit HelperEnded(game: cmd.game, helper: cmd.helper, outcome: cmd.outcome, why: cmd.why, tools: cmd.tools, report: cmd.report)
+
 command EndStep:
   fields:
     step: int
@@ -978,6 +1117,16 @@ query ProducerNow:
   answer:
     result = producers.ran.ranOf(q.game, q.agent)
 
+query HelpersNow:
+  fields:
+    game: string            ## "" for every game's
+  reads Helpers
+  returns HelperFacts
+  answer:
+    result.working = helpers.helpersWorking
+    for r in helpers.rows:
+      if q.game.len == 0 or r.game == q.game: result.rows.add r
+
 query PlayNow:
   reads PlayWindow
   returns PlayFacts
@@ -1014,6 +1163,12 @@ type
     stopPlay*: proc (state: pointer, e: PlayStopRequested): bool {.nimcall, gcsafe.}
       ## hands the stop on to the run (a stale one is ignored); false when no run is left to end it,
       ## and the processor then ends the run itself
+    openHelper*: proc (state: pointer, e: HelperStarted): bool {.nimcall, gcsafe.}
+      ## starts the helper's supervisor thread; false when it could not start, and the processor
+      ## then ends the helper as failed
+    stopHelper*: proc (state: pointer, e: HelperStopRequested): bool {.nimcall, gcsafe.}
+      ## asks the helper's supervisor to end it (a stale one is ignored); false when nothing is
+      ## left to end it, and the processor then ends the helper itself
 
 var hands* {.threadvar.}: Hands
   ## Set by the shell around each command it runs (and by a test for its stand-ins), on the thread
@@ -1060,6 +1215,15 @@ processor PlayRunner:
     if hands.stopPlay != nil and not hands.stopPlay(hands.state, e):
       issue EndPlay(run: e.run, code: "", message: "The game was stopped.", detail: "")
 
+processor HelperRunner:
+  issues EndHelper
+  on HelperStarted:
+    if hands.openHelper != nil and not hands.openHelper(hands.state, e):
+      issue EndHelper(game: e.game, helper: e.helper, outcome: "failed", why: "agent-error", tools: 0, report: "")
+  on HelperStopRequested:
+    if hands.stopHelper != nil and not hands.stopHelper(hands.state, e):
+      issue EndHelper(game: e.game, helper: e.helper, outcome: "stopped", why: "", tools: 0, report: "")
+
 proc handBack*(who: typedesc[TurnRunner], c: AddLine | ReportSession | ReportModel | EndTurn): tuple[name: string, data: JsonNode] =
   ## The one door for what the turn thread gives back: only the commands TurnRunner's `issues` line
   ## lists go through, and the compiler refuses the rest.
@@ -1071,6 +1235,10 @@ proc handBack*(who: typedesc[StepRunner], c: EndStep): tuple[name: string, data:
 
 proc handBack*(who: typedesc[PlayRunner], c: PlayPhase | EndPlay): tuple[name: string, data: JsonNode] =
   ## The same for the Play run's thread: it can only report a phase or the end.
+  (name: $typeof(c), data: %c)
+
+proc handBack*(who: typedesc[HelperRunner], c: EndHelper): tuple[name: string, data: JsonNode] =
+  ## The same for a helper's supervisor thread: it can only report that its helper ended.
   (name: $typeof(c), data: %c)
 
 sealModel(StudioDesk, currentSourcePath().parentDir / "studiodesk.em")

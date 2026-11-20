@@ -11,6 +11,7 @@ import tools/para/agent
 import tools/para/agents
 import tools/para/studiochat
 import tools/para/studioplay
+import tools/para/helpers
 
 type
   Reply* = object
@@ -40,10 +41,12 @@ proc offHome(a: AgentAdapter): AgentAdapter =
 
 proc startStudio*(root, paraExe: string, defaultGame = "", adapter = defaultAdapter(),
                   turnSeconds = defaultTurnSeconds, planner: Planner = defaultPlan,
-                  others: seq[AgentAdapter] = @[], jobSeconds = defaultJobSeconds): Running =
+                  others: seq[AgentAdapter] = @[], jobSeconds = defaultJobSeconds,
+                  helperClock: Clock = nil, helperTickMs = 0): Running =
   var rest: seq[AgentAdapter]
   for o in others: rest.add offHome(o)
-  result.st = newStudio(root, paraExe, defaultGame, offHome(adapter), turnSeconds, planner, rest, jobSeconds)
+  result.st = newStudio(root, paraExe, defaultGame, offHome(adapter), turnSeconds, planner, rest, jobSeconds,
+                        helperClock, helperTickMs)
   result.srv = newHttpServer(studioHandler, result.st)
   result.thread = new Thread[ptr HttpServer]
   createThread(result.thread[], serveMain, result.srv)

@@ -60,8 +60,8 @@ import agent
 import chatstore
 import savepoint
 import studiodesk
-from studiodesk import maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted, PlayFacts, PlayStarted, PlayStopRequested
-export maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted, PlayFacts
+from studiodesk import maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted, PlayFacts, PlayStarted, PlayStopRequested, HelperFacts, HelperRow, HelperStarted, HelperStopRequested
+export maxMessageChars, validMessage, DeskFacts, JobFacts, StepStarted, PlayFacts, HelperFacts, HelperRow, HelperStarted
 
 const
   defaultTurnSeconds* = 3600
@@ -114,6 +114,14 @@ type
     stop*: proc (data: pointer, e: PlayStopRequested): bool {.nimcall, gcsafe.}
       ## hands the stop on to the run; false when nothing is left that would end it
 
+  HelperHooks* = object
+    ## What the shell that runs scout helpers (studiohelpers.nim) does for the processor HelperRunner.
+    data*: pointer
+    open*: proc (data: pointer, e: HelperStarted): bool {.nimcall, gcsafe.}
+      ## starts the helper's supervisor thread; false when it did not start
+    stop*: proc (data: pointer, e: HelperStopRequested): bool {.nimcall, gcsafe.}
+      ## asks the helper's supervisor to end it; false when nothing is left that would
+
   ChatState* = object
     lock: Lock ## the ONE lock: it serialises the desk's runtime (`desk`: the rules, the views, the book, the picks) and guards the records below
     desk: Runtime[StudioDesk] ## studiodesk.nim's rules, the views and the chats' lines; only ever touched under `lock`
@@ -126,6 +134,7 @@ type
     ended: seq[ptr Turn] ## the ended turns a new turn of their game replaced, for `startTurn` to reap with the lock free
     steps: StepHooks
     play: PlayHooks
+    helpers: HelperHooks
     infos: Table[string, tuple[info: AgentInfo, at: float]]
     shown: HashSet[string] ## the chats ("<game>/<agent>/<chat>") whose earlier lines the Chat view holds, or that have none (under `lock`)
     migrated: HashSet[string] ## the books ("<game>/<agent>") already checked for files an older studio left (under `lock`)
@@ -209,6 +218,16 @@ proc moveOldFiles(c: ptr ChatState) =
   for (game, agent) in oldBooks(c.root): c.moveOldBook(game, agent)
   c.moveOldPicks()
 
+proc endLostHelpers(c: ptr ChatState) =
+  ## The helpers the log says were still working are not: their supervisors were threads of the studio
+  ## that ended. Each gets its end as a fact (`lost`), so the view never shows a ghost.
+  var ghosts: seq[HelperRow]
+  {.cast(gcsafe).}:
+    for r in answer(HelpersNow(game: ""), c.desk.app.helpers).rows:
+      if r.state == "working": ghosts.add r
+  for r in ghosts:
+    discard c.run("EndHelper", %*{"game": r.game, "helper": r.helper, "outcome": "lost", "why": "lost", "tools": r.tools, "report": ""})
+
 proc initChat*(c: ptr ChatState, root: string, adapters: seq[AgentAdapter], timeoutSec = defaultTurnSeconds) =
   ## `adapters` are the agents the page may pick from, the default first.
   doAssert adapters.len > 0
@@ -222,6 +241,7 @@ proc initChat*(c: ptr ChatState, root: string, adapters: seq[AgentAdapter], time
     try: apply(c.desk.app, e)
     except CatchableError: discard # an event that does not fit its type is left out: the studio still starts
   c.desk.seq = c.files.highestSeq() # the log goes on from where an earlier run of the studio left it
+  c.endLostHelpers() # a helper the studio had working when it last stopped died with it
   c.moveOldFiles() # what an older studio kept in files becomes events, once
 
 # --- the chat lists ---------------------------------------------------------------
@@ -314,6 +334,11 @@ proc refusal(d: Decision): Started =
     of "noSuchLane": (404, "no-such-lane")
     of "noSource": (404, "no-source")
     of "otherGame": (409, "other-game")
+    of "badRole": (400, "bad-role")
+    of "badTopic": (400, "bad-topic")
+    of "badBrief": (400, "bad-brief")
+    of "topicTaken": (409, "topic-taken")
+    of "tooMany": (409, "too-many")
     of "notRunning": (409, "no-window")
     else: (409, d.code)
   Started(status: status, code: code, message: d.message)
@@ -642,16 +667,31 @@ proc stopPlayRun(state: pointer, e: PlayStopRequested): bool {.nimcall, gcsafe.}
   let c = cast[ptr ChatState](state)
   c.play.stop == nil or c.play.stop(c.play.data, e)
 
+proc openHelperRun(state: pointer, e: HelperStarted): bool {.nimcall, gcsafe.} =
+  let c = cast[ptr ChatState](state)
+  c.helpers.open == nil or c.helpers.open(c.helpers.data, e)
+
+proc stopHelperRun(state: pointer, e: HelperStopRequested): bool {.nimcall, gcsafe.} =
+  let c = cast[ptr ChatState](state)
+  c.helpers.stop == nil or c.helpers.stop(c.helpers.data, e)
+
 proc setHands(c: ptr ChatState) =
   ## What the desk's processors do, for the command about to run on this thread.
   hands = Hands(state: c, runTurn: runTurnThread, watchTurn: watchTurnThread, endTurn: stopTurnChild,
-    runStep: runStepThread, watchStep: watchStepThread, openPlay: openPlayRun, stopPlay: stopPlayRun)
+    runStep: runStepThread, watchStep: watchStepThread, openPlay: openPlayRun, stopPlay: stopPlayRun,
+    openHelper: openHelperRun, stopHelper: stopHelperRun)
 
 proc setPlay*(c: ptr ChatState, hooks: PlayHooks) =
   ## The shell that runs the game window says how PlayRunner starts and stops a run (studioplay.nim).
   acquire(c.lock)
   defer: release(c.lock)
   c.play = hooks
+
+proc setHelpers*(c: ptr ChatState, hooks: HelperHooks) =
+  ## The shell that runs scout helpers says how HelperRunner starts and stops one (studiohelpers.nim).
+  acquire(c.lock)
+  defer: release(c.lock)
+  c.helpers = hooks
 
 proc setSteps*(c: ptr ChatState, hooks: StepHooks) =
   ## The shell that runs steps says how StepRunner and StepClock start theirs (studioapi.nim).
@@ -998,6 +1038,45 @@ proc endStep*(c: ptr ChatState, step, code: int) =
   acquire(c.lock)
   defer: release(c.lock)
   discard c.giveBack(StepRunner, EndStep(step: step, code: code))
+
+# --- the scout helpers --------------------------------------------------------------------
+# Whether a helper may start, and how the studio's journal tells it (HelperStarted, HelperEnded), is the
+# desk's; studiohelpers.nim runs the supervisor thread HelperRunner starts and reports back with the
+# commands below, under this same lock.
+
+proc askStartHelper*(c: ptr ChatState, game, helper, role, topic, brief: string, liveCount: int,
+                     liveTopics: seq[string]): Started =
+  ## The desk's answer to "may this scout start": `liveCount` and `liveTopics` are the helpers working
+  ## now (the caller read their status lines). When it may, HelperRunner has already started the thread
+  ## (from what the helper shell made ready first). Called with `lock` free.
+  acquire(c.lock)
+  defer: release(c.lock)
+  let decision = c.run("StartHelper", %*{"game": game, "helper": helper, "role": role, "topic": topic, "brief": brief,
+    "liveCount": liveCount, "liveTopics": liveTopics})
+  if decision.refused: return refusal(decision)
+  Started(ok: true, status: 200)
+
+proc askStopHelper*(c: ptr ChatState, game, helper: string): bool =
+  ## Stop was asked for a helper. True when it was working and HelperRunner has handed the stop on.
+  acquire(c.lock)
+  defer: release(c.lock)
+  not c.run("StopHelper", %*{"game": game, "helper": helper}).refused
+
+proc endHelperLocked*(c: ptr ChatState, game, helper, outcome, why: string, tools: int, report: string): bool =
+  ## The supervisor thread reports how its helper ended. False when the desk refused it (it was over
+  ## already). Called with `lock` held.
+  not c.giveBack(HelperRunner, EndHelper(game: game, helper: helper, outcome: outcome, why: why, tools: tools, report: report)).refused
+
+proc helperFacts*(c: ptr ChatState, game = ""): HelperFacts =
+  ## The desk's answer about the helpers the studio started (`game`'s, or every game's).
+  acquire(c.lock)
+  defer: release(c.lock)
+  {.cast(gcsafe).}:
+    result = answer(HelpersNow(game: game), c.desk.app.helpers)
+
+proc workingHelpers*(c: ptr ChatState): seq[HelperRow] =
+  for r in c.helperFacts().rows:
+    if r.state == "working": result.add r
 
 # --- the game window ------------------------------------------------------------------
 # What the window is (idle, building, starting, running, failed or exited, and for which run) and

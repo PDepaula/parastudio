@@ -25,6 +25,8 @@ screen NewGameSheet | commands NewGame                                          
 screen TurnThread   | commands AddLine,EndTurn,RestoreChat,ReportSession,ReportModel
 screen JobThread    | commands EndStep
 screen PlayThread   | commands PlayPhase,EndPlay
+screen HelperApi    | queries HelpersNow | commands StartHelper,StopHelper                  # the studio's helper routes (no panel on the page yet)
+screen HelperThread | commands EndHelper
 
 # --- the stories, one line each ---
 slice send a message     : ChatPanel -> StartTurn -> TurnStarted -> Desk -> ChatSince -> ChatPanel
@@ -57,6 +59,10 @@ slice stop the game      : PlayPanel -> StopPlay -> PlayStopRequested -> PlayRun
 slice the turn runs               : TurnRunner -> AddLine -> LineAdded -> Chat -> ChatSince -> ChatPanel
 slice the turn is stopped         : ChatPanel -> StopTurn -> StopRequested -> TurnRunner -> EndTurn -> TurnEnded -> Desk -> ChatSince -> ChatPanel
 slice the turn runs out of time   : TurnClock -> EndTurn -> TurnEnded -> Desk -> ChatSince -> ChatPanel
+slice start a helper              : HelperApi -> StartHelper -> HelperStarted -> Helpers -> HelpersNow -> HelperApi
+slice stop a helper               : HelperApi -> StopHelper -> HelperStopRequested -> HelperRunner -> EndHelper -> HelperEnded -> Helpers -> HelpersNow -> HelperApi
+slice a helper ends               : HelperThread -> EndHelper -> HelperEnded -> Helpers -> HelpersNow -> HelperApi
+slice the helper runs             : HelperRunner -> EndHelper -> HelperEnded -> Helpers -> HelpersNow -> HelperApi
 slice the step runs               : StepRunner -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
 slice the step runs out of time   : StepClock -> EndStep -> StepEnded -> Desk -> JobNow -> StepsPanel
 
@@ -73,6 +79,9 @@ command TakeShot game:string windowGame:string windowRunning:bool | reads PlayWi
 command StopPlay | reads PlayWindow | produces PlayStopRequested | refuses idle
 command PlayPhase run:int phase:string message:string code:string | reads PlayWindow | produces PlayPhased | refuses staleRun
 command EndPlay run:int code:string message:string detail:string | reads PlayWindow | produces PlayEnded | refuses staleRun
+command StartHelper game:string helper:string role:string topic:string brief:string liveCount:int liveTopics:list[string] | reads Helpers | produces HelperStarted | refuses badRole,badTopic,badBrief,topicTaken,tooMany
+command StopHelper game:string helper:string | reads Helpers | produces HelperStopRequested | refuses idle
+command EndHelper game:string helper:string outcome:string why:string tools:int report:string | reads Helpers | produces HelperEnded | refuses staleHelper
 command EndStep step:int code:int | reads Desk | produces StepEnded | refuses staleStep
 command PickProducer game:string agent:string | reads Desk | produces AgentPicked | refuses busy
 command PickSpeed game:string speed:string | reads Desk | produces SpeedPicked | refuses busy
@@ -105,6 +114,9 @@ event PlayPhased run:int phase:string message:string code:string
 event PlayEnded run:int code:string message:string detail:string
 event PlayStopRequested run:int
 event ShotAsked game:string
+event HelperStarted game:string helper:string role:string topic:string
+event HelperStopRequested game:string helper:string
+event HelperEnded game:string helper:string outcome:string why:string tools:int report:string
 
 # --- what is remembered ---
 view Desk turns:list[GameTurn] last:list[GameTurn] lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string lastStepCode:int picks:list[Pick] speeds:list[SpeedPick] playGame:string playRun:int shotGame:string | consumes AgentPicked,PlayStarted,ShotAsked,SpeedPicked,StepEnded,StepStarted,TurnEnded,TurnStarted
@@ -112,6 +124,7 @@ view Chat lines:list[ChatEntry] last:int counts:list[ChatCount] | consumes ChatF
 view ChatBook books:list[Book] | consumes ChatForgotten,ChatOpened,ChatStarted,ChatUsed,SessionReported
 view Producers ran:list[Ran] | consumes ModelReported
 view PlayWindow phase:string game:string run:int code:string message:string detail:string | consumes PlayEnded,PlayPhased,PlayStarted,PlayStopRequested
+view Helpers rows:list[HelperRow] | consumes HelperEnded,HelperStarted,HelperStopRequested
 
 # --- questions ---
 query DeskNow game:string | reads Desk | returns DeskFacts
@@ -120,6 +133,7 @@ query ChatList game:string agent:string | reads ChatBook | returns ChatListing
 query ProducerNow game:string agent:string | reads Producers | returns Ran
 query JobNow | reads Desk | returns JobFacts
 query PlayNow | reads PlayWindow | returns PlayFacts
+query HelpersNow game:string | reads Helpers | returns HelperFacts
 
 # --- background work: the shell's threads, named ---
 processor TurnRunner | consumes StopRequested,TurnStarted | issues AddLine,EndTurn,ReportModel,ReportSession
@@ -127,6 +141,7 @@ processor TurnClock  | consumes TurnStarted | issues EndTurn
 processor StepRunner | consumes StepStarted | issues EndStep
 processor StepClock  | consumes StepStarted | issues EndStep
 processor PlayRunner | consumes PlayStarted,PlayStopRequested | issues EndPlay,PlayPhase
+processor HelperRunner | consumes HelperStarted,HelperStopRequested | issues EndHelper
 
 # --- value types ---
 record LineBody you:bool kind:string text:string id:string role:string status:string tools:int code:string detail:string url:string
@@ -142,4 +157,6 @@ record Ran game:string agent:string started:bool speed:string askedModel:string 
 record DeskFacts working:list[string] running:bool turn:int lastTurn:int stepRunning:bool stepId:int stepKind:string stepGame:string stepCode:int
 record ChatPage running:bool working:list[string] turn:int next:int entries:list[ChatEntry]
 record JobFacts running:bool step:int kind:string game:string code:int
+record HelperRow game:string helper:string role:string topic:string state:string why:string tools:int report:string stopping:bool
+record HelperFacts working:int rows:list[HelperRow]
 record PlayFacts state:string game:string run:int message:string code:string detail:string

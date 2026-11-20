@@ -25,7 +25,8 @@
 # The resume digest is what lets the producer pick up where the last session
 # stopped without the friend explaining: one plain line per fact, read from
 # the game's files and (for the save point, the unsaved changes and the helpers' lanes not landed
-# yet) from git.
+# yet) from git. One line is about the scouts `para helper` ran: the reports ready, the helpers that did
+# not finish and the ones still working, read from their small files under tmp/helpers/ (helpers.nim).
 # A fact that cannot be found is left out (a line saying "none" means git or
 # the file said there is nothing); the playbook then asks git itself. PLAN.md,
 # CHOICES.md, PLAYTEST.md, NOTES.md and the save notes are text anyone can
@@ -53,6 +54,7 @@ import nimutil
 import savepoint
 import boardcmd
 import lanecmd
+import helpers
 
 type Run = clihelpers.Run
 
@@ -168,7 +170,7 @@ proc findRoot*(start: string): string =
 
 type GameFacts = object
   ## What the digest knows of one game; "" (or -1) is "could not find out".
-  name, now, inProgress, lastSave, unsaved, playtest, notes, lanes: string
+  name, now, inProgress, lastSave, unsaved, playtest, notes, lanes, scouts: string
   openChoices: int
 
 proc readOrEmpty*(path: string): string =
@@ -301,6 +303,10 @@ proc gameFacts(root, game: string, gitBefore: float): GameFacts =
     if ok: result.unsaved = unsavedSummary(changed)
   if epochTime() < gitBefore:
     result.lanes = lanesSummary(lanesOf(root, game, quick = true))
+  try:
+    result.scouts = helperDigest(root, game, int64(epochTime())) # files only: no git, no process
+  except CatchableError:
+    discard
 
 proc singleDigest(f: GameFacts): string =
   var lines: seq[string]
@@ -309,6 +315,7 @@ proc singleDigest(f: GameFacts): string =
   if f.lastSave.len > 0: lines.add "Last save point: " & f.lastSave
   if f.unsaved.len > 0: lines.add "Unsaved changes in games/" & f.name & "/: " & f.unsaved
   if f.lanes.len > 0: lines.add "Left over from last time, in a helper's own copy (`tmp/para lane list`): " & f.lanes
+  if f.scouts.len > 0: lines.add f.scouts
   if f.openChoices >= 0: lines.add "Open choices in CHOICES.md: " & $f.openChoices
   if f.playtest.len > 0: lines.add "Last playtest note: " & f.playtest
   if f.notes.len > 0: lines.add "NOTES.md entries: " & f.notes
@@ -322,6 +329,7 @@ proc compactDigest(f: GameFacts): string =
   if f.lastSave.len > 0: parts.add "last save: " & f.lastSave
   if f.unsaved.len > 0: parts.add "unsaved: " & f.unsaved
   if f.lanes.len > 0: parts.add "left over: " & f.lanes
+  if f.scouts.len > 0: parts.add f.scouts.strip(chars = {'.'})
   if f.openChoices >= 0: parts.add "open choices: " & $f.openChoices
   "- " & f.name & (if parts.len > 0: ": " & parts.join("; ") else: "") & "\n"
 
