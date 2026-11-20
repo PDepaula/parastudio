@@ -649,18 +649,22 @@ builder and the checker are not part of this: they stay inside the producer's ow
   a question, one scout per report (`topicTaken`), at most `maxLiveHelpers` (3) working at once in
   all games (`tooMany`, counted from the status lines on disk so a helper started from a terminal
   counts). A re-run of a topic whose helper ended replaces its record.
-- **Read-only is noticed, not enforced.** The adapters' permission lists are wider than one file (the
-  chat's producer may edit anywhere in `games/`), and this change does not give an adapter a second
-  permission mode. So the prompt says it, and the supervisor takes a listing of `games/<game>/`
-  (names, sizes, times; at most 20,000 files, else no claim is made) before and after. Any file but the
-  helper's own report that differs (other scouts' files in `reports/` do not count, since several
-  scouts run at once) is named in the record and on the line, `done [why=touched-files]: report ready:
-  ...; besides it these changed while it ran (the helper's, or your own edits): rules.nim`, and in the
-  digest. It is a caution on a finished helper, not a failure: a scout runs beside the builder for
-  minutes, and the producer's own edits (`PLAN.md`, `NOTES.md`) and a landed lane change the same folder,
-  so the listing cannot tell who wrote. Nothing is reverted. A report that was not written (or not
-  rewritten, or is empty) is `failed [why=no-report]`. Real enforcement would need a read-only mode in
-  the adapters (Claude's allowed tools, Codex's sandbox) and is a follow-up.
+- **Read-only is checked after the fact, not enforced while it runs.** Neither adapter can be
+  restricted to one file with what it already supports (Claude's permissions come from the game's
+  allow-list, so the chat's producer may edit anywhere in `games/`; Codex runs `workspace-write`;
+  `TurnRequest` carries no permission mode), and this change adds none. So the prompt says it, and the
+  supervisor takes a listing of `games/<game>/` (names, sizes, times; at most 20,000 files, else no
+  claim is made) before and after. Any file but the helper's own report that differs (other scouts'
+  files in `reports/` do not count, since several scouts run at once) makes the helper
+  `failed [why=touched-files]`, with the first files named on the line and all of them in the record.
+  The listing cannot tell who wrote, so the producer keeps its own edits and landed lanes out of the
+  game while a scout works. Nothing is reverted. A report that was not written (or not rewritten, or is
+  empty) is `failed [why=no-report]`.
+- **Starting is serialized.** `withStartLock` (`helpers.nim`) holds `tmp/helpers/.start.lock`, a folder
+  made exclusively, from reading the cap and the topics through writing the record, in both
+  `para helper start` and the desk's `startHelper`, so two starts at once cannot share an id or pass
+  the cap. A lock left by a dead process is taken over after 30 seconds; one that cannot be had in a
+  few seconds refuses the start ("another helper is starting just now").
 - **The digest line.** `para producer-context` adds one line per game from the records
   (`helperDigest`): "Scouts: 2 reports ready (story, art); 1 did not finish (menu: took too long); 1
   still working (levels). ...". Only topics (a plain charset) and fixed words reach it. `para helper

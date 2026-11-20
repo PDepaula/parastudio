@@ -14,7 +14,7 @@
 # - the commands: start (refusals, the record, the child it starts), list, stop, and the supervisor's
 #   own entry, and the one digest line the producer reads.
 
-import std/[unittest, os, strutils, sequtils, tempfiles, json, atomics, tables]
+import std/[unittest, os, strutils, sequtils, tempfiles, json, atomics, tables, times]
 import tools/para/agent
 import tools/para/helperrules
 import tools/para/helpers
@@ -284,6 +284,45 @@ suite "a helper's files":
       not fileExists(stopFile(root, game, "scout"))
     check readFile(root / "games" / game / "reports" / "story.md") == "kept"
 
+suite "starting one at a time":
+  var root: string
+  setup:
+    root = scratch()
+    resetScript()
+  teardown: removeDir(root)
+
+  test "the lock is held while the body runs and gone after":
+    var inside = false
+    let got = withStartLock(root):
+      inside = dirExists(helpersDir(root) / ".start.lock")
+    check got
+    check inside and not dirExists(helpersDir(root) / ".start.lock")
+
+  test "a lock left by a dead process is taken over":
+    let lock = helpersDir(root) / ".start.lock"
+    createDir(lock)
+    setLastModificationTime(lock, fromUnix(1_000_000))
+    var ran = false
+    let got = withStartLock(root):
+      ran = true
+    check got
+    check ran and not dirExists(lock)
+
+  test "starts at the same moment neither share an id nor pass the cap":
+    type Arg = tuple[root: string, n: int]
+    proc startOne(a: Arg) {.thread.} =
+      {.cast(gcsafe).}:
+        discard withStartLock(a.root):
+          let live = liveHelpers(a.root, 1000)
+          if live.count < maxLiveHelpers:
+            discard prepareHelper(a.root, game, "scout", "topic" & $a.n, "how do sounds work?", "claude", "quick", defaultLimits, 1000)
+    var threads: array[8, Thread[Arg]]
+    for i in 0 ..< threads.len: createThread(threads[i], startOne, (root, i))
+    joinThreads(threads)
+    let all = listHelpers(root, 1000)
+    check all.len == maxLiveHelpers
+    check all.mapIt(it.rec.id).deduplicate.len == maxLiveHelpers
+
 suite "watching the game's folder":
   var dir: string
   setup:
@@ -411,18 +450,18 @@ suite "supervising a helper":
     script.steps = @[Step(ev: activity("x"), at: 1001)]
     check supervise(root, newRecord(root, "other")).why == "no-report"
 
-  test "a file changed besides the report is named on a finished helper, as a caution and not a failure; nothing is reverted":
+  test "a file changed besides the report fails the helper, names the file, and reverts nothing":
     script.steps = @[Step(ev: activity("x"), at: 1001)]
     script.report = "# story\n"
     script.extra = "rules.nim"
     let ended = supervise(root, newRecord(root))
-    check ended.outcome == "done" and ended.why == "touched-files" and ended.touched == @["rules.nim"]
+    check ended.outcome == "failed" and ended.why == "touched-files" and ended.touched == @["rules.nim"]
     let line = readStatus(root, game, "scout")
-    check line.state == "done" and line.why == "touched-files" and "rules.nim" in line.text and "your own edits" in line.text
+    check line.state == "failed" and line.why == "touched-files" and "rules.nim" in line.text
     check readRecord(root, game, "scout").rec.touched == @["rules.nim"]
     check readFile(root / "games" / game / "reports" / "story.md") == "# story\n"
     check readFile(root / "games" / game / "rules.nim") == "changed"
-    check listHelpers(root, 1004)[0].state == "done"
+    check listHelpers(root, 1004)[0].state == "failed"
 
   test "another scout's report, written meanwhile, is not a change to the game":
     script.steps = @[Step(ev: activity("x"), at: 1001)]
@@ -492,11 +531,11 @@ suite "the digest line":
     check line.startsWith("Scouts: 2 reports ready (story, art); 3 did not finish (menu: took too long, levels: used up its tool calls, sound: stopped); 1 still working (ui).")
     check "\n" notin line and "tmp/para helper list" in line
 
-  test "a finished helper that left other files changed is still ready, with the caution beside it":
+  test "a helper that changed other files did not finish, and the words say so":
     endWith("story", "done", "")
-    endWith("art", "done", "touched-files")
+    endWith("art", "failed", "touched-files")
     let line = helperDigest(root, game, 1001)
-    check line.startsWith("Scouts: 2 reports ready (story, art); files besides the report changed while art ran (")
+    check line.startsWith("Scouts: 1 report ready (story); 1 did not finish (art: changed files besides its report).")
     check "\n" notin line
 
   test "a helper whose line went stale is one that did not finish":

@@ -138,6 +138,7 @@ type Script = object
   activities: int ## tool calls to report
   report: string ## written to games/pong/reports/<topic>.md ("" writes nothing)
   hold: bool ## block until ended
+  touch: string ## a file besides the report, changed during the run (relative to the game's folder)
 
 var script: Script
 
@@ -154,6 +155,7 @@ proc standIn(a: AgentAdapter, req: TurnRequest, ctl: ptr TurnControl, emit: Emit
     if script.report.len > 0 and not ctl.isCancelled:
       createDir(req.workDir / "games" / game / "reports")
       writeFile(req.workDir / "games" / game / "reports" / (topic & ".md"), script.report)
+    if script.touch.len > 0: writeFile(req.workDir / "games" / game / script.touch, "changed by the scout")
     if script.hold:
       while not ctl.isCancelled: sleep(1)
     result = TurnResult(ok: not ctl.isCancelled, cancelled: ctl.isCancelled)
@@ -250,6 +252,14 @@ suite "the studio runs a helper":
     check r.startScout("story").status == 200
     check r.waitFor("scout", "failed")
     check r.helpersOf["helpers"][0]["why"].getStr == "no-report"
+
+  test "a helper that changed another file in the game failed, and the journal says why":
+    script.touch = "rules.nim"
+    check r.startScout("story").status == 200
+    check r.waitFor("scout", "failed")
+    check r.helpersOf["helpers"][0]["why"].getStr == "touched-files"
+    let ended = journal(root).filterIt(it["kind"].getStr == "HelperEnded")[0]["data"]
+    check ended["why"].getStr == "touched-files"
 
   test "the refusals are plain 400s and 409s, and nothing is started":
     check r.startScout("../x").status == 400

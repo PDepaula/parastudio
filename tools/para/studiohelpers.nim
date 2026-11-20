@@ -172,8 +172,8 @@ type
     id*: string
     report*: string
 
-proc startHelper*(shell: ptr HelperShell, game, topic, brief, agentName: string, speed: Speed,
-                  limits: Limits): HelperStart =
+proc startHelperHeld(shell: ptr HelperShell, game, topic, brief, agentName: string, speed: Speed,
+                     limits: Limits): HelperStart =
   ## One scout for `game`. The desk decides; what is accepted is then done by the processor, from the
   ## record made ready here. `agentName` is one of the adapters ("" = the first).
   let now = int64(epochTime())
@@ -190,6 +190,16 @@ proc startHelper*(shell: ptr HelperShell, game, topic, brief, agentName: string,
   if asked.ok:
     result.id = rec.id
     result.report = rec.report
+
+proc startHelper*(shell: ptr HelperShell, game, topic, brief, agentName: string, speed: Speed,
+                  limits: Limits): HelperStart =
+  ## One start at a time, with `para helper start` too (`withStartLock`): the cap and the id are read, then used.
+  var res: HelperStart
+  let held = withStartLock(shell.root):
+    res = startHelperHeld(shell, game, topic, brief, agentName, speed, limits)
+  if not held:
+    res.started = Started(status: 503, code: "busy", message: "Another helper is starting just now. Try again in a moment.")
+  res
 
 proc stopHelper*(shell: ptr HelperShell, game, id: string): bool =
   ## True when the helper was working and has been told to end (the thread does the ending).

@@ -26,15 +26,19 @@
 # and the line says why (`failed [why=timeout]`). Nothing is relaunched. Output is whatever the adapter
 # turns into an event; a tool call is an activity line (or a helper card) the adapter shows.
 #
-# Read-only: the helper's prompt says it may write only its report. The adapters' own permission lists
-# are wider than that (the chat's producer may edit anywhere in `games/`) and this layer gives an
-# adapter no second permission mode, so the supervisor only NOTICES: it takes a listing of
-# `games/<game>/` (names, sizes, times) before the helper starts and again when it ends, and any file
-# but its own report that differs (other scouts' reports in `reports/` do not count) is named on the
-# status line as `[why=touched-files]` while the run still counts as done if its report is fresh. It
-# cannot tell the helper's write from an edit made meanwhile by the producer or by a landed lane (a
-# scout runs beside the builder for minutes), so it says "changed", never "wrote", and a signal that
-# fired on every landing as a failure would only teach everyone to ignore it. Nothing is reverted.
+# Read-only: the helper's prompt says it may write only its report, and that is ALL that holds it back
+# while it runs. Neither adapter can be restricted that far with what it already supports: Claude's
+# permissions come from the game's own allow-list (the chat's producer may edit anywhere in `games/`)
+# and Codex runs `workspace-write`; `TurnRequest` carries no permission mode and this layer invents none.
+# So it is checked after the fact: the supervisor takes a listing of `games/<game>/` (names, sizes,
+# times) before the helper starts and again when it ends, and a file other than its own report that
+# differs (other scouts' reports in `reports/` do not count) makes the helper `failed [why=touched-files]`,
+# with the files named on the line. Nothing is reverted. A listing cannot tell the helper's write from an
+# edit made meanwhile by the producer or a landed lane, so the producer keeps its own edits and lanes
+# out of the game's folder while a scout works.
+#
+# Starting is serialized: `withStartLock` is held from reading the cap and the topics through writing
+# the record, so two starts at once cannot share an id or pass the cap together.
 #
 # `clock` is injectable (and so are the limits), so a test drives the counters with numbers and
 # waits for nothing.
@@ -43,6 +47,11 @@ import std/[os, json, strutils, tables, times, locks, algorithm]
 import agent
 import helperrules
 import savepoint
+
+const
+  staleLockSeconds = 30
+  startLockTries = 200
+  startLockPollMs = 25
 
 type
   HelperRecord* = object
@@ -184,6 +193,36 @@ proc liveHelpers*(root: string, now: int64): tuple[count: int, topics: seq[strin
     if h.state == "working":
       inc result.count
       result.topics.add topicKey(h.rec.game, h.rec.topic)
+
+proc withStartLockImpl(root: string, body: proc () {.closure.}): bool =
+  ## Runs `body` while holding `tmp/helpers/.start.lock`, a folder made exclusively (`existsOrCreateDir`
+  ## reports whether it was already there, atomically, on every platform). False, with `body` not run,
+  ## when it could not be held for a few seconds. A lock older than `staleLockSeconds` belongs to a
+  ## process that died and is taken over.
+  let lock = helpersDir(root) / ".start.lock"
+  try: createDir(helpersDir(root))
+  except OSError: return false
+  var tries = 0
+  while true:
+    try:
+      if not existsOrCreateDir(lock): break
+      if epochTime() - getLastModificationTime(lock).toUnix.float > staleLockSeconds.float:
+        removeDir(lock)
+        continue
+    except OSError:
+      discard
+    inc tries
+    if tries > startLockTries: return false
+    sleep(startLockPollMs)
+  try: body()
+  finally:
+    try: removeDir(lock)
+    except OSError: discard
+  true
+
+template withStartLock*(root: string, body: untyped): bool =
+  ## True when `body` ran (with the lock held).
+  withStartLockImpl(root, proc () {.closure.} = body)
 
 proc nextHelperId*(root, game, role: string): string =
   ## `scout`, then `scout2`, `scout3`, ...: the first one with no record.
@@ -334,14 +373,14 @@ proc watchdogMain(a: tuple[s: ptr Supervision, ctl: ptr TurnControl, tickMs: int
 proc endText(outcome, why: string, tools: int, report: string, touched: seq[string], detail: string): string =
   case outcome
   of "done":
-    "report ready: " & report & (if touched.len > 0: "; besides it these changed while it ran (the helper's, or your own edits): " &
-      touched[0 ..< min(touched.len, 3)].join(", ") & (if touched.len > 3: ", and more" else: "") else: "")
+    "report ready: " & report
   of "stopped": "stopped on request" & (if tools > 0: " after " & $tools & " tool calls" else: "")
   else:
     var t = whyWords(why)
     if why in ["timeout", "silent", "budget"]: t = "stopped: it " & t
     if why == "budget": t.add " (" & $tools & " calls)"
     if why == "agent-error" and detail.len > 0: t.add ": " & detail
+    if why == "touched-files": t.add ": " & touched[0 ..< min(touched.len, 3)].join(", ") & (if touched.len > 3: ", and more" else: "")
     t
 
 proc superviseHelper*(spec: SuperviseSpec, ctl: ptr TurnControl): HelperEnd =
@@ -404,6 +443,9 @@ proc superviseHelper*(spec: SuperviseSpec, ctl: ptr TurnControl): HelperEnd =
     result.why = tripped
   elif stopped:
     result.outcome = "stopped"
+  elif touched.len > 0:
+    result.outcome = "failed"
+    result.why = "touched-files"
   elif not ok:
     result.outcome = "failed"
     result.why = "agent-error"
@@ -412,7 +454,6 @@ proc superviseHelper*(spec: SuperviseSpec, ctl: ptr TurnControl): HelperEnd =
     result.why = "no-report"
   else:
     result.outcome = "done"
-    if touched.len > 0: result.why = "touched-files" # a caution on a finished helper, not a failure (see the header)
   result.text = endText(result.outcome, result.why, tools, rec.report, touched, lastError)
   var r = rec
   r.ended = int64(s.nowOf)
@@ -437,13 +478,11 @@ proc names(topics: seq[string]): string =
 proc helperDigest*(root, game: string, now: int64): string =
   ## One line for `game`'s helpers, for the producer's start of turn: "" when there are none.
   ##   Scouts: 2 reports ready (story, art); 1 did not finish (menu: took too long); 1 still working (levels).
-  var ready, working, cautioned: seq[string]
+  var ready, working: seq[string]
   var failed: seq[string]
   for h in listHelpers(root, now, game):
     case h.state
-    of "done":
-      ready.add h.rec.topic
-      if h.rec.why == "touched-files" or h.line.why == "touched-files": cautioned.add h.rec.topic
+    of "done": ready.add h.rec.topic
     of "working": working.add h.rec.topic
     of "stopped": failed.add h.rec.topic & ": stopped"
     else:
@@ -454,6 +493,4 @@ proc helperDigest*(root, game: string, now: int64): string =
   if ready.len > 0: parts.add $ready.len & (if ready.len == 1: " report" else: " reports") & " ready (" & names(ready) & ")"
   if failed.len > 0: parts.add $failed.len & " did not finish (" & names(failed) & ")"
   if working.len > 0: parts.add $working.len & " still working (" & names(working) & ")"
-  if cautioned.len > 0:
-    parts.add "files besides the report changed while " & names(cautioned) & " ran (the helper's, or your own edits: `tmp/para helper list`)"
   if parts.len > 0: result = "Scouts: " & parts.join("; ") & ". Reports are in games/" & game & "/reports/; `tmp/para helper list` has the rest."

@@ -183,7 +183,7 @@ func whyWords*(why: string): string =
   of "budget": "used up its tool calls"
   of "agent-error": "the agent stopped with a problem"
   of "no-report": "ended without writing its report"
-  of "touched-files": "files besides its report changed while it ran (its, or yours)"
+  of "touched-files": "changed files besides its report"
   of "lost": "disappeared before it finished (the computer or the studio closed?)"
   of "": ""
   else: "ended without finishing" # a word nobody here wrote is never repeated

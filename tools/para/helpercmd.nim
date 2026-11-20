@@ -36,7 +36,7 @@ const
     "para helper list [--game NAME]\n" &
     "para helper stop <game> <id>\n" &
     "  a helper is the claude or codex program you already use, started by para with one question, that keeps working after\n" &
-    "  this command returns and writes one file, games/<game>/reports/<topic>.md; only the scout role is started this way\n" &
+    "  this command returns and writes one file, games/<game>/reports/<topic>.md (any other changed file in the game fails it); only the scout role is started this way\n" &
     "  (the builder and the checker work inside the producer's own turn, in lanes)\n" &
     "  start  checks the rules, prints the helper's id, its report and its status file, and returns at once; at most " & $maxLiveHelpers &
     " helpers\n" &
@@ -102,7 +102,7 @@ proc pickAgent(env: HelperEnv, asked: string): tuple[name, problem: string] =
     if env.installed(name): return (name, "")
   (knownAgents[0], "") # none installed: the refusal below names the first
 
-proc startHelper(root: string, env: HelperEnv, game, role, topic, brief, agentFlag, speedFlag: string, limits: Limits): Run =
+proc startHelperHeld(root: string, env: HelperEnv, game, role, topic, brief, agentFlag, speedFlag: string, limits: Limits): Run =
   if not validGameName(game) or not dirExists(gameDirOf(root, game)):
     return errorOut(&"there is no game called \"{cleanText(game, 40)}\" in {gamesDir}/", @[])
   let now = env.now()
@@ -137,15 +137,26 @@ proc startHelper(root: string, env: HelperEnv, game, role, topic, brief, agentFl
     &"limits: {limits.timeoutSec div 60} min, {limits.silenceSec div 60} min without output, {limits.toolBudget} tool calls\n" &
     toonHelp(@["It keeps working after this command returns; `para helper list` says how it is going, and the report appears at " & r.report])
 
+proc startHelper(root: string, env: HelperEnv, game, role, topic, brief, agentFlag, speedFlag: string, limits: Limits): Run =
+  ## One start at a time (`withStartLock`): the cap, the topic rule and the id are read and then used.
+  var res: Run
+  let held = withStartLock(root):
+    res = startHelperHeld(root, env, game, role, topic, brief, agentFlag, speedFlag, limits)
+  if not held:
+    return refuse("not started: another helper is starting just now. Try again in a moment.")
+  res
+
 # --- list -------------------------------------------------------------------------------------
 
 proc leftBehind(h: HelperInfo): string =
   case h.state
-  of "done": h.rec.report & (if h.rec.touched.len > 0: " (other files changed meanwhile: " & h.rec.touched[0 ..< min(h.rec.touched.len, 3)].join(", ") & ")" else: "")
+  of "done": h.rec.report
   of "working": h.line.text
   of "stopped": "stopped on request"
   of "lost": whyWords("lost")
-  of "failed": whyWords(if h.rec.why.len > 0: h.rec.why else: h.line.why)
+  of "failed":
+    let why = if h.rec.why.len > 0: h.rec.why else: h.line.why
+    whyWords(why) & (if why == "touched-files" and h.rec.touched.len > 0: ": " & h.rec.touched[0 ..< min(h.rec.touched.len, 3)].join(", ") else: "")
   else: h.line.text
 
 proc listHelpersCmd(root: string, env: HelperEnv, onlyGame: string): Run =
