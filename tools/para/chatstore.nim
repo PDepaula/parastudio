@@ -1,6 +1,6 @@
 # The studio's past chats: every conversation the friend had with one producer about one game.
 #
-# Where the chats' books live now: they are events (studiodesk.nim's `ChatBook` view), kept with the
+# Where the chats' books live now (and, in the same file, the journal of the scout helpers the studio runs, HelperStarted and HelperEnded): they are events (studiodesk.nim's `ChatBook` view), kept with the
 # producer and speed picks and what each producer last ran with in ONE studio-wide file,
 # `tmp/studio/studio.jsonl`, the kit's forgetting file store (see "the studio's own events" below). The
 # files older studios kept, `chats-<game>-<agent>.json`, `session-*.id`, `agent-<game>.txt`,
@@ -498,7 +498,7 @@ proc dropLines*(root, game, agent: string, chat: int) =
 # --- the studio's own events ---------------------------------------------------------
 
 const
-  studioKinds = ["ChatStarted", "ChatOpened", "ChatUsed", "SessionReported", "AgentPicked", "SpeedPicked", "ModelReported"]
+  studioKinds = ["ChatStarted", "ChatOpened", "ChatUsed", "SessionReported", "AgentPicked", "SpeedPicked", "ModelReported", "HelperStarted", "HelperEnded"]
   maxStudioStreamBytes = 1024 * 1024 ## every stream of studio.jsonl is capped at 1 MiB; only the ran: stream is expected to reach it, a chat stream needs thousands of messages
 
 proc studioPath*(root: string): string = studioDir(root) / "studio.jsonl"
@@ -512,6 +512,7 @@ proc studioStreamOf(e: Envelope): string =
   of "ChatStarted", "ChatOpened", "ChatUsed", "SessionReported":
     streamKey(d.strField("game"), d.strField("agent"), int(d.intField("chat")))
   of "ModelReported": "ran:" & d.strField("game") & "/" & d.strField("agent")
+  of "HelperStarted", "HelperEnded": "helpers:" & d.strField("game") ## capped like `ran:`: a game's helpers are a few events each
   else: ""
 
 proc cleanStudio(e: Envelope): Envelope =

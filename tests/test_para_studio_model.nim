@@ -56,7 +56,7 @@ suite "the plan is ahead of the code, never behind":
   test "every slice of the migration has landed, so the plan has nothing the checked file lacks (it may again, with the next slice)":
     check plan.blocks.len >= code.blocks.len
     check plan.slices.len >= code.slices.len
-    for name in ["StopTurn", "StepClock", "TurnRunner", "PlayWindow", "PlayRunner", "PlayNow"]:
+    for name in ["StopTurn", "StepClock", "TurnRunner", "PlayWindow", "PlayRunner", "PlayNow", "Helpers", "HelperRunner", "HelpersNow", "StartHelper"]:
       check plan.find(name).name == name
       check code.find(name).name == name
 

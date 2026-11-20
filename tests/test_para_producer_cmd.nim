@@ -698,6 +698,11 @@ suite "owned file contracts: voice core, AGENTS.md, CLAUDE.md, hook configs":
       if rule.startsWith("Bash(tmp/para lane"):
         check rule in ["Bash(tmp/para lane start *)", "Bash(tmp/para lane list)", "Bash(tmp/para lane list *)",
                        "Bash(tmp/para lane land *)"]
+      # a scout may be started, listed and stopped without a prompt (it writes one report and a status line);
+      # the supervisor's own entry, `helper run`, is not for the producer
+      if rule.startsWith("Bash(tmp/para helper"):
+        check rule in ["Bash(tmp/para helper start *)", "Bash(tmp/para helper list)", "Bash(tmp/para helper list *)",
+                       "Bash(tmp/para helper stop *)"]
       # a rule is a para subcommand, or one of a few exact read-only probes, or the one CLI build line
       check rule.startsWith("Bash(tmp/para ") or rule in ["Bash(nim c --hints:off --outdir:tmp tools/para/para.nim)",
         "Bash(git --version)", "Bash(nim -v)", "Bash(gcc --version)", "Bash(clang --version)", "Bash(git remote get-url origin)"]
