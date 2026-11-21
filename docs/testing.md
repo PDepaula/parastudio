@@ -47,7 +47,8 @@ gh run watch                          # follow the run
 A manual run takes the `all` row of the table below (every test). The
 repository variable `CI_RUNNER` (JSON `runs-on`, e.g.
 `["self-hosted","linux","paraloop-ci"]`) picks a self-hosted runner; unset, CI
-runs on GitHub-hosted `ubuntu-latest`.
+runs on GitHub-hosted `ubuntu-latest`. Pull requests from forks always run on
+`ubuntu-latest` (never self-hosted), whatever `CI_RUNNER` says.
 
 ## What CI runs for a pull request
 

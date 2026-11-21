@@ -6,15 +6,37 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Two repository variables steer where and how much CI runs, both optional:
+# Three repository variables steer where and how much CI runs, all optional:
 #   CI_RUNNER      JSON runs-on value for every job, e.g.
-#                  ["self-hosted","linux","paraloop-ci"] (a self-hosted runner).
+#                  ["self-hosted","linux","paraloop-ci"] (a legacy self-hosted
+#                  runner) or "paraloop-ru" (an ephemeral runner-up pool).
 #                  Unset -> ubuntu-latest (GitHub-hosted); nothing else needs
 #                  setting for a fork or a fresh clone to run CI.
+#                  Fork gate: a pull request from a fork always runs on
+#                  ubuntu-latest, whatever CI_RUNNER says, so untrusted code
+#                  never reaches a self-hosted runner. The same-repo test is
+#                  head.repo.full_name == github.repository; pushes and
+#                  workflow_dispatch (both need write access) use CI_RUNNER.
+#                  pages.yml carries the same expression. Keep the two in step.
+#   CI_PERSISTENT_CACHE
+#                  `true` when CI_RUNNER is a legacy runner that keeps a
+#                  persistent cache volume ($PARALOOP_CI_CACHE, ~/.nimble):
+#                  the shards link the nim build cache from it instead of
+#                  using actions/cache. Unset or anything else (GitHub-hosted
+#                  and ephemeral runners) -> the hosted actions/cache path.
+#                  Fork PRs always use actions/cache: they run on ubuntu-latest
+#                  whatever this is.
+#                  Set it together with a legacy CI_RUNNER, or those runners
+#                  fall back to actions/cache. It does not look at
+#                  runner.environment, so a self-hosted runner without the
+#                  variable is treated like a hosted one.
 #   PR_FULL_TESTS  `off` skips the full-suite jobs (test, template-smoke) on
 #                  pull_request events; they still run on pushes to main, on
 #                  workflow_dispatch, and when this is unset or anything else.
 #                  A skipped job reports as skipped, so no check is left pending.
+# The "Install X11/GL headers" steps test for the headers themselves and only
+# run apt (with sudo) when one is missing, so a runner image that already has
+# them (legacy or ephemeral) never needs sudo.
 
 # What a pull request runs is scoped to the area it touches (.github/scripts/
 # ci-scope.sh buckets the changed paths; tools/para/testplan.nim picks the test
@@ -49,7 +71,7 @@ jobs:
   # not a pull request (push to main, workflow_dispatch, a tag) runs it all.
   changes:
     name: changes (which jobs to run)
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.CI_RUNNER && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -107,7 +129,7 @@ jobs:
   # About half a minute; .github/workflows/pages.yml publishes the same build.
   docs:
     name: docs
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.CI_RUNNER && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -175,7 +197,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request'
       || (vars.PR_FULL_TESTS != 'off' && needs.changes.outputs.docs_only != 'true')
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.CI_RUNNER && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     strategy:
       # Every shard runs to the end when one fails, so one run names every
       # failing file, not just the first shard's.
@@ -197,16 +219,16 @@ jobs:
         with:
           version: "0.12.17"
 
-      # Hosted runners only: the self-hosted runner keeps ~/.nimble in a named
+      # Not with CI_PERSISTENT_CACHE: that runner keeps ~/.nimble in a named
       # Docker volume, so there is nothing to restore.
       - name: Cache nimble packages
-        if: runner.environment != 'self-hosted'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache@v4
         with:
           path: ~/.nimble/pkgs2
           key: nimble-pkgs2-${{ runner.os }}-${{ hashFiles('nimble.lock') }}
 
-      # Nim build state (hosted runners; the self-hosted cache is the linked
+      # Nim build state (CI_PERSISTENT_CACHE unset; the persistent cache is the linked
       # dir below). One cache per shard: a shard's cache holds exactly its own
       # files' state, so four shards never race to save one key. Restored
       # from the newest cache of the same shard, nim and lockfile
@@ -225,7 +247,7 @@ jobs:
       # so a dependency bump never restores a binary built against the old one.
       - name: Restore nim build cache
         id: nimcache
-        if: runner.environment != 'self-hosted'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -243,7 +265,7 @@ jobs:
       # with their mtimes (`cp -a`; Nim's fast path compares the mtime), from a
       # dir named by the lockfile's hash so a dependency bump starts clean.
       - name: Link the persistent nim build cache and restore the test binaries
-        if: runner.environment == 'self-hosted'
+        if: (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           mkdir -p "$PARALOOP_CI_CACHE/nimcache-test" "$PARALOOP_CI_CACHE/nimcache-test-bin/${{ hashFiles('nimble.lock') }}" tmp
           ln -sfn "$PARALOOP_CI_CACHE/nimcache-test" .nimcache
@@ -256,8 +278,14 @@ jobs:
         run: nimble setup
 
       - name: Install X11/GL headers for GLFW
-        if: runner.environment != 'self-hosted'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+        run: |
+          if [ -e /usr/include/GL/gl.h ] && [ -e /usr/include/X11/Xlib.h ] \
+            && [ -e /usr/include/X11/Xcursor/Xcursor.h ] && [ -e /usr/include/X11/extensions/Xrandr.h ] \
+            && [ -e /usr/include/X11/extensions/Xinerama.h ] && [ -e /usr/include/X11/extensions/XInput2.h ]; then
+            echo "X11/GL headers already installed"
+          else
+            sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+          fi
 
       - name: Build examples/hello (native, compile only)
         if: matrix.shard == 1
@@ -293,7 +321,7 @@ jobs:
       # comment), passing or not: an unchanged failing test reruns its binary
       # and fails again; a test that did not compile has none to keep.
       - name: Keep the test binaries
-        if: always() && runner.environment == 'self-hosted'
+        if: always() && (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           dir="$PARALOOP_CI_CACHE/nimcache-test-bin/${{ hashFiles('nimble.lock') }}"
           find tmp -maxdepth 1 -type f -perm -u+x -name 'test_*' -exec cp -a -t "$dir" {} +
@@ -310,7 +338,7 @@ jobs:
       # Only a fully green main run refreshes the cache (see the restore step).
       - name: Save nim build cache
         if: >-
-          runner.environment != 'self-hosted' && github.ref == 'refs/heads/main'
+          !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && github.ref == 'refs/heads/main'
           && steps.nimcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
@@ -333,7 +361,7 @@ jobs:
       always()
       && (github.event_name != 'pull_request'
           || (vars.PR_FULL_TESTS != 'off' && needs.changes.outputs.docs_only != 'true'))
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.CI_RUNNER && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - name: Every test shard passed
@@ -350,7 +378,7 @@ jobs:
     name: web target (wasm) — headless Chromium smoke (task 1.7)
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.CI_RUNNER && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -380,7 +408,7 @@ jobs:
       # Same pkgs2 cache as the test job, plus the nim 2.2.10 `nimble install`
       # fetches into nimbinaries (the lockfile's nim; these jobs run 2.2.12).
       - name: Cache nimble packages
-        if: runner.environment != 'self-hosted'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache@v4
         with:
           path: |
@@ -392,7 +420,7 @@ jobs:
       # dir per job, since nim versions differ), not in actions/cache. checkout's
       # `git clean -ffdx` removes only this symlink, never the cache behind it.
       - name: Link the persistent nim build cache
-        if: runner.environment == 'self-hosted'
+        if: (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           mkdir -p "$PARALOOP_CI_CACHE/nimcache-web"
           ln -sfn "$PARALOOP_CI_CACHE/nimcache-web" .nimcache
@@ -406,8 +434,14 @@ jobs:
       # `para` links examples/hello (for `sim`/`shot`), so its native build
       # compiles GLFW like the test job's.
       - name: Install X11/GL headers for GLFW
-        if: runner.environment != 'self-hosted'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+        run: |
+          if [ -e /usr/include/GL/gl.h ] && [ -e /usr/include/X11/Xlib.h ] \
+            && [ -e /usr/include/X11/Xcursor/Xcursor.h ] && [ -e /usr/include/X11/extensions/Xrandr.h ] \
+            && [ -e /usr/include/X11/extensions/Xinerama.h ] && [ -e /usr/include/X11/extensions/XInput2.h ]; then
+            echo "X11/GL headers already installed"
+          else
+            sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+          fi
 
       - name: Build the para CLI
         run: nim c --hints:off --outdir:tmp tools/para/para.nim
@@ -439,7 +473,7 @@ jobs:
     if: >-
       needs.changes.outputs.engine == 'true'
       && (github.event_name != 'pull_request' || vars.PR_FULL_TESTS != 'off')
-    runs-on: ${{ vars.CI_RUNNER && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    runs-on: ${{ (vars.CI_RUNNER && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -467,7 +501,7 @@ jobs:
       # Same pkgs2 cache as the test job, plus the nim 2.2.10 `nimble install`
       # fetches into nimbinaries (the lockfile's nim; these jobs run 2.2.12).
       - name: Cache nimble packages
-        if: runner.environment != 'self-hosted'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache@v4
         with:
           path: |
@@ -485,7 +519,7 @@ jobs:
 
       - name: Restore nim build cache
         id: nimcache
-        if: runner.environment != 'self-hosted'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache/restore@v4
         with:
           path: .nimcache
@@ -497,7 +531,7 @@ jobs:
       # dir per job, since nim versions differ), not in actions/cache. checkout's
       # `git clean -ffdx` removes only this symlink, never the cache behind it.
       - name: Link the persistent nim build cache
-        if: runner.environment == 'self-hosted'
+        if: (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           mkdir -p "$PARALOOP_CI_CACHE/nimcache-template"
           ln -sfn "$PARALOOP_CI_CACHE/nimcache-template" .nimcache
@@ -509,8 +543,14 @@ jobs:
         run: nimble setup
 
       - name: Install X11/GL headers for GLFW
-        if: runner.environment != 'self-hosted'
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+        run: |
+          if [ -e /usr/include/GL/gl.h ] && [ -e /usr/include/X11/Xlib.h ] \
+            && [ -e /usr/include/X11/Xcursor/Xcursor.h ] && [ -e /usr/include/X11/extensions/Xrandr.h ] \
+            && [ -e /usr/include/X11/extensions/Xinerama.h ] && [ -e /usr/include/X11/extensions/XInput2.h ]; then
+            echo "X11/GL headers already installed"
+          else
+            sudo apt-get update && sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libgl-dev
+          fi
 
       - name: Build the para CLI
         run: nim c --hints:off --outdir:tmp tools/para/para.nim
@@ -544,7 +584,7 @@ jobs:
 
       - name: Save nim build cache
         if: >-
-          runner.environment != 'self-hosted' && github.ref == 'refs/heads/main'
+          !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && github.ref == 'refs/heads/main'
           && steps.nimcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
