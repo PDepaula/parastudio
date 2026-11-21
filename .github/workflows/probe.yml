@@ -1,0 +1,49 @@
+name: probe
+on:
+  push:
+    branches: [fm-probe-fork-gating]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  a_string_same_repo:
+    runs-on: ${{ ('"ubuntu-22.04"' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('"ubuntu-22.04"') || 'ubuntu-latest' }}
+    steps:
+      - run: |
+          . /etc/os-release
+          echo "PROBE job=a_string_same_repo event=${{ github.event_name }} os=$VERSION_ID"
+          echo "head_repo='${{ github.event.pull_request.head.repo.full_name }}' repository='${{ github.repository }}'"
+  b_array_same_repo:
+    runs-on: ${{ ('["ubuntu-22.04"]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["ubuntu-22.04"]') || 'ubuntu-latest' }}
+    steps:
+      - run: |
+          . /etc/os-release
+          echo "PROBE job=b_array_same_repo event=${{ github.event_name }} os=$VERSION_ID"
+          echo "head_repo='${{ github.event.pull_request.head.repo.full_name }}' repository='${{ github.repository }}'"
+  c_string_forced_fork:
+    runs-on: ${{ ('"ubuntu-22.04"' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'someone-else/parastudio')) && fromJSON('"ubuntu-22.04"') || 'ubuntu-latest' }}
+    steps:
+      - run: |
+          . /etc/os-release
+          echo "PROBE job=c_string_forced_fork event=${{ github.event_name }} os=$VERSION_ID"
+          echo "head_repo='${{ github.event.pull_request.head.repo.full_name }}' repository='${{ github.repository }}'"
+  d_array_forced_fork:
+    runs-on: ${{ ('["ubuntu-22.04"]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'someone-else/parastudio')) && fromJSON('["ubuntu-22.04"]') || 'ubuntu-latest' }}
+    steps:
+      - run: |
+          . /etc/os-release
+          echo "PROBE job=d_array_forced_fork event=${{ github.event_name }} os=$VERSION_ID"
+          echo "head_repo='${{ github.event.pull_request.head.repo.full_name }}' repository='${{ github.repository }}'"
+  e_var_empty:
+    runs-on: ${{ (vars.PROBE_UNSET && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.PROBE_UNSET) || 'ubuntu-latest' }}
+    steps:
+      - run: |
+          . /etc/os-release
+          echo "PROBE job=e_var_empty event=${{ github.event_name }} os=$VERSION_ID"
+          echo "head_repo='${{ github.event.pull_request.head.repo.full_name }}' repository='${{ github.repository }}'"
+  f_real_vars_ci_runner:
+    runs-on: ${{ (vars.CI_RUNNER && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON(vars.CI_RUNNER) || 'ubuntu-latest' }}
+    steps:
+      - run: |
+          . /etc/os-release
+          echo "PROBE job=f_real_vars_ci_runner event=${{ github.event_name }} os=$VERSION_ID"
+          echo "head_repo='${{ github.event.pull_request.head.repo.full_name }}' repository='${{ github.repository }}'"
