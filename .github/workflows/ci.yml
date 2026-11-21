@@ -24,6 +24,8 @@ on:
 #                  the shards link the nim build cache from it instead of
 #                  using actions/cache. Unset or anything else (GitHub-hosted
 #                  and ephemeral runners) -> the hosted actions/cache path.
+#                  Fork PRs always use actions/cache: they run on ubuntu-latest
+#                  whatever this is.
 #                  Set it together with a legacy CI_RUNNER, or those runners
 #                  fall back to actions/cache. It does not look at
 #                  runner.environment, so a self-hosted runner without the
@@ -220,7 +222,7 @@ jobs:
       # Not with CI_PERSISTENT_CACHE: that runner keeps ~/.nimble in a named
       # Docker volume, so there is nothing to restore.
       - name: Cache nimble packages
-        if: vars.CI_PERSISTENT_CACHE != 'true'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache@v4
         with:
           path: ~/.nimble/pkgs2
@@ -245,7 +247,7 @@ jobs:
       # so a dependency bump never restores a binary built against the old one.
       - name: Restore nim build cache
         id: nimcache
-        if: vars.CI_PERSISTENT_CACHE != 'true'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -263,7 +265,7 @@ jobs:
       # with their mtimes (`cp -a`; Nim's fast path compares the mtime), from a
       # dir named by the lockfile's hash so a dependency bump starts clean.
       - name: Link the persistent nim build cache and restore the test binaries
-        if: vars.CI_PERSISTENT_CACHE == 'true'
+        if: (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           mkdir -p "$PARALOOP_CI_CACHE/nimcache-test" "$PARALOOP_CI_CACHE/nimcache-test-bin/${{ hashFiles('nimble.lock') }}" tmp
           ln -sfn "$PARALOOP_CI_CACHE/nimcache-test" .nimcache
@@ -319,7 +321,7 @@ jobs:
       # comment), passing or not: an unchanged failing test reruns its binary
       # and fails again; a test that did not compile has none to keep.
       - name: Keep the test binaries
-        if: always() && vars.CI_PERSISTENT_CACHE == 'true'
+        if: always() && (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           dir="$PARALOOP_CI_CACHE/nimcache-test-bin/${{ hashFiles('nimble.lock') }}"
           find tmp -maxdepth 1 -type f -perm -u+x -name 'test_*' -exec cp -a -t "$dir" {} +
@@ -336,7 +338,7 @@ jobs:
       # Only a fully green main run refreshes the cache (see the restore step).
       - name: Save nim build cache
         if: >-
-          vars.CI_PERSISTENT_CACHE != 'true' && github.ref == 'refs/heads/main'
+          !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && github.ref == 'refs/heads/main'
           && steps.nimcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
@@ -406,7 +408,7 @@ jobs:
       # Same pkgs2 cache as the test job, plus the nim 2.2.10 `nimble install`
       # fetches into nimbinaries (the lockfile's nim; these jobs run 2.2.12).
       - name: Cache nimble packages
-        if: vars.CI_PERSISTENT_CACHE != 'true'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache@v4
         with:
           path: |
@@ -418,7 +420,7 @@ jobs:
       # dir per job, since nim versions differ), not in actions/cache. checkout's
       # `git clean -ffdx` removes only this symlink, never the cache behind it.
       - name: Link the persistent nim build cache
-        if: vars.CI_PERSISTENT_CACHE == 'true'
+        if: (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           mkdir -p "$PARALOOP_CI_CACHE/nimcache-web"
           ln -sfn "$PARALOOP_CI_CACHE/nimcache-web" .nimcache
@@ -499,7 +501,7 @@ jobs:
       # Same pkgs2 cache as the test job, plus the nim 2.2.10 `nimble install`
       # fetches into nimbinaries (the lockfile's nim; these jobs run 2.2.12).
       - name: Cache nimble packages
-        if: vars.CI_PERSISTENT_CACHE != 'true'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache@v4
         with:
           path: |
@@ -517,7 +519,7 @@ jobs:
 
       - name: Restore nim build cache
         id: nimcache
-        if: vars.CI_PERSISTENT_CACHE != 'true'
+        if: ${{ !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
         uses: actions/cache/restore@v4
         with:
           path: .nimcache
@@ -529,7 +531,7 @@ jobs:
       # dir per job, since nim versions differ), not in actions/cache. checkout's
       # `git clean -ffdx` removes only this symlink, never the cache behind it.
       - name: Link the persistent nim build cache
-        if: vars.CI_PERSISTENT_CACHE == 'true'
+        if: (vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           mkdir -p "$PARALOOP_CI_CACHE/nimcache-template"
           ln -sfn "$PARALOOP_CI_CACHE/nimcache-template" .nimcache
@@ -582,7 +584,7 @@ jobs:
 
       - name: Save nim build cache
         if: >-
-          vars.CI_PERSISTENT_CACHE != 'true' && github.ref == 'refs/heads/main'
+          !(vars.CI_PERSISTENT_CACHE == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && github.ref == 'refs/heads/main'
           && steps.nimcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
