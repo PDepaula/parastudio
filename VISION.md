@@ -42,7 +42,7 @@ That containment holds for the desk and stops at its edge: the HTTP layer, the r
 The direction is to move what the desk can know into views and to check the page's routes against the model's screens; which of the existing edge rules belong in the model is open.
 A new path the friend is expected to take, such as exporting or publishing a game, has its refusals in the model from its first slice; only facts the desk cannot know, such as network and account state, stay in the shell.
 Generated code is published beside the model by an `expand` command, and CI fails when the generated-to-written ratio or compile time passes a budget (decided, not built, budget not set).
-Rule purity is enforced by `para check`: core files may not import banned modules, and a `then` body may call only the session's insert, ids, rng and pure helpers (decided, not built).
+Rule purity is enforced by `para check`'s purity step (`tools/para/purity.nim`): core files may not import banned modules, and a `then` body may call only the session's insert, ids, rng and pure helpers.
 The project does not claim that higher abstractions win for agents, and how far the model should sit above plain Nim is open.
 Two experiments inform it without deciding it: the same studio changes against the macro form and its expansion, and the same tickets against this layer and a raw-GL, plain-struct version of the demo.
 
