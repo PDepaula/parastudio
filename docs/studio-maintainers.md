@@ -346,7 +346,15 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   eversince pic tools/para/studio-plan.em docs/studio-plan.svg
   ```
 
-  `eversince pic` draws the swimlane timeline by default; `--fields`, `--spacious` and `--reads` change what it shows, and `eversince pic tools/para/studiodesk.em docs/studio-model.html --html` redraws the interactive page committed beside the picture.
+  `eversince pic` draws the swimlane timeline by default; `--fields`, `--spacious` and `--reads` change what it shows, and `eversince pic tools/para/studiodesk.em tmp/studio-model.html --html` draws the interactive page. The interactive pages are not committed (a small model change redraws most of a page, a diff nobody can review): CI draws both, with `.github/scripts/studio_pages.nim`, and keeps them with each run as the `studio-model` artifact.
+
+  `tmp/para expand` writes the Nim the desk's blocks expand to, as the compiler sees it, to
+  `tools/para/studiodesk.expanded.nim` (beside the model file; for reading only, and git ignores it),
+  and prints the size: the lines `studiodesk.nim` has, the lines its blocks expand to, and their ratio.
+  CI holds that ratio and the time of that one compile to a budget (`.github/scripts/model-budget.sh`,
+  which also records the numbers measured when the budget was set); a change that passes either fails
+  the `test` job's first shard. Read the expansion to see which blocks grew; raise the budget in the
+  script only on purpose, in the same change.
 
   The plan may have warnings by design until its slices land (an event no command produces yet);
   the checked file passes `--strict`. `eversince catalog tools/para/studiodesk.em` is the quick way

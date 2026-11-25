@@ -20,6 +20,7 @@ tmp/para live <status|shot|...>                   # talk to a running -d:dev gam
 tmp/para web smoke [--game G] [--define NAME] [--enter] [--click X,Y]   # build (release), postbuild, and CDP-smoke the wasm target
 tmp/para web pack [--game G]                      # zip tmp/web/<game>/ into what a static host needs
 tmp/para setup hooks                              # print a SessionStart hook config (prints only)
+tmp/para expand [FILE.nim] [--max-ratio N]        # write the Nim a module's Eversince blocks expand to beside it (default tools/para/studiodesk.nim) and print written/generated lines and their ratio; CI's size budget (`para expand --help`)
 tmp/para producer-context                         # the producer voice plus a resume digest (next step, last save, unsaved changes) for a friend's session-start hook (silent for engine work); `PARALOOP_UI=studio` adds one line telling the producer to say "press Play" (and that a screenshot button exists)
 tmp/para lane start <game> --for builder|art [--ticket T]   # a helper's own copy of the game: games/<game>.<id>/, a git worktree of the game's repository (`para lane --help`)
 tmp/para lane land <game> <id>                    # its work into games/<game> as unsaved changes, for `para check` and `para save`; `list`, `drop`, `clean` too

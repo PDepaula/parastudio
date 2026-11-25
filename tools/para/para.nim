@@ -1,6 +1,6 @@
 # The `para` AXI CLI (engine report §5, task 1.8): bare view, `art`
 # (task A1/A2), `test`, `check`, `save`, `lane`, `helper`, `backup`, `build`, `sim`, `shot`, `driver`, `live`,
-# `web smoke`, `setup hooks`, `producer-context`, `studio` and `board`. Every subcommand is a plain `run(args): (output, code)` proc
+# `web smoke`, `setup hooks`, `producer-context`, `studio`, `board` and `expand`. Every subcommand is a plain `run(args): (output, code)` proc
 # (`art/clihelpers.Run`), and so is `dispatch` below; the main block just
 # prints and quits with its result -- no direct stdout/exit calls anywhere
 # else, so tests can call each one without a subprocess (see
@@ -28,6 +28,7 @@ import newcmd
 import producercmd
 import studiocmd
 import boardcmd
+import expandcmd
 import usage
 
 proc runGroup(group, sub: string, args: seq[string], help: string,
@@ -74,6 +75,7 @@ proc dispatch*(args: seq[string]): Run =
   of "producer-context": runProducerContext(rest)
   of "studio": runStudio(rest)
   of "board": runBoard(rest)
+  of "expand": runExpand(rest)
   of "setup": runGroup("setup", "hooks", rest, setupHooksHelp, runSetupHooks)
   of "--version": ("para 0.1.0\n", 0)
   of "--help", "-h": (paraHelp, 0)

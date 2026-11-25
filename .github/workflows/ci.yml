@@ -307,6 +307,32 @@ jobs:
         if: matrix.shard == 1
         run: npx -y axi-axi@0.1.0 validate "$PWD/tmp/para" --dir . --strict
 
+      # The studio model's size and compile-time budget: `para expand` writes
+      # the Nim that tools/para/studiodesk.nim's Eversince blocks expand to and
+      # fails when generated/written lines pass the size budget; the script
+      # times that one compile against its own (generous) budget. Both numbers
+      # and how they were measured are in the script. Once, shard 1.
+      - name: Studio model budget (para expand)
+        if: matrix.shard == 1
+        run: .github/scripts/model-budget.sh
+
+      # The studio's interactive model pages are not committed (a small model
+      # change redraws most of the page): drawn here from the model files and
+      # kept with the run as the `studio-model` artifact, with the expansion
+      # the budget step wrote.
+      - name: Draw the studio model pages
+        if: matrix.shard == 1
+        run: |
+          nim r --hints:off .github/scripts/studio_pages.nim tmp/studio-pages
+          cp tools/para/studiodesk.expanded.nim tmp/studio-pages/
+
+      - name: Upload the studio model pages
+        if: matrix.shard == 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-model
+          path: tmp/studio-pages
+
       # The area the diff touches (changes job): `all` runs the whole suite
       # (every push to main, every engine/workflow/nimble change), `game`,
       # `art` or `game,art` only the test files that reach that area.
