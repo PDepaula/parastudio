@@ -158,9 +158,10 @@ jobs:
   # each dealt round-robin, so the four shards together are exactly the
   # unsharded run and each is about a quarter of it. The work that is not
   # per-file runs once, each piece on one fixed shard (the `matrix.shard == N`
-  # steps): shard 1 the hello build, the AXI compliance check and pytest (`para
+  # steps): shard 1 the hello build, the AXI compliance check, pytest (`para
   # test` puts pytest on shard 1 and skips its own final para build on every
-  # shard) and shard 2 the sim gate.
+  # shard) and, after its tests, the studio model budget and page; shard 2 the
+  # sim gate.
   # An empty shard (a narrow --area selection with fewer files than shards)
   # passes with nothing to run.
   # The `test` job below is the aggregate -- the one check to require or
@@ -316,6 +317,30 @@ jobs:
         env:
           AREAS: ${{ needs.changes.outputs.areas }}
         run: ./tmp/para test --area "${AREAS:-all}" --skip-balance --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+      # The studio model's size and compile-time budget: `para expand` writes
+      # the Nim that tools/para/studiodesk.nim's Eversince blocks expand to and
+      # fails when generated/written lines pass the size budget; the script
+      # times that one compile against its own (generous) budget. Both numbers
+      # and how they were measured are in the script. Once, shard 1, after the
+      # tests and whether or not they passed, so neither hides the other's result.
+      - name: Studio model budget (para expand)
+        if: ${{ !cancelled() && matrix.shard == 1 }}
+        run: .github/scripts/model-budget.sh
+
+      # The studio's interactive model page is not committed (a small model
+      # change redraws most of the page): drawn here from studiodesk.em and
+      # kept with the run as the `studio-model` artifact.
+      - name: Draw the studio model page
+        if: ${{ !cancelled() && matrix.shard == 1 }}
+        run: nim r --hints:off .github/scripts/studio_pages.nim tmp/studio-pages
+
+      - name: Upload the studio model page
+        if: ${{ !cancelled() && matrix.shard == 1 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-model
+          path: tmp/studio-pages
 
       # Keep this shard's test binaries for the next run on this runner (job
       # comment), passing or not: an unchanged failing test reruns its binary

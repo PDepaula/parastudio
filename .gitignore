@@ -9,6 +9,10 @@ nimble.develop
 # tracked file modified (and a web build id `-dirty`) in a clean CI checkout.
 nimbledeps
 /tools/para/para
+# `para expand` writes a module's Eversince expansion beside it, for reading only.
+*.expanded.nim
+# The studio's interactive model page is drawn in CI (.github/scripts/studio_pages.nim), not kept.
+/docs/studio-model.html
 tools/art/.venv/
 tools/art/__pycache__/
 tools/art/**/__pycache__/

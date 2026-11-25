@@ -9,6 +9,8 @@
 # - docs/studio-model.svg and docs/studio-plan.svg are exactly what `eversince pic` draws from the two
 #   files, so a change to a model file that is not redrawn fails here (redraw with
 #   `eversince pic tools/para/studiodesk.em docs/studio-model.svg`, and the same for the plan);
+# - the interactive page draws from the checked file (it is not committed: CI draws it with
+#   .github/scripts/studio_pages.nim and keeps it with the run);
 # - the page and the routes are held to the screens of the checked file: every `/api/` call in
 #   tools/para/studio/index.html is a route in studioapi.nim's `handle`, the comment on each route's `of`
 #   line names the model blocks it rests on (`query X`, `command X`, or `no block`), every block a route
@@ -96,6 +98,12 @@ suite "the pictures are what the model files draw":
 
   test "docs/studio-plan.svg is the plan, drawn":
     check readFile(docsDir / "studio-plan.svg").unix == render(modelOf("studio-plan.em")).unix
+
+  test "the interactive page (drawn in CI, not committed) draws from the checked file":
+    let html = page(modelOf("studiodesk.em"))
+    check html.startsWith("<!doctype html>")
+    for name in ["StartTurn", "TurnStarted", "Desk", "TurnRunner", "ChatPanel"]:
+      check name in html
 
   test "every panel of the page has a screen":
     let m = modelOf("studiodesk.em")
