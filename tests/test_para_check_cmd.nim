@@ -1,12 +1,14 @@
-# Tests for `para check`: which commands it runs (the anchored test filter
-# and the game's own build), the pass/fail lines and verdict, the exit code,
-# and the stamp it leaves for `para save`. The steps are fakes, so nothing
-# compiles; tests/test_para_save_cmd.nim covers what save does with the stamp.
+# Tests for `para check`: which commands it runs (the purity step, the anchored
+# test filter and the game's own build), the pass/fail lines and verdict, the
+# exit code, and the stamp it leaves for `para save`. The tests and build steps
+# are fakes, so nothing compiles; tests/test_para_save_cmd.nim covers what save
+# does with the stamp, tests/test_para_purity.nim what the purity step refuses.
 
 import std/[unittest, os, strutils, tempfiles]
 import tools/para/art/clihelpers
 import tools/para/savepoint
 import tools/para/checkcmd
+import tools/para/purity
 
 proc put(root, rel, body: string) =
   let p = root / rel
@@ -37,11 +39,12 @@ suite "para check: what it runs":
     check testArgs("pong.builder") == @["--filter", "games/pong.builder/", "--skip-balance"]
     check buildArgs("pong.builder") == @["--game", "pong", "--lane", "builder"]
 
-  test "the real steps are the tests, then the build":
+  test "the real steps are purity first, then the tests, then the build":
     let steps = realSteps()
-    check steps.len == 2
-    check steps[0].name == "tests"
-    check steps[1].name == "build"
+    check steps.len == 3
+    check steps[0].name == "purity"
+    check steps[1].name == "tests"
+    check steps[2].name == "build"
 
 suite "para check: result and stamp":
   var root: string
@@ -99,6 +102,49 @@ suite "para check: result and stamp":
     check "tests: pass\nbuild: pass\n" in r.output
     check "changed while it was being checked" in r.output
     check not checksJustPassed(root, "pong")
+
+proc purityStep(root: string): CheckStep =
+  ## The real purity step, on `root`'s games/ (realSteps runs it from the repo root).
+  ("purity", proc (game: string): Run = runPurity(gameDirOf(root, game)))
+
+const
+  impureRules = "import pararules\nrule tick(Fact):\n  what:\n    (Global, DeltaTime, dt)\n" &
+                "  then:\n    echo dt\n"
+  pureRules = "import pararules\nrule tick(Fact):\n  what:\n    (Global, DeltaTime, dt)\n" &
+              "  then:\n    session.insert(Global, TotalTime, dt)\n"
+
+suite "para check: the purity step":
+  var root: string
+  setup: root = newRoot()
+  teardown: removeDir(root)
+
+  test "an impure then fails the check with a plain file:line message and no stamp":
+    root.put("games/pong/rules.nim", impureRules)
+    let r = runCheckWith(@["--game", "pong"], @[purityStep(root), fake("tests", 0), fake("build", 0)], root)
+    check r.code == 1
+    check r.output.startsWith("game: pong\npurity: FAIL\ntests: pass\nbuild: pass\ncheck: FAIL (purity)\n")
+    check ("purity output:\n  " & root / "games/pong/rules.nim" & ":6: rule tick's then calls echo: ") in r.output
+    check not checksJustPassed(root, "pong")
+
+  test "a banned import in data.nim fails it too":
+    root.put("games/pong/data.nim", "import std/times\n")
+    let r = runCheckWith(@["--game", "pong"], @[purityStep(root), fake("tests", 0), fake("build", 0)], root)
+    check r.code == 1
+    check (root / "games/pong/data.nim" & ":1: imports std/times, which a core file may not: it reads the clock") in r.output
+
+  test "a pure game passes it":
+    root.put("games/pong/rules.nim", pureRules)
+    let r = runCheckWith(@["--game", "pong"], @[purityStep(root), fake("tests", 0), fake("build", 0)], root)
+    check r.code == 0
+    check r.output.startsWith("game: pong\npurity: pass\ntests: pass\nbuild: pass\ncheck: pass\n")
+    check checksJustPassed(root, "pong")
+
+  test "a lane is checked on its own folder":
+    root.put("games/pong.builder/PLAN.md", "# plan\n")
+    root.put("games/pong.builder/rules.nim", impureRules)
+    let r = runCheckWith(@["--game", "pong", "--lane", "builder"], @[purityStep(root)], root)
+    check r.code == 1
+    check (root / "games/pong.builder/rules.nim" & ":6: ") in r.output
 
 suite "para check --lane: a rehearsal on a helper's lane":
   var root: string

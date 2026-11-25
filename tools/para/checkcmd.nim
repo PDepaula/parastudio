@@ -1,16 +1,19 @@
-# `para check`: the one command a producer runs before saving a game. It runs
-# the game's own tests (`para test --filter games/<game>/ --skip-balance`, the trailing slash
-# anchors the filter to that directory) and `para build --game <game>`, prints
-# one pass/fail line per step and one verdict, and exits 0 only when both
-# passed. It never runs the full suite, goldens, web smoke, balance or a push.
+# `para check`: the one command a producer runs before saving a game. It first
+# checks the game's core files stay pure (purity.nim: no banned import in
+# rules/data/systems, and a rule's `then` calls only the session's insert, ids,
+# RNG and pure helpers), then runs the game's own tests (`para test --filter
+# games/<game>/ --skip-balance`, the trailing slash anchors the filter to that
+# directory) and `para build --game <game>`, prints one pass/fail line per step
+# and one verdict, and exits 0 only when all three passed. It never runs the
+# full suite, goldens, web smoke, balance or a push.
 # On a pass it writes the stamp `para save` looks for (savepoint.nim).
 #
-# `--lane ID` checks a helper's lane (`games/<game>.<id>/`, lanecmd.nim) instead: the same two
+# `--lane ID` checks a helper's lane (`games/<game>.<id>/`, lanecmd.nim) instead: the same three
 # steps on the lane's folder (each step is handed `<game>.<id>` in place of the game's name). It is
 # a rehearsal the checker runs before the lane lands, so it writes no stamp: only a check of the
 # game itself, after the landing, lets `para save` save.
 #
-# Both steps run in this process, so `runCheck` must be run from the repo
+# Every step runs in this process, so `runCheck` must be run from the repo
 # root, like `para test`. `runCheckWith` takes the steps as procs so tests
 # need no compiler.
 
@@ -19,14 +22,17 @@ import art/[clihelpers, toon]
 import savepoint
 import testcmd
 import buildcmd
+import purity
 
 type
   Run = clihelpers.Run
   CheckStep* = tuple[name: string, run: proc (game: string): Run]
 
 const checkHelp* = "para check [--game NAME] [--lane ID]\n" &
-  "  runs the game's tests (para test --filter games/<game>/ --skip-balance) and builds it (para build --game <game>),\n" &
-  "  then prints one pass/fail line per step and a verdict; exit 0 when both passed, 1 when not\n" &
+  "  checks the game's core files stay pure (no banned import in rules.nim/data.nim/systems.nim; a rule's\n" &
+  "  then calls only session.insert, session.nextId, session.rng and pure helpers), runs its tests\n" &
+  "  (para test --filter games/<game>/ --skip-balance) and builds it (para build --game <game>),\n" &
+  "  then prints one pass/fail line per step and a verdict; exit 0 when all passed, 1 when not\n" &
   "  --game NAME  the game under games/; left out, the only game with a PLAN.md\n" &
   "  --lane ID    check a helper's lane of the game (games/<game>.<id>/, `para lane`) instead; it writes\n" &
   "               no pass for `para save`: land the lane, then check the game\n" &
@@ -42,7 +48,8 @@ proc buildArgs*(game: string): seq[string] =
   if dot < 0: @["--game", game] else: @["--game", game[0 ..< dot], "--lane", game[dot + 1 .. ^1]]
 
 proc realSteps*(): seq[CheckStep] =
-  @[("tests", proc (game: string): Run = runTest(testArgs(game))),
+  @[("purity", proc (game: string): Run = runPurity(gameDirOf("", game))),
+    ("tests", proc (game: string): Run = runTest(testArgs(game))),
     ("build", proc (game: string): Run = runBuild(buildArgs(game)))]
 
 proc indented(s: string): string =
@@ -50,7 +57,7 @@ proc indented(s: string): string =
     result.add "  " & line & "\n"
 
 proc checkLane(game, lane: string, steps: seq[CheckStep]): Run =
-  ## The two steps on the lane's folder; no stamp, no digest (nothing here can be saved).
+  ## The steps on the lane's folder; no stamp, no digest (nothing here can be saved).
   var failed: seq[string]
   var details = ""
   result.output = &"game: {game}\nlane: {lane}\n"

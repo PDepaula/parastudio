@@ -559,7 +559,7 @@ code is `tools/para/lanecmd.nim` (`para lane`); its header has the whole design.
   and never overwrite each other's binary. The cache is kept when the lane goes, so the next lane
   with the same id starts warm. A lane's tests run only for a `--filter` that names its folder
   (`para test --filter games/<game>.<id>/ --skip-balance`); a bare or `--area` run skips them.
-  `para check --lane ID` runs the same two steps on the lane and writes no stamp.
+  `para check --lane ID` runs the same three steps (purity, tests, build) on the lane and writes no stamp.
 - **Landing** (`para lane land <game> <id>`): commit everything in the lane; merge the game's line
   into the lane (a conflict is aborted there, so the lane is as it was, and the files are named);
   `git merge --squash lane/<id>` in the game, which only stages the lane's net change (no commit);
