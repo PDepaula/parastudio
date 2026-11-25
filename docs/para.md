@@ -58,7 +58,10 @@ agent session; it never edits a config file itself.
 measuring program (`tools/para/bench/`, release) into `tmp/bench/`, runs it once per
 row and repeat in a fresh process, and prints p50/p99 in milliseconds, resident memory and a
 `machine:` line (CPU, threads, RAM, OS, governor, load, nim and gcc); `--budget-ms X` turns a p99
-over X into exit 1. A real game's own split comes from the timer seams in `paraloop/prof`: build
+over X into exit 1. The cap gate it serves (`skills/pararules/SKILL.md` §11) gates the release
+build: release p99 tick under 4 ms headless per game class on named hardware, the pararules share
+printed beside it (over 50% moves that class's hot entities to a systems store), and debug only as
+a relative check (no more than 2 times main's debug p99, compared by hand). A real game's own split comes from the timer seams in `paraloop/prof`: build
 with `-d:prof` and a window prints its tick, rules, systems, draw, swap and frame percentiles when it
 closes (vsync off unless `-d:profVsync`; `-d:profFrames=N` closes it after N frames; the first 120
 frames and their ticks are left out as warm-up, or the first half of a run shorter than 240), while a
