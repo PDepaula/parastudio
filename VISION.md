@@ -39,7 +39,7 @@ The model is written first for the human who has to hold the whole system in the
 A measurement that agents need fewer turns on flat code does not replace the model, because that gain is unproven as the code base grows.
 For the Studio the model is `studiodesk.em`: the compiler holds every record, event, command, view, query and processor to `studiodesk.nim`, and each of its 22 refusal words has a scenario.
 That containment holds for the desk and stops at its edge: the HTTP layer, the routes, the shells and the page hold about 100 refusal and guard sites the model does not know, plus 79 fixed words typed as plain strings.
-The direction is to move what the desk can know into views and to check the page's routes against the model's screens; which of the existing edge rules belong in the model is open.
+The page's routes are checked against the model's screens (`tests/test_para_studio_model.nim`); the direction is to move what the desk can know into views, and which of the existing edge rules belong in the model is open.
 A new path the friend is expected to take, such as exporting or publishing a game, has its refusals in the model from its first slice; only facts the desk cannot know, such as network and account state, stay in the shell.
 Generated code is published beside the model by an `expand` command, and CI fails when the generated-to-written ratio or compile time passes a budget (decided, not built, budget not set).
 Rule purity is enforced by `para check`: core files may not import banned modules, and a `then` body may call only the session's insert, ids, rng and pure helpers (decided, not built).

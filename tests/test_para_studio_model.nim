@@ -9,6 +9,12 @@
 # - docs/studio-model.svg and docs/studio-plan.svg are exactly what `eversince pic` draws from the two
 #   files, so a change to a model file that is not redrawn fails here (redraw with
 #   `eversince pic tools/para/studiodesk.em docs/studio-model.svg`, and the same for the plan);
+# - the page and the routes are held to the screens of the checked file: every `/api/` call in
+#   tools/para/studio/index.html is a route in studioapi.nim's `handle`, the comment on each route's `of`
+#   line names the model blocks it rests on (`query X`, `command X`, or `no block`), every block a route
+#   the page calls is on a screen of the page, and every command and query on a screen of the page is
+#   reached by a route the page calls. The routes with no panel on the page yet (the HelperApi screen's
+#   three) are named here, not skipped;
 # - the few rules the desk holds on its own (a game's name, a save's note) are the same as the ones the
 #   shell and `para new` use, since the desk may not import them.
 
@@ -22,6 +28,10 @@ const
   here = currentSourcePath.parentDir
   paraDir = here.parentDir / "tools" / "para"
   docsDir = here.parentDir / "docs"
+  pageScreens = ["SetupPanel", "GamesPanel", "ChatPanel", "PlayPanel", "StepsPanel", "ResumePanel", "BackupSheet", "NewGameSheet"]
+    ## the screens that are panels of the page
+  pagelessScreens = ["HelperApi"]
+    ## the screens whose routes have no panel on the page yet: the page calls none of their routes
 
 proc modelOf(file: string): Model =
   parseModel(readFile(paraDir / file), file)
@@ -89,9 +99,182 @@ suite "the pictures are what the model files draw":
 
   test "every panel of the page has a screen":
     let m = modelOf("studiodesk.em")
-    for panel in ["SetupPanel", "GamesPanel", "ChatPanel", "PlayPanel", "StepsPanel", "ResumePanel", "BackupSheet", "NewGameSheet",
-                  "TurnThread", "JobThread", "PlayThread"]:
+    for panel in @pageScreens & @pagelessScreens & @["TurnThread", "JobThread", "PlayThread"]:
       check m.find(panel).kind == "screen"
+
+type
+  Route = object
+    ## One `of "/api/..."` line of studioapi.nim's `handle`, and what its comment says it rests on.
+    meth, path: string
+    kind: string          ## "query", "command", "none" (`# no block`), or "" when the comment says neither
+    blocks: seq[string]
+  Call = tuple[meth, path: string]
+    ## One `/api/` path the page names, with the method it uses ("?" when this file cannot tell)
+
+proc name(r: Route): string = r.meth & " " & r.path
+
+proc readRoutes(src: string): seq[Route] =
+  ## The routes of `handle`: the `of` labels of its first `case req.path` (the GET one) and its second (the
+  ## POST one), at that `case`'s own indent, so a comment or an inner `case` is no route.
+  let start = src.find("proc handle(")
+  let stop = src.find("\nproc ", start + 1)
+  var meth = ""
+  var caseIndent = -1
+  for raw in src[start ..< (if stop < 0: src.len else: stop)].splitLines:
+    let line = raw.strip
+    if line.len == 0 or line.startsWith("#"): continue
+    let indent = raw.len - raw.strip(trailing = false).len
+    if line.startsWith("case req.path"):
+      meth = if meth == "": "GET" else: "POST"
+      caseIndent = indent
+      continue
+    if caseIndent < 0 or indent < caseIndent or (indent == caseIndent and not line.startsWith("of ")):
+      caseIndent = -1
+      continue
+    if indent != caseIndent or not line.startsWith("of \"/api/"): continue
+    let close = line.find('"', "of \"".len)
+    var r = Route(meth: meth, path: line["of \"".len ..< close])
+    let hash = line.find('#', close)
+    let tag = if hash < 0: "" else: line[hash + 1 .. ^1].strip
+    if tag == "no block":
+      r.kind = "none"
+    else:
+      for kind in ["query", "command"]:
+        if tag.startsWith(kind & " "):
+          r.kind = kind
+          r.blocks = tag[kind.len + 1 .. ^1].split(',').mapIt(it.strip)
+    result.add r
+
+proc readCalls(page: string): seq[Call] =
+  ## Every `/api/...` the page names: in double quotes through `api(METHOD, ...)`, through `startStep`
+  ## (which posts), or through a bare `fetch` (a GET). Anything else (another quote, a backtick, a path
+  ## built up) comes back with method "?", so it is told, not dropped.
+  const pathChars = Letters + Digits + {'/', '-', '_', '.'}
+  var at = page.find("/api/")
+  while at >= 0:
+    var stop = at
+    while stop < page.len and page[stop] in pathChars: inc stop
+    let quoted = at > 0 and page[at - 1] == '"' and stop < page.len and page[stop] in {'"', '?'}
+    let before = page[max(0, at - 17) ..< max(0, at - 1)]
+    let eol = page.find('\n', stop)
+    let meth =
+      if not quoted: "?"
+      elif before.endsWith("api(\"GET\", "): "GET"
+      elif before.endsWith("api(\"POST\", "): "POST"
+      elif before.endsWith("startStep("): "POST"
+      elif before.endsWith("fetch(") and "method" notin page[stop ..< (if eol < 0: page.len else: eol)]: "GET"
+      else: "?"
+    result.add (meth, page[at ..< stop])
+    at = page.find("/api/", stop)
+
+proc onScreens(m: Model, n: string, screens: openArray[string]): bool =
+  screens.anyIt(n in m.find(it).edge("commands") & m.find(it).edge("queries"))
+
+proc routeDrift(routes: seq[Route], calls: seq[Call], m: Model): seq[string] =
+  ## Where the routes, the page's calls and the model's screens disagree; empty when they agree.
+  proc called(r: Route): bool = (meth: r.meth, path: r.path) in calls
+  for r in routes:
+    case r.kind
+    of "":
+      result.add "route " & r.name & " names no model block: end its `of` line with `# query X`, `# command X` or `# no block`"
+    of "none":
+      if not r.called:
+        result.add "the page never calls " & r.name & ", and it rests on no screen without a panel"
+    else:
+      let want = if r.meth == "GET": "query" else: "command"
+      if r.kind != want:
+        result.add "route " & r.name & " names a " & r.kind & "; a " & r.meth & " route rests on a " & want
+      for n in r.blocks:
+        if m.find(n).kind != r.kind:
+          result.add "route " & r.name & " names " & r.kind & " " & n & ", which studiodesk.em does not have"
+        elif r.called and not m.onScreens(n, pageScreens):
+          result.add "the page calls " & r.name & ", which rests on " & n & ", but no screen of the page lists " & n
+        elif not r.called and not m.onScreens(n, pagelessScreens):
+          result.add "the page never calls " & r.name & ", and " & n & " is on no screen without a panel"
+  for c in calls:
+    if c.meth == "?":
+      result.add "the page names " & c.path & " in a way this check cannot read: call it with `api(METHOD, PATH, ...)`"
+    elif routes.filterIt(it.meth == c.meth and it.path == c.path).len == 0:
+      result.add "the page calls " & c.meth & " " & c.path & ", which is not a route"
+  for s in pageScreens:
+    for n in m.find(s).edge("commands") & m.find(s).edge("queries"):
+      if not routes.anyIt(n in it.blocks and it.called):
+        result.add "the page's screen " & s & " lists " & n & ", but no route the page calls rests on it"
+  for s in pagelessScreens:
+    for n in m.find(s).edge("commands") & m.find(s).edge("queries"):
+      if not routes.anyIt(n in it.blocks):
+        result.add "screen " & s & " lists " & n & ", but no route rests on it"
+
+suite "the page's routes are the screens' commands and queries":
+  let m = modelOf("studiodesk.em")
+  let routes = readRoutes(readFile(paraDir / "studioapi.nim"))
+  let page = readFile(paraDir / "studio" / "index.html")
+  let calls = readCalls(page)
+
+  test "the routes, the page's calls and the screens of studiodesk.em agree":
+    check routeDrift(routes, calls, m) == newSeq[string]()
+
+  test "every route and every call was read":
+    check routes.len > 0 and calls.len > 0
+    check routes.allIt(it.meth in ["GET", "POST"])
+
+  test "only the `of` labels of handle's own cases are routes":
+    let src = """
+proc handle(st: ptr Studio, req: Request): Response =
+  if req.meth == "GET":
+    case req.path
+    of "/api/a": # query A
+      case req.query
+      of "/api/inner": discard
+      else: discard
+    # of "/api/commented": # query C
+    else: discard
+  case req.path
+  of "/api/b": # command B
+    discard
+  else: discard
+  # of "/api/after": # command D
+
+proc other() =
+  case x
+  of "/api/elsewhere": discard
+"""
+    check readRoutes(src).mapIt(it.name) == @["GET /api/a", "POST /api/b"]
+    check readRoutes(src).mapIt(it.blocks) == @[@["A"], @["B"]]
+
+  test "the routes with no panel on the page yet are the HelperApi screen's three, and the page calls none of them":
+    let uncalled = routes.filterIt((meth: it.meth, path: it.path) notin calls).mapIt(it.name)
+    check uncalled == @["GET /api/helpers", "POST /api/helper/start", "POST /api/helper/stop"]
+    for r in routes:
+      if r.name in uncalled:
+        check r.blocks.len > 0
+        check r.blocks.allIt(m.onScreens(it, pagelessScreens))
+
+  test "a page or a route that drifts is told so":
+    check routeDrift(routes, calls & @[(meth: "POST", path: "/api/chat/rename")], m).anyIt(
+      "the page calls POST /api/chat/rename, which is not a route" in it)
+    check routeDrift(routes, readCalls("const u = base + \"/api/state\";"), m).anyIt("cannot read" in it)
+    check routeDrift(routes, readCalls("fetch(\"/api/play/stop\", { method: \"POST\" });"), m).anyIt("cannot read" in it)
+    check readCalls("api(\"POST\", `/api/chat/rename`, {}); api('GET', '/api/x');") ==
+      @[(meth: "?", path: "/api/chat/rename"), (meth: "?", path: "/api/x")]
+    var untagged = routes
+    untagged[0].kind = ""
+    check routeDrift(untagged, calls, m).anyIt("names no model block" in it)
+    var renamed = routes
+    for r in renamed.mitems:
+      if r.path == "/api/chat/send": r.blocks = @["SendMessage"]
+    check routeDrift(renamed, calls, m).anyIt("names command SendMessage, which studiodesk.em does not have" in it)
+    check routeDrift(renamed, calls, m).anyIt("the page's screen ChatPanel lists StartTurn" in it)
+    var wrongKind = routes
+    for r in wrongKind.mitems:
+      if r.path == "/api/play" and r.meth == "GET": (r.kind, r.blocks) = ("command", @["StopPlay"])
+    check routeDrift(wrongKind, calls, m).anyIt("GET /api/play names a command" in it)
+    check routeDrift(routes, calls & @[(meth: "POST", path: "/api/helper/start")], m).anyIt(
+      "rests on StartHelper, but no screen of the page lists StartHelper" in it)
+    check routeDrift(routes.filterIt(it.path != "/api/helper/stop"), calls, m).anyIt(
+      "screen HelperApi lists StopHelper, but no route rests on it" in it)
+    check routeDrift(routes & @[Route(meth: "GET", path: "/api/secret", kind: "none")], calls, m).anyIt(
+      "the page never calls GET /api/secret" in it)
 
 suite "the desk's own copies of the shell's rules":
   test "a game's name is the one `para new` makes":

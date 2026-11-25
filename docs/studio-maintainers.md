@@ -351,6 +351,16 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   The plan may have warnings by design until its slices land (an event no command produces yet);
   the checked file passes `--strict`. `eversince catalog tools/para/studiodesk.em` is the quick way
   to read the blocks before opening a source file.
+
+  The same test holds the page to the screens. The routes are the `case` in `studioapi.nim`'s
+  `handle`, and each `of` line ends with the model blocks the route rests on (`# query ChatSince`,
+  `# command StartTurn,UseChat`, or `# no block` for a route the desk knows nothing of, such as
+  `GET /api/savepoints`). The test reads every `/api/` call in `studio/index.html` and fails when the
+  page calls a route that is not in the `case`, when a route names a block the model lacks (a GET
+  rests on queries, a POST on commands), when a route the page calls rests on a block no screen of
+  the page lists, or when a command or query on a screen of the page has no route the page calls.
+  The routes of the `HelperApi` screen have no panel on the page yet; the test names them as the
+  only routes the page does not call. A new route needs its tag; a new panel needs its screen.
 - **One turn at a time for each game.** `ChatState.turns` holds a turn per game (its own
   `TurnControl`, threads and clock), so two games can have the producer working at once: a
   second message to the same game, its Check, Save, Land, Backup, New chat, chat list and

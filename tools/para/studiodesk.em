@@ -4,7 +4,8 @@
 # The compiler checks every record/event/command/view/query line against studiodesk.nim.
 # Screens and slices exist only here; the compiler checks that they name real blocks and real edges.
 # studio-plan.em, beside it, is the same app with the blocks later slices add (see docs/studio-maintainers.md);
-# tests/test_para_studio_model.nim holds this file to it, and docs/studio-model.svg is this file drawn.
+# tests/test_para_studio_model.nim holds this file to it and its screens to the page's routes (studioapi.nim's
+# `handle`, each route tagged with the blocks it rests on), and docs/studio-model.svg is this file drawn.
 #
 # The shell's threads are processors: TurnRunner (the turn thread, and ending a turn's child on Stop),
 # TurnClock (its time limit), StepRunner (the job thread), StepClock (its time limit) and PlayRunner
