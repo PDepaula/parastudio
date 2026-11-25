@@ -23,7 +23,7 @@
 ##
 ## Under `-d:prof`, `run` times every tick (and the pararules time inside it),
 ## the draw, the swap and the whole frame through `paraloop/prof`, turns vsync
-## off (unless `-d:profVsync`) and prints the summary when the window closes
+## off and prints the summary when the window closes
 ## (see that module's doc).
 
 import paranim/glfw
@@ -183,7 +183,7 @@ proc run*[G](game: sink G, title = "paraloop", width = 1024, height = 768) =
     # requestAnimationFrame already vsyncs, and the GLFW shim's swapInterval
     # only warns when called before emscripten_set_main_loop. A `-d:prof`
     # window measures the work, not the display's refresh.
-    when defined(prof) and not defined(profVsync):
+    when defined(prof):
       glfwSwapInterval(0)
     else:
       glfwSwapInterval(1)

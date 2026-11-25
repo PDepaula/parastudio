@@ -63,7 +63,7 @@ build: release p99 tick under 4 ms headless per game class on named hardware, th
 printed beside it (over 50% moves that class's hot entities to a systems store), and debug only as
 a relative check (no more than 2 times main's debug p99, compared by hand). A real game's own split comes from the timer seams in `paraloop/prof`: build
 with `-d:prof` and a window prints its tick, rules, systems, draw, swap and frame percentiles when it
-closes (vsync off unless `-d:profVsync`; `-d:profFrames=N` closes it after N frames; the first 120
+closes (vsync off; `-d:profFrames=N` closes it after N frames; the first 120
 frames and their ticks are left out as warm-up, or the first half of a run shorter than 240), while a
 `-d:prof` `para` or game driver adds a `rules:` line to `para sim`'s output (pararules time against
 the rest of each step). Without `-d:prof` neither seam costs anything or prints anything.

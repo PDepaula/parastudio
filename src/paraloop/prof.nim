@@ -17,9 +17,9 @@
 ##   systems = tick - rules: everything a tick does outside pararules.
 ## - **frame**: `paraloop/app.run` times `drawFrame` (draw CPU), `swapBuffers`
 ##   (present, plus any wait for the GPU) and the whole loop iteration
-##   (`recordFrame`). A `-d:prof` window runs with vsync off unless
-##   `-d:profVsync` is also given, so a frame is the work, not the display's
-##   refresh; `-d:profFrames=N` closes the window after N frames.
+##   (`recordFrame`). A `-d:prof` window runs with vsync off, so a
+##   frame is the work, not the display's refresh; `-d:profFrames=N` closes
+##   the window after N frames.
 ##
 ## The summary a window prints leaves out the first `profWarmupFrames` (120)
 ## frames and the ticks they ran, or the first half of a shorter run

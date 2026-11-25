@@ -429,11 +429,6 @@ proc runBuildBench(args: seq[string]): Run =
       result.code = 1
       return
     rows.add @[label, formatFloat(secs, ffDecimal, 2), $getFileSize(outPath)]
-  if not skipRelease and findExe("strip").len > 0:
-    let stripped = outDir / (gameName & "_r_stripped" & ExeExt)
-    let res = runCaptured("strip", @["-o", stripped, rel])
-    if res.exitCode == 0:
-      rows.add @["release stripped", "n/a", $getFileSize(stripped)]
 
   result.output = &"bench: build, {gameName} ({game.source}), into {outDir}/\n"
   result.output.add machineLine()
