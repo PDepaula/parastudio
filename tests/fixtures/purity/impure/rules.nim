@@ -27,3 +27,10 @@ let (newRawSession*, gameRules*) =
       what:
         (Global, Quit, q)
       thenFinally: quit(1)               # BAD 29: quitting
+
+    rule loader(Fact):
+      what:
+        (Global, Label, l)
+      then:
+        session.insert(Global, Label, loadToml("save.toml").getStr("x"))  # BAD 35: loadToml reads a file
+        session.insert(Global, Label, stamp())  # passes here: systems.nim reports stamp's own effects

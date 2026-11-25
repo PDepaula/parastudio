@@ -1,16 +1,20 @@
 # The purity step of `para check`: a game's core files (`rules.nim`, `data.nim`, `systems.nim`)
-# stay pure, so a run replays from its seed and its inputs to the same state hash. Two things are
+# stay pure, so a run replays from its seed and its inputs to the same state hash. Three things are
 # refused, each with a plain `file:line:` message:
 #
 # - an import of a module that performs an effect (`bannedImports`): drawing, sound, the clock,
 #   files, processes, the network, threads, the environment (AGENTS.md "Boundaries";
 #   skills/pararules/SKILL.md "Effects never": the shell owns every effect);
+# - anywhere in a core file, one of `system`'s effect routines (`systemEffects`: `echo`,
+#   `readFile`, `quit`, ...), which need no import, so a game proc a `then` calls cannot hide one;
 # - a call inside a rule's `then:` (or `thenFinally:`) body other than the session's insert, id
-#   generation and RNG, and pure helpers (`sessionCalls`, `pureHelpers`, and any routine or table
-#   of procs the game declares in its own core files, which the import rule already keeps away
-#   from effects). A
-#   `then` writes the session and nothing else (SKILL.md "What a `then` can and cannot do"), so a
-#   retract, a `fireRules`, an `echo` or a `readFile` there is refused too.
+#   generation and RNG, and pure helpers (`sessionCalls`, `pureHelpers`, `pureEngineHelpers`, and
+#   any routine or table of procs the game declares in its own core files, which the two rules
+#   above keep away from effects). A `then` writes the session and nothing else (SKILL.md "What a
+#   `then` can and cannot do"), so a retract or a `fireRules` there is refused too.
+#
+# Names compare the way Nim compares them: the first character exactly, the rest ignoring case
+# and `_` (`next_id` is `nextId`).
 #
 # It reads the source as text, without compiling: comments and string literals are blanked first,
 # then imports and `then` bodies are scanned. That keeps the step fast and needs no compiler, at the
@@ -19,7 +23,7 @@
 # conversion or an object constructor and always passes; `x.name` with no parentheses reads as a
 # field and passes.
 
-import std/[os, sets, strutils]
+import std/[algorithm, os, sets, strutils]
 
 type
   Finding* = tuple[file: string, line: int, msg: string]
@@ -89,6 +93,26 @@ const
     ("posix", "it calls the operating system"),
     ("winlean", "it calls the operating system"),
     ("exitprocs", "it runs code when the program quits"),
+    ("rdstdin", "it reads the keyboard"),
+    ("dynlib", "it loads libraries"),
+    ("oids", "it reads the clock"),
+    ("parseopt", "it reads the command line"),
+    ("cgi", "it reads the environment"),
+  ]
+
+  systemEffects* = [
+    # (routine, why) -- `system`'s effects, refused anywhere in a core file: they need no import,
+    # so the import rule cannot keep them out of a game proc that a `then` calls.
+    ("echo", "it writes output"),
+    ("debugEcho", "it writes output"),
+    ("readFile", "it reads files"),
+    ("writeFile", "it writes files"),
+    ("readLines", "it reads files"),
+    ("open", "it opens files"),
+    ("quit", "it quits the program"),
+    ("stdout", "it writes output"),
+    ("stderr", "it writes output"),
+    ("stdin", "it reads the keyboard"),
   ]
 
   coreSafeEngineModules* = ["sim", "input", "tilemap", "toml"]
@@ -115,6 +139,8 @@ const
     "float", "float32", "float64", "bool", "char", "string", "byte",
     "items", "mitems", "pairs", "mpairs", "countup", "countdown",
     "assert", "doAssert", "newException",
+    # compile-time questions, not calls (`when defined(debug): doAssert x`)
+    "defined", "declared", "compiles", "sizeof",
     # std/math
     "floor", "ceil", "round", "trunc", "sqrt", "cbrt", "pow", "hypot", "exp", "ln", "log",
     "log2", "log10", "sin", "cos", "tan", "arcsin", "arccos", "arctan", "arctan2", "degToRad",
@@ -124,19 +150,28 @@ const
     "some", "none", "isSome", "isNone", "get", "unsafeGet", "map", "filter", "flatMap",
     # std/sequtils and std/algorithm
     "toSeq", "mapIt", "filterIt", "anyIt", "allIt", "countIt", "keepItIf", "applyIt", "foldl",
-    "concat", "zip", "unzip", "deduplicate", "any", "all", "count", "minIndex",
+    "concat", "zip", "unzip", "deduplicate", "any", "all", "count", "minIndex", "newSeqWith", "pop",
     "maxIndex", "distribute", "reversed", "reverse", "sorted", "sort", "sortedByIt", "isSorted",
     "binarySearch", "lowerBound", "upperBound", "fill", "rotateLeft", "rotatedLeft",
     # std/tables and std/sets
     "hasKey", "getOrDefault", "mgetOrPut", "hasKeyOrPut", "initTable", "toTable", "initHashSet",
-    "toHashSet", "keys", "values", "mvalues",
+    "toHashSet", "keys", "values", "mvalues", "newTable", "initOrderedTable", "toOrderedTable",
+    "initCountTable", "toCountTable",
+    # std/deques
+    "initDeque", "addFirst", "addLast", "popFirst", "popLast", "peekFirst", "peekLast",
     # std/strutils and std/strformat, for a label a fact carries
     "fmt", "join", "split", "strip", "startsWith", "endsWith", "replace", "repeat", "align",
-    "formatFloat", "toLowerAscii", "toUpperAscii", "intToStr",
+    "formatFloat", "toLowerAscii", "toUpperAscii", "intToStr", "parseInt", "parseFloat", "format",
   ]
 
-  pureEngineModules = ["tilemap", "toml"]
-    ## Engine modules whose routines are pure helpers a `then` may call (`pureEngineHelpers`).
+  pureEngineHelpers* = [
+    # paraloop/tilemap: grid queries, movement and paths over a map value
+    "inBounds", "isSolid", "tileAt", "worldToTile", "tileToWorld", "worldWidth", "worldHeight",
+    "parseGrid", "moveBox", "raycast", "reachable", "findPath", "nearestReachable",
+    # paraloop/toml: parsing text already in hand and reading values; not `loadToml`, which reads
+    # a file
+    "parseToml", "getStr", "getInt", "getBool", "getFloat",
+  ]
 
   routineKeywords = ["proc", "func", "template", "macro", "iterator", "method", "converter"]
   nimKeywords = [
@@ -150,6 +185,28 @@ const
 
 proc isIdentStart(c: char): bool = c in {'a'..'z', 'A'..'Z', '_', '\x80'..'\xff'}
 proc isIdentChar(c: char): bool = c in {'a'..'z', 'A'..'Z', '0'..'9', '_', '\x80'..'\xff'}
+
+proc nimIdent*(name: string): string =
+  ## `name` the way Nim compares identifiers: the first character kept, the rest lowercased and
+  ## without `_`.
+  if name.len == 0: return ""
+  result = $name[0]
+  for c in name[1 .. ^1]:
+    if c != '_': result.add c.toLowerAscii
+
+proc identSet(names: openArray[string]): HashSet[string] =
+  for n in names: result.incl nimIdent(n)
+
+proc effectWhy(name: string): string =
+  ## Why `name` is one of `systemEffects`, or "".
+  let key = nimIdent(name)
+  for (effect, why) in systemEffects:
+    if key == nimIdent(effect): return why
+
+const
+  sessionCallSet = identSet(sessionCalls)
+  rngProcSet = identSet(rngProcs)
+  pureHelperSet = identSet(pureHelpers) + identSet(pureEngineHelpers)
 
 proc blankCode*(src: string): string =
   ## `src` with every comment and the inside of every string and char literal turned into spaces,
@@ -251,15 +308,21 @@ proc importFindings(file: string, lines: seq[string]): seq[Finding] =
   var i = 0
   while i < lines.len:
     let start = i
+    let ind = indentOf(lines[i])
     var stmt = lines[i].strip
-    if stmt.startsWith("when "):
-      # `when defined(dev): import std/os` on one line
-      for kw in [": import ", ": from ", ": include "]:
+    if stmt.startsWith("when ") or stmt.startsWith("elif ") or stmt.startsWith("else:"):
+      # `when defined(dev): import std/os` (or `elif ...:`, `else:`) on one line
+      for kw in [": import", ": from ", ": include"]:
         let at = stmt.find(kw)
         if at > 0: stmt = stmt[at + 2 .. ^1]; break
-    let isImport =stmt.startsWith("import ") or stmt.startsWith("include ") or stmt.startsWith("from ")
+    let isImport = stmt in ["import", "include"] or stmt.startsWith("import ") or
+                   stmt.startsWith("include ") or stmt.startsWith("from ")
     var depth = stmt.count('[') - stmt.count(']')
-    while isImport and (depth > 0 or stmt.endsWith(",")) and i + 1 < lines.len:
+    # the statement goes on while a bracket is open, after a trailing comma, and over every deeper
+    # line (`import` alone on its line, `from std/os import` then the names below)
+    while isImport and i + 1 < lines.len and
+          (depth > 0 or stmt.endsWith(",") or
+           lines[i + 1].strip.len > 0 and indentOf(lines[i + 1]) > ind):
       inc i
       stmt.add " " & lines[i].strip
       depth = stmt.count('[') - stmt.count(']')
@@ -292,12 +355,21 @@ proc declaredRoutines*(code: string): HashSet[string] =
           while j < s.len and isIdentChar(s[j]): name.add s[j]; inc j
           if name.len > 0: result.incl name
 
-const pureEngineHelpers = block:
-  ## Every routine the pure engine modules declare, read from their source when `para` is built.
-  var names: HashSet[string]
-  for m in pureEngineModules:
-    names.incl declaredRoutines(blankCode(staticRead("../../src/paraloop/" & m & ".nim")))
-  names
+proc effectFindings(file: string, lines: seq[string]): seq[Finding] =
+  ## Every use of one of `systemEffects`, anywhere in the file.
+  for n, b in lines:
+    var j = 0
+    while j < b.len:
+      if not isIdentStart(b[j]) or (j > 0 and isIdentChar(b[j - 1])):
+        inc j; continue
+      var e = j
+      while e < b.len and isIdentChar(b[e]): inc e
+      let name = b[j ..< e]
+      let why = effectWhy(name)
+      if why.len > 0:
+        result.add (file, n + 1, "uses " & name & ", which a core file may not: " & why &
+                    " (an effect belongs to the shell, the game's main file)")
+      j = e
 
 proc skipSpaces(s: string, j: int): int =
   result = j
@@ -343,7 +415,7 @@ proc thenFindings(file: string, lines: seq[string], helpers: HashSet[string]): s
       body.add (i, lines[i]); inc i
     var locals = helpers
     for (_, b) in body:
-      for name in declaredRoutines(b): locals.incl name
+      for name in declaredRoutines(b): locals.incl nimIdent(name)
     let who = if rule.len > 0: "rule " & rule & "'s " & section else: "a " & section
     for (n, b) in body:
       var calls: seq[string]
@@ -356,11 +428,12 @@ proc thenFindings(file: string, lines: seq[string], helpers: HashSet[string]): s
         var nextWord = ""
         var k = next
         while k < st.len and isIdentChar(st[k]): nextWord.add st[k]; inc k
+        let word = st[0 ..< w]
         if next < st.len and (isIdentChar(st[next]) or st[next] in {'"', '\'', '(', '@'}) and
-           nextWord notin nimKeywords and st[0 ..< w] notin nimKeywords and
-           st[0 ..< w] notin routineKeywords and st[0 ..< w] notin pureHelpers and
-           st[0 ..< w] notin locals:
-          calls.add st[0 ..< w]
+           nextWord notin nimKeywords and word notin nimKeywords and
+           word notin routineKeywords and nimIdent(word) notin pureHelperSet and
+           nimIdent(word) notin locals and effectWhy(word).len == 0:
+          calls.add word
       # `name(`, `name[T](`, `x.name(`, and every `session.name`
       var j = 0
       while j < b.len:
@@ -369,6 +442,7 @@ proc thenFindings(file: string, lines: seq[string], helpers: HashSet[string]): s
         var e = j
         while e < b.len and isIdentChar(b[e]): inc e
         let name = b[j ..< e]
+        let key = nimIdent(name)
         let recv = if j > 0 and b[j - 1] == '.': receiverOf(b, j - 1) else: ""
         var after = e
         if after < b.len and b[after] == '[':
@@ -377,21 +451,22 @@ proc thenFindings(file: string, lines: seq[string], helpers: HashSet[string]): s
         let isCall = after < b.len and b[after] == '('
         if recv == "session" or recv.startsWith("session."):
           # session.rng.rand(9) and a game helper called on the session (session.openHub()) pass
-          if recv == "session" and name notin sessionCalls and name notin locals:
+          if recv == "session" and key notin sessionCallSet and key notin locals:
             calls.add "session." & name
         elif isCall and name notin nimKeywords and name notin routineKeywords:
-          if name in rngProcs:
+          if key in rngProcSet:
             if not b[skipSpaces(b, after + 1) .. ^1].startsWith("session.rng"):
               calls.add name # rand(9), xs.shuffle(): std/random's global RNG
-          elif name[0] notin {'A'..'Z'} and name notin pureHelpers and
-               name notin pureEngineHelpers and name notin locals:
+          elif name[0] notin {'A'..'Z'} and key notin pureHelperSet and key notin locals and
+               effectWhy(name).len == 0:
+            # (an effect from `systemEffects` is reported by `effectFindings` instead)
             # (a capitalised name is a type conversion or an object constructor, so it passes)
             calls.add name
         j = e
       for c in calls:
         let what =
           if c == "session.retract": "session.retract (never retract inside a then; the systems step retracts)"
-          elif c in rngProcs: c & " (std/random's global RNG; draw from session.rng instead)"
+          elif nimIdent(c) in rngProcSet: c & " (std/random's global RNG; draw from session.rng instead)"
           else: c
         result.add (file, n + 1, who & " calls " & what & ": a then may call only session.insert, " &
                     "session.nextId, session.rng and pure helpers (the game's own procs and funcs, or " &
@@ -433,12 +508,13 @@ proc purityFindings*(gameDir: string): seq[Finding] =
     let path = gameDir / name
     if not fileExists(path): continue
     let code = blankCode(readFile(path))
-    helpers.incl declaredRoutines(code)
-    helpers.incl declaredValues(code)
+    for name in declaredRoutines(code) + declaredValues(code): helpers.incl nimIdent(name)
     codes.add (path, code.splitLines)
   for (path, lines) in codes:
-    result.add importFindings(path, lines)
-    result.add thenFindings(path, lines, helpers)
+    var found = importFindings(path, lines) & effectFindings(path, lines) &
+                thenFindings(path, lines, helpers)
+    found.sort(proc (a, b: Finding): int = cmp(a.line, b.line))
+    result.add found
 
 proc runPurity*(gameDir: string): tuple[output: string, code: int] =
   ## The step: one `file:line: message` line per finding and exit 1, or a one-line pass and exit 0.

@@ -3,10 +3,10 @@
 ## import std/os
 #[ a block comment: quit(1) session.retract(Player, Hp) ]#
 
-import std/[math, options, sequtils]
+import std/[deques, math, options, sequtils, strutils, tables]
 from std/random import Rand, rand, shuffle
 import pararules
-import paraloop/[sim, tilemap]
+import paraloop/[sim, tilemap, toml]
 import data
 
 type
@@ -69,3 +69,22 @@ let (newRawSession*, gameRules*) =
       thenFinally:
         let all = session.queryAll(this)
         session.insert(Global, Wallet, all.len)
+
+    rule tally(Fact):
+      what:
+        (Global, Roll, roll)
+      then:
+        var q = initDeque[int]()
+        q.addLast(roll)
+        q.addFirst(1)
+        let a = q.popFirst() + q.popLast()
+        var xs = newSeqWith(3, 0)
+        let b = xs.pop()
+        let t = newTable[int, int]()
+        let o = initOrderedTable[string, int]()
+        let c = initCountTable[int]()
+        let n = parseInt("4") + parseFloat("1.5").int + t.get_or_default(1) + o.len + c.len
+        when defined(debug): doAssert n > 0
+        let doc = parseToml("a = 1")
+        session.insert(Global, Label, format("$1 $2", a, b) & doc.top.getStr("a"))
+        session.insert(Global, Spawned, session.next_id() + hal_ved(n))

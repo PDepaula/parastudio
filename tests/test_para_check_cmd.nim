@@ -109,7 +109,7 @@ proc purityStep(root: string): CheckStep =
 
 const
   impureRules = "import pararules\nrule tick(Fact):\n  what:\n    (Global, DeltaTime, dt)\n" &
-                "  then:\n    echo dt\n"
+                "  then:\n    session.fireRules()\n"
   pureRules = "import pararules\nrule tick(Fact):\n  what:\n    (Global, DeltaTime, dt)\n" &
               "  then:\n    session.insert(Global, TotalTime, dt)\n"
 
@@ -123,7 +123,7 @@ suite "para check: the purity step":
     let r = runCheckWith(@["--game", "pong"], @[purityStep(root), fake("tests", 0), fake("build", 0)], root)
     check r.code == 1
     check r.output.startsWith("game: pong\npurity: FAIL\ntests: pass\nbuild: pass\ncheck: FAIL (purity)\n")
-    check ("purity output:\n  " & root / "games/pong/rules.nim" & ":6: rule tick's then calls echo: ") in r.output
+    check ("purity output:\n  " & root / "games/pong/rules.nim" & ":6: rule tick's then calls session.fireRules: ") in r.output
     check not checksJustPassed(root, "pong")
 
   test "a banned import in data.nim fails it too":
