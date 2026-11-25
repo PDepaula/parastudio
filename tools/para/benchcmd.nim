@@ -9,7 +9,7 @@
 #   storage-attribution method).
 # - `sprites`: paranim's instanced sprite batch in a hidden window
 #   (tools/para/bench/sprite_bench.nim): the CPU add, submit, GPU and wait
-#   parts of a frame for N sprites in C draw calls, and the GL renderer.
+#   parts of a frame for N sprites in one draw call, and the GL renderer.
 # - `build`: a game's forced debug and release compile times, an unchanged
 #   rebuild, and the binary sizes.
 #
@@ -37,9 +37,9 @@ const benchHelp* = "para bench <rules|sprites|build> [flags]\n" &
   "    pararules per tick at N entities with K (1-3) per-entity rules fired by one DeltaTime insert, next to\n" &
   "    the systems pattern (a loop writing the same facts) and plain (the same math, no session); a\n" &
   "    per-entity fit across the counts; --budget-ms X: exit 1 when a rules row's p99 is over X\n" &
-  "  sprites [--n 1000,5000,10000] [--calls 1] [--frames 90] [--warmup 10] [--repeat 3] [--budget-ms X]\n" &
+  "  sprites [--n 1000,5000,10000] [--frames 90] [--warmup 10] [--repeat 3] [--budget-ms X]\n" &
   "    paranim's sprite batch in a hidden 1280x720 window: CPU add, submit, GPU and wait per frame for N\n" &
-  "    sprites in C draw calls (each --calls value for each --n); needs a display (exit 1 without one);\n" &
+  "    sprites in one draw call; needs a display (exit 1 without one);\n" &
   "    --budget-ms X: exit 1 when a row's p99 frame is over X\n" &
   "  build [--game NAME] [--skip-release]\n" &
   "    forced debug build, unchanged rebuild and forced release build of a game (default hello): seconds\n" &
@@ -244,6 +244,7 @@ proc runRules(args: seq[string]): Run =
     if bad.len > 0: return errorOut(bad, @[])
     inc i
 
+  let machine = machineLine()
   var exe: string
   let built = buildProgram("rules_bench", exe)
   if built.code != 0: return built
@@ -270,7 +271,7 @@ proc runRules(args: seq[string]): Run =
 
   result.output = &"bench: rules, {ticks} ticks after {warmup} warm-up, median of {repeat} " &
     &"run{(if repeat == 1: \"\" else: \"s\")}, dt 1/60s (tick {fmt3(tickMs)}ms)\n"
-  result.output.add machineLine()
+  result.output.add machine
   result.output.add toonTable("results",
     ["entities", "rules", "variant", "p50_ms", "p99_ms", "p99_tick_pct", "setup_ms", "rss_mb", "heap_mb"], rows)
   let t50 = leastSquares(fitN, fitP50)
@@ -296,7 +297,6 @@ proc runRules(args: seq[string]): Run =
 
 proc runSprites(args: seq[string]): Run =
   var counts = @[1000, 5000, 10000]
-  var calls = @[1]
   var frames = 90
   var warmup = 10
   var repeat = 3
@@ -311,9 +311,6 @@ proc runSprites(args: seq[string]): Run =
     of "--n":
       if v.len == 0: return errorOut("--n needs sprite counts, e.g. --n 1000,5000", @[])
       bad = parseCounts("--n", v, 1, counts); inc i
-    of "--calls":
-      if v.len == 0: return errorOut("--calls needs draw call counts, e.g. --calls 1,10,100", @[])
-      bad = parseCounts("--calls", v, 1, calls); inc i
     of "--frames":
       if v.len == 0: return errorOut("--frames needs a number", @[])
       bad = parseIntFlag("--frames", v, 1, 1_000_000, frames); inc i
@@ -330,13 +327,10 @@ proc runSprites(args: seq[string]): Run =
       if not (budget > 0 and budget < Inf): return errorOut(&"--budget-ms must be above 0, got \"{v}\"", @[])
       inc i
     else:
-      return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --n N[,N...], --calls C[,C...], --frames N, --warmup N, --repeat N, --budget-ms X"])
+      return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --n N[,N...], --frames N, --warmup N, --repeat N, --budget-ms X"])
     if bad.len > 0: return errorOut(bad, @[])
     inc i
-  for n in counts:
-    for c in calls:
-      if c > n: return errorOut(&"--calls {c} is more draw calls than --n {n} sprites", @[])
-
+  let machine = machineLine()
   var exe: string
   let built = buildProgram("sprite_bench", exe)
   if built.code != 0: return built
@@ -344,37 +338,34 @@ proc runSprites(args: seq[string]): Run =
   var rows: seq[seq[string]]
   var renderer, glVersion = ""
   for n in counts:
-    for c in calls:
-      var runs: seq[Table[string, string]]
-      for r in 1 .. repeat:
-        let res = runCaptured(exe.absolutePath, @["--n", $n, "--calls", $c, "--frames", $frames,
-                                                  "--warmup", $warmup])
-        if res.exitCode == 3:
-          return ("error: no display: `para bench sprites` draws in a hidden GL 3.3 window\n" &
-            toonHelp(@["Run it in a desktop session, or under a virtual display (xvfb-run para bench sprites)"]), 1)
-        let fields = parseResult(res.output)
-        if res.exitCode != 0 or fields.len == 0:
-          return (&"error: sprite_bench failed at {n} sprites, {c} calls\n" & lastLines(res.output, 20), 1)
-        if renderer.len == 0:
-          renderer = linePrefixed(res.output, "renderer:")
-          glVersion = linePrefixed(res.output, "gl-version:")
-        runs.add fields
-      let p99 = runs.medianOf("p99_ms")
-      rows.add @[$n, $c, fmt3(runs.medianOf("add_ms")), fmt3(runs.medianOf("submit_ms")),
-                 fmt3(runs.medianOf("gpu_ms")), fmt3(runs.medianOf("wait_ms")),
-                 fmt3(runs.medianOf("p50_ms")), fmt3(p99), fmt1(runs.medianOf("rss_mb"))]
+    var runs: seq[Table[string, string]]
+    for r in 1 .. repeat:
+      let res = runCaptured(exe.absolutePath, @["--n", $n, "--frames", $frames, "--warmup", $warmup])
+      if res.exitCode == 3:
+        return ("error: no display: `para bench sprites` draws in a hidden GL 3.3 window\n" &
+          toonHelp(@["Run it in a desktop session, or under a virtual display (xvfb-run para bench sprites)"]), 1)
+      let fields = parseResult(res.output)
+      if res.exitCode != 0 or fields.len == 0:
+        return (&"error: sprite_bench failed at {n} sprites\n" & lastLines(res.output, 20), 1)
+      if renderer.len == 0:
+        renderer = linePrefixed(res.output, "renderer:")
+        glVersion = linePrefixed(res.output, "gl-version:")
+      runs.add fields
+    rows.add @[$n, fmt3(runs.medianOf("add_ms")), fmt3(runs.medianOf("submit_ms")),
+               fmt3(runs.medianOf("gpu_ms")), fmt3(runs.medianOf("wait_ms")),
+               fmt3(runs.medianOf("p50_ms")), fmt3(runs.medianOf("p99_ms")), fmt1(runs.medianOf("rss_mb"))]
 
   result.output = &"bench: sprites, 1280x720 hidden window, 32px sprites, vsync off, " &
     &"{frames} frames after {warmup} warm-up, median of {repeat} run{(if repeat == 1: \"\" else: \"s\")}\n"
-  result.output.add machineLine()
+  result.output.add machine
   result.output.add "gpu: renderer " & toonCell(renderer) & ", gl " & toonCell(glVersion) & "\n"
   result.output.add toonTable("results",
-    ["sprites", "calls", "add_ms", "submit_ms", "gpu_ms", "wait_ms", "p50_ms", "p99_ms", "rss_mb"], rows)
+    ["sprites", "add_ms", "submit_ms", "gpu_ms", "wait_ms", "p50_ms", "p99_ms", "rss_mb"], rows)
   if budget > 0:
-    let over = overBudget(rows, 7, budget)
+    let over = overBudget(rows, 6, budget)
     if over.len > 0:
       result.output.add &"gate: frame p99 under {fmt3(budget)}ms: FAIL at " &
-        over.mapIt(rows[it][0] & " sprites in " & rows[it][1] & " calls").join(", ") & "\n"
+        over.mapIt(rows[it][0] & " sprites").join(", ") & "\n"
       result.code = 1
     else:
       result.output.add &"gate: frame p99 under {fmt3(budget)}ms: pass\n"
@@ -409,6 +400,7 @@ proc runBuildBench(args: seq[string]): Run =
   let notFound = resolveGame(gameName, game)
   if notFound.code != 0: return notFound
 
+  let machine = machineLine()
   let outDir = "tmp" / "bench" / "build"
   createDir(outDir)
   let dbg = outDir / (gameName & "_d" & ExeExt)
@@ -431,7 +423,7 @@ proc runBuildBench(args: seq[string]): Run =
     rows.add @[label, formatFloat(secs, ffDecimal, 2), $getFileSize(outPath)]
 
   result.output = &"bench: build, {gameName} ({game.source}), into {outDir}/\n"
-  result.output.add machineLine()
+  result.output.add machine
   result.output.add toonTable("builds", ["build", "seconds", "bytes"], rows)
   result.output.add toonHelp(@[
     "A forced build recompiles everything, the standard library included; an unchanged rebuild is the floor of an edit-and-run loop"])

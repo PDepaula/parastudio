@@ -2,15 +2,15 @@
 # runs it; it is not a game and not part of `para`). It opens a hidden
 # 1280x720 GL 3.3 window (paraloop/app.openHeadlessWindow), makes one 32 px
 # sprite sheet (paraloop/render2d), then for each measured frame adds `--n`
-# sprites with `addCell` and draws them in `--calls` flushes, timing four
+# sprites with `addCell` and draws them in one flush, timing four
 # parts of the frame: add (Nim-side per-sprite work in render2d/paranim),
-# submit (the flushes: instance upload and draw calls), gpu (a GL_TIME_ELAPSED
+# submit (the flush: instance upload and draw call), gpu (a GL_TIME_ELAPSED
 # query around the draws) and wait (glFinish). One `result` line of
 # `key=value` fields, after a `renderer:` and a `gl-version:` line, so the
 # numbers say which GPU and driver made them. Exit 3 when no window can be opened (no
 # display).
 #
-# Fields: sprites, calls, frames, warmup, add_ms, submit_ms, gpu_ms, wait_ms
+# Fields: sprites, frames, warmup, add_ms, submit_ms, gpu_ms, wait_ms
 # (each a p50), p50_ms and p99_ms (the whole frame: add + submit + wait), and
 # rss_mb (VmRSS from /proc/self/status after the run; "n/a" without /proc).
 
@@ -46,7 +46,6 @@ proc rssMb(): string =
 
 proc main() =
   var n = 5000
-  var calls = 1
   var frames = 90
   var warmup = 10
   let args = commandLineParams()
@@ -55,14 +54,13 @@ proc main() =
     let v = if i + 1 < args.len: args[i + 1] else: ""
     case args[i]
     of "--n": n = v.parseInt
-    of "--calls": calls = v.parseInt
     of "--frames": frames = v.parseInt
     of "--warmup": warmup = v.parseInt
     else:
       stderr.writeLine "sprite_bench: unknown argument " & args[i]
       quit 2
     i += 2
-  if n < 1 or calls < 1 or calls > n or frames < 1 or warmup < 0:
+  if n < 1 or frames < 1 or warmup < 0:
     stderr.writeLine "sprite_bench: bad arguments"
     quit 2
 
@@ -103,18 +101,13 @@ proc main() =
     glClear(GL_COLOR_BUFFER_BIT)
     let t0 = getMonoTime()
     glBeginQuery(GL_TIME_ELAPSED, q)
-    var addT, subT = 0.0
-    var k = 0
-    for b in 0 ..< calls:
-      let upto = if b == calls - 1: n else: (b + 1) * (n div calls)
-      let a0 = getMonoTime()
-      while k < upto:
-        sheet.addCell(0, 0, xs[k] + float(f mod 16), ys[k], float spriteSize, float spriteSize)
-        inc k
-      addT += msSince(a0)
-      let s0 = getMonoTime()
-      sheet.flush(g, float ww, float wh, camera)
-      subT += msSince(s0)
+    let a0 = getMonoTime()
+    for k in 0 ..< n:
+      sheet.addCell(0, 0, xs[k] + float(f mod 16), ys[k], float spriteSize, float spriteSize)
+    let addT = msSince(a0)
+    let s0 = getMonoTime()
+    sheet.flush(g, float ww, float wh, camera)
+    let subT = msSince(s0)
     glEndQuery(GL_TIME_ELAPSED)
     let w0 = getMonoTime()
     glFinish()
@@ -130,7 +123,7 @@ proc main() =
       totalMs.add total
   let p50 = pct(totalMs, 0.5)
   let p99 = pct(totalMs, 0.99)
-  echo &"result sprites={n} calls={calls} frames={frames} warmup={warmup} " &
+  echo &"result sprites={n} frames={frames} warmup={warmup} " &
     &"add_ms={pct(addMs, 0.5):.4f} submit_ms={pct(submitMs, 0.5):.4f} gpu_ms={pct(gpuMs, 0.5):.4f} " &
     &"wait_ms={pct(waitMs, 0.5):.4f} p50_ms={p50:.4f} p99_ms={p99:.4f} rss_mb={rssMb()}"
   win.destroyWindow()

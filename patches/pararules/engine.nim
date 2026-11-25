@@ -58,21 +58,16 @@ when defined(prof):
     profDepth: int
 
   template profEngine(body: untyped) =
-    if profDepth == 0:
-      let profStart = getMonoTime().ticks
-      inc profDepth
-      try:
-        body
-      finally:
-        dec profDepth
+    let profOuter = profDepth == 0
+    let profStart = if profOuter: getMonoTime().ticks else: 0'i64
+    inc profDepth
+    try:
+      body
+    finally:
+      dec profDepth
+      if profOuter:
         profRulesNs += getMonoTime().ticks - profStart
         inc profRulesCalls
-    else:
-      inc profDepth
-      try:
-        body
-      finally:
-        dec profDepth
 
 macro profiled(p: untyped): untyped =
   ## Times the proc's body into `profRulesNs` under `-d:prof`; the proc as

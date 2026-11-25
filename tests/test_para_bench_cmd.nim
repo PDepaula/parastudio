@@ -31,7 +31,7 @@ suite "para bench: help and usage errors":
                  @["rules", "--rules", "4"], @["rules", "--rules", "0"], @["rules", "--ticks", "0"],
                  @["rules", "--repeat", "0"], @["rules", "--warmup", "-1"], @["rules", "--budget-ms", "0"],
                  @["rules", "--budget-ms", "x"], @["rules", "--n"],
-                 @["sprites", "--calls", "20", "--n", "10"], @["sprites", "--frames", "0"],
+                 @["sprites", "--n", "0"], @["sprites", "--frames", "0"],
                  @["sprites", "--budget-ms", "-3"], @["build", "--game"], @["build", "--game", "no-such-game"]]:
       let r = runBench(args)
       check r.code == 2
@@ -75,14 +75,14 @@ suite "para bench: real runs at a tiny size":
     check r.output.contains("\nfit: rules variant per entity under 2 rules (least squares over 2 counts): p50 ")
     check not r.output.contains("gate:")
 
-  test "sprites prints the renderer and one row per count and call split, or says there is no display":
-    let r = runBench(@["sprites", "--n", "10", "--calls", "1,2", "--frames", "2", "--warmup", "0", "--repeat", "1"])
+  test "sprites prints the renderer and one row per count, or says there is no display":
+    let r = runBench(@["sprites", "--n", "10,20", "--frames", "2", "--warmup", "0", "--repeat", "1"])
     if r.code == 0:
       check r.output.startsWith("bench: sprites, 1280x720 hidden window")
       check r.output.contains("\ngpu: renderer ")
-      check r.output.contains("results[2]{sprites,calls,add_ms,submit_ms,gpu_ms,wait_ms,p50_ms,p99_ms,rss_mb}:\n")
-      check "  10,1," in r.output
-      check "  10,2," in r.output
+      check r.output.contains("results[2]{sprites,add_ms,submit_ms,gpu_ms,wait_ms,p50_ms,p99_ms,rss_mb}:\n")
+      check "  10," in r.output
+      check "  20," in r.output
     else:
       check r.code == 1
       check r.output.startsWith("error: no display")

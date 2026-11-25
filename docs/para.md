@@ -13,7 +13,7 @@ tmp/para build [--game hello] [--lane ID] [--target native|web] [--release|--deb
 tmp/para sim --game hello --seed 7 --ticks 3600   # headless run: state, entities, perf vs budget, state and facts hash
 tmp/para sim --from tmp/bugs/<stamp>              # replay an F9 bug capture, report the state hash
 tmp/para bench rules [--n 100,300,1000] [--rules 3]   # pararules per tick at N entities under K per-entity rules, beside a plain loop; p50/p99, memory, the machine
-tmp/para bench sprites [--n 1000,5000] [--calls 1,10] # the sprite batch in a hidden window: CPU add, submit, GPU and wait per frame
+tmp/para bench sprites [--n 1000,5000]             # the sprite batch in a hidden window: CPU add, submit, GPU and wait per frame
 tmp/para bench build [--game hello]               # forced debug/release and unchanged-rebuild seconds, binary bytes
 tmp/para shot --game hello --at title,t600 --check  # render frames at ticks, diff against goldens
 tmp/para shot --script run.txt --seed 7 --size 960x540 --check  # same, from a scripted, seeded run in a pinned window (`para shot --help`)
