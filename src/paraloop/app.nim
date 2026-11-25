@@ -20,6 +20,11 @@
 ## Under `-d:dev`, `stepTick` and `drawFrame` also run `paraloop/dev`'s
 ## per-tick and per-frame hooks, so every game gets its F9 bug capture and
 ## F3 overlay (see that module's doc).
+##
+## Under `-d:prof`, `run` times every tick (and the pararules time inside it),
+## the draw, the swap and the whole frame through `paraloop/prof`, turns vsync
+## off and prints the summary when the window closes
+## (see that module's doc).
 
 import paranim/glfw
 import paraloop/clock
@@ -28,6 +33,11 @@ from paraloop/input import engineKeys, enginePointer, keyDown, keyUp, endTick, p
 export clock
 when defined(dev):
   import paraloop/dev
+when defined(prof):
+  import std/monotimes
+  import paraloop/prof
+
+  proc msBetween(a, b: MonoTime): float = float(b.ticks - a.ticks) / 1e6
 
 proc stepTick*[G](game: var G, tick: int) =
   ## One fixed tick the way `run` drives it: `game.step(tick)`, then (under
@@ -171,8 +181,12 @@ proc run*[G](game: sink G, title = "paraloop", width = 1024, height = 768) =
 
   when not defined(emscripten):
     # requestAnimationFrame already vsyncs, and the GLFW shim's swapInterval
-    # only warns when called before emscripten_set_main_loop.
-    glfwSwapInterval(1)
+    # only warns when called before emscripten_set_main_loop. A `-d:prof`
+    # window measures the work, not the display's refresh.
+    when defined(prof):
+      glfwSwapInterval(0)
+    else:
+      glfwSwapInterval(1)
 
   discard gWindow.setFramebufferSizeCallback(frameSizeCallback)
   discard gWindow.setKeyCallback(keyCallback)
@@ -192,6 +206,8 @@ proc run*[G](game: sink G, title = "paraloop", width = 1024, height = 768) =
   var lastTime {.global.}: float
 
   proc mainLoop() {.cdecl.} =
+    when defined(prof):
+      let frameStart = getMonoTime()
     let ts = glfwGetTime()
     let elapsed = ts - lastTime
     lastTime = ts
@@ -215,13 +231,30 @@ proc run*[G](game: sink G, title = "paraloop", width = 1024, height = 768) =
     when defined(dev):
       let workStart = glfwGetTime()
     for i in 1 .. ticks:
+      when defined(prof):
+        let tickStart = getMonoTime()
+        let rulesStart = rulesNanos()
       loopGame.stepTick(clock.tick - ticks + i)
+      when defined(prof):
+        recordTick(msBetween(tickStart, getMonoTime()), float(rulesNanos() - rulesStart) / 1e6)
     when defined(dev):
       if ticks > 0:
         recordStats(elapsed, (glfwGetTime() - workStart) / float(ticks))
+    when defined(prof):
+      let drawStart = getMonoTime()
     loopGame.drawFrame(clock.alpha())
+    when defined(prof):
+      let swapStart = getMonoTime()
     gWindow.swapBuffers()
+    when defined(prof):
+      let swapEnd = getMonoTime()
     glfwPollEvents()
+    when defined(prof):
+      recordFrame(FrameSample(frameMs: msBetween(frameStart, getMonoTime()), drawMs: msBetween(drawStart, swapStart),
+                              swapMs: msBetween(swapStart, swapEnd), ticks: ticks))
+      when profFrames > 0:
+        if frameCount() >= profFrames:
+          requestQuit()
 
   clock = initAccumulator()
   lastTime = glfwGetTime()
@@ -233,3 +266,5 @@ proc run*[G](game: sink G, title = "paraloop", width = 1024, height = 768) =
 
   gWindow.destroyWindow()
   glfwTerminate()
+  when defined(prof):
+    stdout.write profSummary(windowWarmupFrames())

@@ -19,12 +19,17 @@
 # (gamedriver.nim): the loop here never names a game. `hello` is linked into
 # para; another game with a `tools/<name>_driver.nim` is built and run by
 # driverexec.nim, which hands it this command line unchanged.
+#
+# A `-d:prof` build (paraloop/prof) of `para` or of a game's driver also
+# splits each step into pararules time and the rest, and prints a `rules:`
+# line after `perf:`; any other build prints exactly what it always did.
 
 import std/[options, os, strutils, strformat, tables, algorithm, monotimes, times, sequtils, math]
 import art/[clihelpers, toon]
 import paraloop/app
 import paraloop/input
 import paraloop/dev
+import paraloop/prof
 import games
 import gamedriver
 import driverexec
@@ -75,14 +80,19 @@ proc headlessResult(game: Game, seed: int64, ticks: int, replay: ReplayScript, g
   engineKeys = newKeyState()
   let keys = newReplay(replay.script)
   var stepTimes: seq[Duration]
+  var rulesMs: seq[float] ## per step, under -d:prof only
   var traceRows: seq[seq[string]]
   let started = getMonoTime()
   for tick in 1 .. ticks:
     input.step(keys, engineKeys, tick)
     if not run.beforeTick.isNil: run.beforeTick()
+    when profEnabled:
+      let r0 = rulesNanos()
     let t0 = getMonoTime()
     run.step(tick)
     stepTimes.add getMonoTime() - t0
+    when profEnabled:
+      rulesMs.add float(rulesNanos() - r0) / 1e6
     if not run.afterTick.isNil: run.afterTick()
     if gate.trace > 0 and tick mod gate.trace == 0:
       traceRows.add @[$tick, run.factsHash()]
@@ -93,6 +103,14 @@ proc headlessResult(game: Game, seed: int64, ticks: int, replay: ReplayScript, g
     rows.add @[kind, $count]
   rows.sort(proc (a, b: seq[string]): int = cmp(a[0], b[0]))
 
+  when profEnabled:
+    var systemsMs: seq[float]
+    var stepSum, rulesSum = 0.0
+    for i, d in stepTimes:
+      let stepMs = d.inNanoseconds.float / 1e6
+      systemsMs.add max(0.0, stepMs - rulesMs[i])
+      stepSum += stepMs
+      rulesSum += rulesMs[i]
   stepTimes.sort()
   let p50 = stepTimes[(stepTimes.len - 1) div 2]
   let p99 = stepTimes[(stepTimes.len - 1) * 99 div 100]
@@ -113,6 +131,11 @@ proc headlessResult(game: Game, seed: int64, ticks: int, replay: ReplayScript, g
     result.code = 1
   else:
     result.output.add "\n"
+  when profEnabled:
+    let share = if stepSum > 0: rulesSum / stepSum * 100 else: 0.0
+    result.output.add &"rules: p50 {percentile(rulesMs, 0.5):.3f}ms p99 {percentile(rulesMs, 0.99):.3f}ms, " &
+      &"systems p50 {percentile(systemsMs, 0.5):.3f}ms p99 {percentile(systemsMs, 0.99):.3f}ms, " &
+      &"rules {share:.1f}% of sim time\n"
   if not run.report.isNil:
     let r = run.report()
     result.output.add r.text

@@ -506,21 +506,48 @@ at the front of the chain is the expensive one under load.
 
 ## 11. The measured boundary
 
-All figures measured on 2026-10-12 on one host (32 cores,
+The table's figures were measured on 2026-10-12 on one host (32 cores,
 load under 1), Nim 2.2.10, native build. "Debug" is the build the sim gate
 used to run (CI no longer runs the cap gate); "release" adds `-d:release`. Nothing here is from the web build.
 
-The cap gate, no longer a CI step but still runnable:
+**The cap gate** (redefined 2026-11-25; not a CI step) gates the release
+build, never debug:
+
+- **Budget:** release p99 tick under 4 ms headless, at the game class's
+  representative size (for this game, its 200-mob cap), on the class's named
+  hardware. Until that hardware exists, run it where you are and state the
+  machine (`para bench` prints a `machine:` line to copy).
+- **Pararules share, printed beside it:** a `-d:prof` build of the driver
+  adds a `rules:` line (pararules time against the rest of each step). Over
+  50% at the class's size means that class moves its hot entities (positions,
+  per-entity timers) out of the session into a systems store.
+- **Debug is only a relative check:** a change may not make the debug p99 more
+  than 2 times main's on the same machine. Compare it by hand; there is no
+  absolute debug budget.
 
 ```
-para sim --game <game> --seed 7 --ticks 21600 --treasure SealingStamp \
-  --min-smashes 60 --min-mobs 200 --keep-alive --hold-mobs 200
+nim c --hints:off -d:release -d:prof -o:tmp/prof/<game>_driver games/<game>/tools/<game>_driver.nim
+tmp/prof/<game>_driver sim --game <game> --seed 7 --ticks 21600 --treasure SealingStamp \
+  --min-smashes 60 --min-mobs 200 --keep-alive --hold-mobs 200 --budget-ms 4
 ```
 
-It prints `perf: sim p50 ... p99 ... (budget ...)`; the budget is the
-16.667 ms tick (`tools/para/simcmd.nim`, `--budget-ms` overrides it).
-Main's baseline is p50 1.70 ms and p99 6.4 ms in debug (three runs: 6.35, 6.59,
-6.41), and p50 0.231 / p99 0.804 ms in release.
+It prints `perf: sim p50 ... p99 ... (budget 4.000ms)`, `OVER BUDGET` and exit
+1 on a miss, then the `rules:` line. `para sim` itself builds the driver in
+debug, so for the relative debug check run the same command through `para sim`
+(without `--budget-ms`) on the branch and on main.
+
+Why release: players run release, and the debug build (gcc `-O0` plus
+stack-trace bookkeeping) slows pararules far more than plain code: 3 to 5 times
+at this game's cap and 12 times for 300 entities under three per-entity rules
+(`para bench rules`). A debug miss says how much a game leans on rules, not how
+it ships. On 2026-11-25 the old debug gate (p99 under 16.667 ms) failed at p99
+47.7 ms; the same run in release measured p50 4.3 / p99 8.7 ms, with pararules
+99.4% of the tick, so under this gate the 200-mob class is over budget and
+over the 50% share.
+
+The 2026-10-12 baseline, from when the debug gate still passed: main p50 1.70
+ms and p99 6.4 ms in debug (three runs: 6.35, 6.59, 6.41), and p50 0.231 / p99
+0.804 ms in release.
 
 Per-entity enemy movement over 200 mobs and the join, at the cap:
 
@@ -541,9 +568,8 @@ How to read it:
   `a06959b`, five runs a side, alternated): debug p50 2.06 to 4.44 ms and p99
   7.66 to 11.58 ms (69% of the tick); release p50 0.248 to 0.454 ms and p99
   0.869 to 1.199 ms (1.4 times). Main's debug p99 had already risen from 6.4
-  to 7.7 ms since the scout, so the debug gate has room for about one more
-  rule of this size before p99 passes the tick, not three: measure the next
-  one before it lands.
+  to 7.7 ms since the scout; five such rules later it was 47.7 ms (above).
+  Measure the next rule against the release gate before it lands.
 - **The join shape matters more than the rule.** A second entity written every
   tick cost 1.8 times the pulse form.
 - **An entity-against-entity join is the cliff.** With one or two swords in
@@ -562,9 +588,10 @@ Not measured: the web (wasm) build, sword levels above 1, a full port of sword
 hits, compile time with 150 rules, memory. Treat a rule family's cost as its
 own measurement before it joins this table.
 
-To rerun for a PR: build `para` (debug, `nim c --hints:off --outdir:tmp
-tools/para/para.nim`), run the command above on the branch and on main, and
-paste both p50/p99 lines.
+To rerun for a PR: build the release `-d:prof` driver above on the branch and
+on main, run the gate command on each, and paste both `perf:` and `rules:`
+lines with the machine; add the two debug `para sim` p99s for the relative
+check.
 
 ## 12. Effects never
 

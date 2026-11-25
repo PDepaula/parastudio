@@ -53,7 +53,7 @@ A feature is a rule unless it joins two populations or rewrites a joined attribu
 That line comes from this repository's numbers: a per-entity rule over 200 mobs costs about 1% of a release tick, while an entity-against-entity join costs 0.8 to 8 ms.
 The rules session keeps commands, phases, timers and the entities rules reason about; hot per-entity data lives in plain arrays owned by systems.
 The cap on rule-driven entities (a few hundred, about 1,000 on fast hardware) is provisional until `para bench` and a storage-attribution profile measure it.
-Each game class gets a performance gate run by `para bench` and `para sim` on named hardware; the example numbers (300 entities, p99 tick under 4 ms headless) are placeholders until `para bench` exists and a cross-engine sprite benchmark calibrates them.
+Each game class gets a performance gate run by `para bench` and `para sim` on named hardware, gating the release build (debug is only a relative check against main) with the pararules share printed beside it; the example numbers (300 entities, p99 tick under 4 ms headless) are placeholders until `para bench` runs on that hardware and a cross-engine sprite benchmark calibrates them.
 This level is not chosen for frame time: it pays in determinism, replay, a 2 MB binary, fast startup and an 18 ms headless test.
 
 ## Own the small stack

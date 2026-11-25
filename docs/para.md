@@ -12,6 +12,9 @@ tmp/para test [--filter S] [--area A] [--skip-balance|--only-balance] [--shard I
 tmp/para build [--game hello] [--lane ID] [--target native|web] [--release|--debug] [--define NAME]... [--title T] [--feedback-url URL]   # web: a release build rendered to tmp/web/<game>/ (--define, --title and --feedback-url are web-only)
 tmp/para sim --game hello --seed 7 --ticks 3600   # headless run: state, entities, perf vs budget, state and facts hash
 tmp/para sim --from tmp/bugs/<stamp>              # replay an F9 bug capture, report the state hash
+tmp/para bench rules [--n 100,300,1000] [--rules 3]   # pararules per tick at N entities under K per-entity rules, beside a plain loop; p50/p99, memory, the machine
+tmp/para bench sprites [--n 1000,5000]             # the sprite batch in a hidden window: CPU add, submit, GPU and wait per frame
+tmp/para bench build [--game hello]               # forced debug/release and unchanged-rebuild seconds, binary bytes
 tmp/para shot --game hello --at title,t600 --check  # render frames at ticks, diff against goldens
 tmp/para shot --script run.txt --seed 7 --size 960x540 --check  # same, from a scripted, seeded run in a pinned window (`para shot --help`)
 tmp/para shot --update-golden t600                # save those frames as the goldens
@@ -50,6 +53,20 @@ that file): start a `-d:dev` game first (e.g.
 `tmp/status/<game>/`, which the bare view reads. `para setup hooks` prints the
 SessionStart hook snippet that shows the bare view at the start of every
 agent session; it never edits a config file itself.
+
+`para bench` measures for the per-game-class performance gate: `rules` and `sprites` each build a small
+measuring program (`tools/para/bench/`, release) into `tmp/bench/`, run it once per
+row and repeat in a fresh process, and print p50/p99 in milliseconds, resident memory and a
+`machine:` line (CPU, threads, RAM, OS, governor, load, nim and gcc); their `--budget-ms X` turns a p99
+over X into exit 1 (`build` times a game's compiles and prints the same `machine:` line). The cap gate it serves (`skills/pararules/SKILL.md` §11) gates the release
+build: release p99 tick under 4 ms headless per game class on named hardware, the pararules share
+printed beside it (over 50% moves that class's hot entities to a systems store), and debug only as
+a relative check (no more than 2 times main's debug p99, compared by hand). A real game's own split comes from the timer seams in `paraloop/prof`: build
+with `-d:prof` and a window prints its tick, rules, systems, draw, swap and frame percentiles when it
+closes (vsync off; `-d:profFrames=N` closes it after N frames; the first 120
+frames and their ticks are left out as warm-up, or the first half of a run shorter than 240), while a
+`-d:prof` `para` or game driver adds a `rules:` line to `para sim`'s output (pararules time against
+the rest of each step). Without `-d:prof` neither seam costs anything or prints anything.
 
 `para lane` gives each helper that writes its own copy of a game (a lane, `games/<game>.<id>/`, a
 `git worktree` of the game's own repository on the branch `lane/<id>`), with its own compile cache

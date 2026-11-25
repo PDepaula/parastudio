@@ -5,7 +5,7 @@
 
 import art/toon
 
-const paraCommands* = ["art", "new", "test", "check", "save", "lane", "helper", "backup", "build", "sim", "shot", "driver", "live", "web", "setup", "producer-context", "studio", "board", "expand"]
+const paraCommands* = ["art", "new", "test", "check", "save", "lane", "helper", "backup", "build", "bench", "sim", "shot", "driver", "live", "web", "setup", "producer-context", "studio", "board", "expand"]
 
 const paraHelp* = "para: build, test, see and drive paraloop games in this workspace; " &
   "bare `para` is the home view\n" &
@@ -19,6 +19,7 @@ const paraHelp* = "para: build, test, see and drive paraloop games in this works
     @["helper <start|list|stop> [args]", "scout helpers para runs itself, so they keep working after the producer's turn: start gives one scout a question and a report name (games/<game>/reports/<topic>.md, the one file it may write), starts the claude or codex program you use, and returns at once; list shows each helper's state and what it left (the status line is plain text in tmp/helpers/); stop ends a working helper or forgets an ended one; at most 3 work at a time and three counters (--timeout, --silence, --tools) stop a stuck one, never to be restarted (`para helper --help`)"],
     @["backup [--game NAME] [--push --yes [--is-private]]", "say whether the friend's own private online backup (the git remote \"backup\" of the game's own repository) is set up, or with --push --yes upload the current branch and its save points there; refuses a public or unconfirmed-private repository, any remote that is not \"backup\", and anything that points at origin or the paraloop project; never forces; nothing runs it by itself"],
     @["build [--game NAME] [--lane ID] [--target native|web] [--release | --debug] [--define NAME[=VALUE]] [--title TEXT] [--feedback-url URL] [--full]", "compile a game; structured compiler errors; --target web is a release build (--debug for the other) rendered to tmp/web/<game>/index.html with a build id, --define NAME[=VALUE] (web only) passes a define to the compile; --lane ID builds a helper's lane natively into tmp/lanes/<game>.<id>/"],
+    @["bench <rules|sprites|build> [flags]", "measure for the per-game-class performance gate: p50/p99 ms, resident memory and the machine; rules: pararules per tick at N entities under K per-entity rules beside a plain-loop and a no-session baseline; sprites: the sprite batch's CPU add, submit and GPU time in a hidden window; build: forced and unchanged rebuild seconds and binary bytes (`para bench --help`)"],
     @["sim [--game NAME] --seed N --ticks N [--script FILE | --keys S] [--budget-ms X] [--trace N] [game flags] | --from DIR", "headless run, optionally replaying an input script or gating on p99 (state/entities/perf/hash/facts-hash; --trace N adds the facts hash every N ticks), or F9 bug replay; a game's own flags (a starting treasure, a gate on smashes or peak mobs, a room) come from its driver, `para sim --game NAME --help`"],
     @["shot [--game NAME] [--at FRAMES] [--check] [--script FILE | --keys S] [--seed N] [game flags] [--fixtures DIR] [--size WxH] [--tolerance N] [--max-diff-px N] | --update-golden FRAMES", "render frames at ticks or phases from a scripted, seeded run, or from state fixtures (--fixtures), and diff them against goldens"],
     @["driver GAME [COMMAND ARGS...]", "run a command only that game has through its driver program (games/GAME/tools/GAME_driver.nim; `sim` and `shot` use the same program for a game that is not linked into para)"],
@@ -33,12 +34,13 @@ const paraHelp* = "para: build, test, see and drive paraloop games in this works
   toonTable("flags", ["flag", "description"], @[
     @["--help", "show help for any command"],
     @["--version", "print the version"]]) &
-  "examples[9]:\n" &
+  "examples[10]:\n" &
   "  para new mygame\n" &
   "  para test\n" &
   "  para check --game mygame\n" &
   "  para save --game mygame -m \"ship moves\"\n" &
   "  para sim --game hello --seed 7 --ticks 3600\n" &
+  "  para bench rules --n 300 --rules 3\n" &
   "  para shot --game hello --at title,t600 --check\n" &
   "  para driver mygame replay --seed 8\n" &
   "  para build --target web --game hello --title Hello\n" &
