@@ -346,7 +346,7 @@ edit rule takes effect only in a folder Claude Code trusts (see "If something go
   eversince pic tools/para/studio-plan.em docs/studio-plan.svg
   ```
 
-  `eversince pic` draws the swimlane timeline by default; `--fields`, `--spacious` and `--reads` change what it shows, and `eversince pic tools/para/studiodesk.em tmp/studio-model.html --html` draws the interactive page. The interactive pages are not committed (a small model change redraws most of a page, a diff nobody can review): CI draws both, with `.github/scripts/studio_pages.nim`, and keeps them with each run as the `studio-model` artifact.
+  `eversince pic` draws the swimlane timeline by default; `--fields`, `--spacious` and `--reads` change what it shows, and `eversince pic tools/para/studiodesk.em tmp/studio-model.html --html` draws the interactive page. The desk's interactive page is not committed (a small model change redraws most of the page, a diff nobody can review): CI draws it, with `.github/scripts/studio_pages.nim`, and keeps it with each run as the `studio-model` artifact.
 
   `tmp/para expand` writes the Nim the desk's blocks expand to, as the compiler sees it, to
   `tools/para/studiodesk.expanded.nim` (beside the model file; for reading only, and git ignores it),

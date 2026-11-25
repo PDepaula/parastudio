@@ -116,9 +116,33 @@ proc expandedText*(sourceName, sourceText: string, exps: seq[Expansion]): string
     let label = if e.line in 1 .. src.len: src[e.line - 1].strip else: ""
     result.add &"\n# {sourceName}:{e.line}  {label}\n{e.code}\n"
 
+proc expandReport*(source, sourceText, output: string, maxRatio: float): tuple[run: Run, text: string] =
+  ## What a successful compile of `source` comes to: the file to write beside it (`text`, empty when
+  ## there is nothing to write) and what `para expand` prints and exits with. `maxRatio` <= 0 judges
+  ## no budget. A pure function of the compiler's output.
+  let exps = parseExpansions(output, source)
+  if exps.len == 0:
+    result.run = (&"error: no expansions were read from the compiler's output for {source}\n" &
+      toonHelp(@["The output format of `nim check --expandMacro` may have changed; " &
+                 "parseExpansions in tools/para/expandcmd.nim reads it"]), 1)
+    return
+  let outPath = expandedPath(source)
+  result.text = expandedText(source, sourceText, exps)
+  let s = measure(sourceText, exps)
+  result.run.output = &"expand: wrote {outPath}\n" &
+    toonTable("size", ["file", "blocks", "written", "generated", "ratio"],
+      @[@[source, $exps.len, $s.written, $s.generated, ratioText(s.ratio)]])
+  if maxRatio > 0.0:
+    if s.overBudget(maxRatio):
+      result.run.output.add &"error: ratio {ratioText(s.ratio)} is over the budget of {ratioText(maxRatio)}\n" &
+        toonHelp(@["Read " & outPath & " to see which blocks grew",
+                   "Raise the budget in .github/scripts/model-budget.sh only on purpose, in the same change"])
+      result.run.code = 1
+    else:
+      result.run.output.add &"budget: ok, ratio {ratioText(s.ratio)} is within {ratioText(maxRatio)}\n"
+
 proc runExpand*(args: seq[string]): Run =
   let source = defaultSource
-  let outPath = expandedPath(source)
   var maxRatio = -1.0
   var i = 0
   while i < args.len:
@@ -150,18 +174,6 @@ proc runExpand*(args: seq[string]): Run =
       result.output.add lastLines(res.output, 20)
     result.code = 1
     return
-  let sourceText = readFile(source)
-  let exps = parseExpansions(res.output, source)
-  writeFile(outPath, expandedText(source, sourceText, exps))
-  let s = measure(sourceText, exps)
-  result.output = &"expand: wrote {outPath}\n" &
-    toonTable("size", ["file", "blocks", "written", "generated", "ratio"],
-      @[@[source, $exps.len, $s.written, $s.generated, ratioText(s.ratio)]])
-  if maxRatio > 0.0:
-    if s.overBudget(maxRatio):
-      result.output.add &"error: ratio {ratioText(s.ratio)} is over the budget of {ratioText(maxRatio)}\n" &
-        toonHelp(@["Read " & outPath & " to see which blocks grew",
-                   "Raise the budget in .github/scripts/model-budget.sh only on purpose, in the same change"])
-      result.code = 1
-    else:
-      result.output.add &"budget: ok, ratio {ratioText(s.ratio)} is within {ratioText(maxRatio)}\n"
+  let (run, text) = expandReport(source, readFile(source), res.output, maxRatio)
+  if text.len > 0: writeFile(expandedPath(source), text)
+  run

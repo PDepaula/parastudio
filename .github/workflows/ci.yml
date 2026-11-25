@@ -316,17 +316,17 @@ jobs:
         if: matrix.shard == 1
         run: .github/scripts/model-budget.sh
 
-      # The studio's interactive model pages are not committed (a small model
-      # change redraws most of the page): drawn here from the model files and
+      # The studio's interactive model page is not committed (a small model
+      # change redraws most of the page): drawn here from studiodesk.em and
       # kept with the run as the `studio-model` artifact, with the expansion
       # the budget step wrote.
-      - name: Draw the studio model pages
+      - name: Draw the studio model page
         if: matrix.shard == 1
         run: |
           nim r --hints:off .github/scripts/studio_pages.nim tmp/studio-pages
           cp tools/para/studiodesk.expanded.nim tmp/studio-pages/
 
-      - name: Upload the studio model pages
+      - name: Upload the studio model page
         if: matrix.shard == 1
         uses: actions/upload-artifact@v4
         with:

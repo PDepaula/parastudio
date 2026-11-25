@@ -88,6 +88,26 @@ suite "the file it writes":
   test "is a function of its inputs":
     check expandedText("tools/para/desk.nim", deskSource, exps) == text
 
+suite "what a successful compile comes to":
+  test "the expansions, the file beside the module, and the budget's verdict":
+    let (r, text) = expandReport(desk, deskSource, cannedOutput, 1.5)
+    check r.code == 0
+    check text == expandedText(desk, deskSource, parseExpansions(cannedOutput, desk))
+    check r.output.startsWith("expand: wrote /w/tools/para/desk.expanded.nim\n")
+    check "budget: ok, ratio 0.67 is within 1.50" in r.output
+    check expandReport(desk, deskSource, cannedOutput, 0.5).run.code == 1
+    check expandReport(desk, deskSource, cannedOutput, -1.0).run.code == 0
+
+  test "no expansions read is a finding, exit 1, with nothing to write and no budget verdict":
+    for output in ["", "Hint: used config file '/w/config.nims' [Conf]\n",
+                   cannedOutput.replace(" Hint: expanded macro:", " Hint: macro expanded:")]:
+      let (r, text) = expandReport(desk, deskSource, output, 1.5)
+      check r.code == 1
+      check text == ""
+      check "no expansions were read" in r.output
+      check "budget" notin r.output
+    check expandReport("/w/tools/para/none.nim", deskSource, cannedOutput, 1.5).run.code == 1
+
 suite "para expand: flags":
   test "--help, exit 0":
     let r = runExpand(@["--help"])
