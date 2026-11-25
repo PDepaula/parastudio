@@ -5,13 +5,16 @@
 # - an import of a module that performs an effect (`bannedImports`): drawing, sound, the clock,
 #   files, processes, the network, threads, the environment (AGENTS.md "Boundaries";
 #   skills/pararules/SKILL.md "Effects never": the shell owns every effect);
-# - anywhere in a core file, one of `system`'s effect routines (`systemEffects`: `echo`,
-#   `readFile`, `quit`, ...), which need no import, so a game proc a `then` calls cannot hide one;
+# - anywhere in a core file, one of `system`'s effect routines, which need no import, so a game
+#   proc a `then` calls cannot hide one: `systemEffects` (`echo`, `readFile`, `stdout`, ...) as
+#   any use of the name, `systemEffectCalls` (`open`, `quit`) only when called, so a variable,
+#   field or enum member with that name passes;
 # - a call inside a rule's `then:` (or `thenFinally:`) body other than the session's insert, id
 #   generation and RNG, and pure helpers (`sessionCalls`, `pureHelpers`, `pureEngineHelpers`, and
-#   any routine or table of procs the game declares in its own core files, which the two rules
-#   above keep away from effects). A `then` writes the session and nothing else (SKILL.md "What a
-#   `then` can and cannot do"), so a retract or a `fireRules` there is refused too.
+#   any routine or table of procs declared in the core files themselves, which the two rules above
+#   keep away from effects; a routine in another of the game's modules, such as a `schema.nim`,
+#   is not one of them). A `then` writes the session and nothing else (SKILL.md "What a `then`
+#   can and cannot do"), so a retract or a `fireRules` there is refused too.
 #
 # Names compare the way Nim compares them: the first character exactly, the rest ignoring case
 # and `_` (`next_id` is `nextId`).
@@ -21,7 +24,8 @@
 # price of a text check's limits: a call is a name followed by `(` (or `[...](`), a method call
 # `x.name(`, or a command `name arg` at the start of a line; a capitalised name is a type
 # conversion or an object constructor and always passes; `x.name` with no parentheses reads as a
-# field and passes.
+# field and passes; the `{...}` parts of a `fmt"..."` or `&"..."` string are blanked with the
+# string, so a call written there is not seen.
 
 import std/[algorithm, os, sets, strutils]
 
@@ -102,17 +106,24 @@ const
 
   systemEffects* = [
     # (routine, why) -- `system`'s effects, refused anywhere in a core file: they need no import,
-    # so the import rule cannot keep them out of a game proc that a `then` calls.
+    # so the import rule cannot keep them out of a game proc that a `then` calls. Any use of one
+    # of these names is refused; `systemEffectCalls` are refused only when called.
     ("echo", "it writes output"),
     ("debugEcho", "it writes output"),
     ("readFile", "it reads files"),
     ("writeFile", "it writes files"),
     ("readLines", "it reads files"),
-    ("open", "it opens files"),
-    ("quit", "it quits the program"),
     ("stdout", "it writes output"),
     ("stderr", "it writes output"),
     ("stdin", "it reads the keyboard"),
+  ]
+
+  systemEffectCalls* = [
+    # (routine, why) -- `system`'s effects whose names a game also uses for its own things (an
+    # `open` list in a path search, a door's `open` field, a menu's `quit` item): refused only as
+    # a call, `open(...)`, `x.open(...)` or a command `quit 1` at the start of a statement.
+    ("open", "it opens files"),
+    ("quit", "it quits the program"),
   ]
 
   coreSafeEngineModules* = ["sim", "input", "tilemap", "toml"]
@@ -198,10 +209,17 @@ proc identSet(names: openArray[string]): HashSet[string] =
   for n in names: result.incl nimIdent(n)
 
 proc effectWhy(name: string): string =
-  ## Why `name` is one of `systemEffects`, or "".
+  ## Why `name` is one of `systemEffects` or `systemEffectCalls`, or "".
   let key = nimIdent(name)
   for (effect, why) in systemEffects:
     if key == nimIdent(effect): return why
+  for (effect, why) in systemEffectCalls:
+    if key == nimIdent(effect): return why
+
+proc calledOnly(name: string): bool =
+  let key = nimIdent(name)
+  for (effect, _) in systemEffectCalls:
+    if key == nimIdent(effect): return true
 
 const
   sessionCallSet = identSet(sessionCalls)
@@ -355,8 +373,26 @@ proc declaredRoutines*(code: string): HashSet[string] =
           while j < s.len and isIdentChar(s[j]): name.add s[j]; inc j
           if name.len > 0: result.incl name
 
+proc isCallAt(b: string, j, e: int): bool =
+  ## Whether the name at `b[j ..< e]` is called: `name(` that does not declare it, or a command
+  ## `name arg` at the start of a statement (the line's start, or after a `:` or `;`).
+  let before = b[0 ..< j].strip
+  var w = before.len
+  while w > 0 and isIdentChar(before[w - 1]): dec w
+  if before[w .. ^1] in routineKeywords: return false
+  if e < b.len and b[e] == '(': return true
+  if before.len > 0 and before[^1] notin {':', ';'}: return false
+  if e >= b.len or b[e] != ' ': return false
+  var k = e
+  while k < b.len and b[k] == ' ': inc k
+  var nextWord = ""
+  var m = k
+  while m < b.len and isIdentChar(b[m]): nextWord.add b[m]; inc m
+  k < b.len and (isIdentChar(b[k]) or b[k] in {'"', '\'', '(', '@'}) and nextWord notin nimKeywords
+
 proc effectFindings(file: string, lines: seq[string]): seq[Finding] =
-  ## Every use of one of `systemEffects`, anywhere in the file.
+  ## Every use of one of `systemEffects` and every call of one of `systemEffectCalls`, anywhere
+  ## in the file.
   for n, b in lines:
     var j = 0
     while j < b.len:
@@ -366,7 +402,7 @@ proc effectFindings(file: string, lines: seq[string]): seq[Finding] =
       while e < b.len and isIdentChar(b[e]): inc e
       let name = b[j ..< e]
       let why = effectWhy(name)
-      if why.len > 0:
+      if why.len > 0 and (not calledOnly(name) or isCallAt(b, j, e)):
         result.add (file, n + 1, "uses " & name & ", which a core file may not: " & why &
                     " (an effect belongs to the shell, the game's main file)")
       j = e
@@ -459,7 +495,8 @@ proc thenFindings(file: string, lines: seq[string], helpers: HashSet[string]): s
               calls.add name # rand(9), xs.shuffle(): std/random's global RNG
           elif name[0] notin {'A'..'Z'} and key notin pureHelperSet and key notin locals and
                effectWhy(name).len == 0:
-            # (an effect from `systemEffects` is reported by `effectFindings` instead)
+            # (an effect from `systemEffects` or `systemEffectCalls` is reported by
+            # `effectFindings` instead)
             # (a capitalised name is a type conversion or an object constructor, so it passes)
             calls.add name
         j = e

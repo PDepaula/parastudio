@@ -13,3 +13,4 @@ proc stamp*(): string =
   ## A game proc a then calls (rules.nim's loader): its effects are refused here.
   echo "stamping"                         # BAD 14: output
   read_file("save.txt")                   # BAD 15: a file, spelled the other way Nim allows
+  quit 2                                  # BAD 16: quitting, written as a command
