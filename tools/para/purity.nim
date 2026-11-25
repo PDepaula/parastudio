@@ -375,13 +375,14 @@ proc declaredRoutines*(code: string): HashSet[string] =
 
 proc isCallAt(b: string, j, e: int): bool =
   ## Whether the name at `b[j ..< e]` is called: `name(` that does not declare it, or a command
-  ## `name arg` at the start of a statement (the line's start, or after a `:` or `;`).
+  ## `name arg` at the start of a statement (the line's start, or after a `:`, `;` or `=`, such as a
+  ## one-line routine body).
   let before = b[0 ..< j].strip
   var w = before.len
   while w > 0 and isIdentChar(before[w - 1]): dec w
   if before[w .. ^1] in routineKeywords: return false
   if e < b.len and b[e] == '(': return true
-  if before.len > 0 and before[^1] notin {':', ';'}: return false
+  if before.len > 0 and before[^1] notin {':', ';', '='}: return false
   if e >= b.len or b[e] != ' ': return false
   var k = e
   while k < b.len and b[k] == ' ': inc k

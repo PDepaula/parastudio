@@ -14,3 +14,5 @@ proc stamp*(): string =
   echo "stamping"                         # BAD 14: output
   read_file("save.txt")                   # BAD 15: a file, spelled the other way Nim allows
   quit 2                                  # BAD 16: quitting, written as a command
+
+proc giveUp*() = quit 1                   # BAD 18: quitting, as a one-line body

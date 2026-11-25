@@ -57,7 +57,7 @@ suite "purity: what fails":
       "rules.nim:16", "rules.nim:17", "rules.nim:18", "rules.nim:19", "rules.nim:2",
       "rules.nim:20", "rules.nim:22", "rules.nim:23", "rules.nim:29",
       "rules.nim:3", "rules.nim:35", "rules.nim:5", "rules.nim:7",
-      "systems.nim:14", "systems.nim:15", "systems.nim:16",
+      "systems.nim:14", "systems.nim:15", "systems.nim:16", "systems.nim:18",
       "systems.nim:2", "systems.nim:3", "systems.nim:4", "systems.nim:5", "systems.nim:6",
       "systems.nim:9"]
 
@@ -83,6 +83,7 @@ suite "purity: what fails":
     check found.msgAt("systems.nim", 14).startsWith("uses echo, which a core file may not: it writes output")
     check found.msgAt("systems.nim", 15).startsWith("uses read_file, which a core file may not: it reads files")
     check found.msgAt("systems.nim", 16).startsWith("uses quit, which a core file may not: it quits the program")
+    check found.msgAt("systems.nim", 18).startsWith("uses quit, which a core file may not: it quits the program")
     check found.msgAt("rules.nim", 36) == "" # the then's call to that proc (stamp) is not itself refused
 
   test "a refused then call names the rule and the call":
