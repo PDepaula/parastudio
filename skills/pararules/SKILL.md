@@ -43,12 +43,11 @@ steps over a whole population, menus, timers and derived state.
 **The test for adding an exception.** A new one must show one of:
 
 - **A measurement.** On the cap gate command (see "The measured boundary"),
-  the rule form puts the release p99 over the game class's 4 ms budget or
-  more than doubles the release p99, with both numbers, the command and the
-  machine in the PR. For scale: enemy movement as a rule (`moveEnemy`, as
-  shipped) measured a release p99 of 0.87 to 1.2 ms and 1.4 times, so it does
-  not qualify; the sword-against-enemy join measured 8.0 ms and 10 times, so
-  it does.
+  the rule form puts the debug p99 above 75% of the tick (12.5 ms) or more
+  than doubles the release p99, with both numbers and the command in the PR.
+  For scale: enemy movement as a rule (`moveEnemy`, as shipped) measures 69%
+  and 1.4 times, so it does not qualify; the sword-against-enemy join measured
+  287% and 10 times, so it does.
 - **An engine constraint**, cited to a line of the engine patch
   (`patches/pararules/engine.nim`) or to this skill.
 - **It is an effect**, in which case it does not belong in the core at all.
