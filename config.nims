@@ -8,7 +8,8 @@ switch("mm", "orc")
 # once never share a cache dir.
 const
   nimcacheTarget = when defined(emscripten): "web" else: "native"
-  nimcacheMode = when defined(dev): "dev" elif defined(release): "r" else: "d"
+  nimcacheMode = (when defined(dev): "dev" elif defined(release): "r" else: "d") &
+    (when defined(prof): "_prof" else: "") # a timer-seam build (paraloop/prof) keeps its own cache
 
 proc laneOf(): string =
   ## "<game>.<id>" when the program being compiled sits in a helper's lane (`games/<game>.<id>/`,

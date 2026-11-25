@@ -19,6 +19,7 @@ tmp/para test --filter test_audio   # only the test files whose path contains th
 tmp/para test --area game           # the game tests, plus the `para` tests that link a game
 tmp/para build --game hello         # compile a game natively, with structured errors
 tmp/para sim --game hello --seed 7 --ticks 3600   # headless run: state, perf, state hash
+tmp/para bench rules --n 300 --rules 3            # pararules per tick at a game class's size (see docs/para.md)
 ```
 
 A bare `tmp/para test` runs everything (about ten minutes from a cold cache); [testing.md](testing.md)

@@ -15,7 +15,7 @@ whether a live `-d:dev` window is running. Output is TOON; exit codes are 0
 
 ```text
 para: build, test, see and drive paraloop games in this workspace; bare `para` is the home view
-commands[20]{command,summary}:
+commands[21]{command,summary}:
   art <lint|fix|sheet> [args],pixel-art lint/fix/sheet (`para art --help`)
   new <game>,"create games/<game>/ from template/ as a git repository of its own, where `para save` keeps its save points (`para new --help`)"
   test [--filter SUBSTR] [--area AREA] [--skip-balance | --only-balance] [--shard I/N] [--full],"wraps `nimble test`: counts and a failures table; --filter/--area run only the matching test files; --skip-balance/--only-balance skip or run just the balance pins; --shard I/N runs one of N slices (CI runs one per runner)"
@@ -25,6 +25,7 @@ commands[20]{command,summary}:
   helper <start|list|stop> [args],"scout helpers para runs itself, so they keep working after the producer's turn: start gives one scout a question and a report name (games/<game>/reports/<topic>.md, the one file it may write), starts the claude or codex program you use, and returns at once; list shows each helper's state and what it left (the status line is plain text in tmp/helpers/); stop ends a working helper or forgets an ended one; at most 3 work at a time and three counters (--timeout, --silence, --tools) stop a stuck one, never to be restarted (`para helper --help`)"
   backup [--game NAME] [--push --yes [--is-private]],"say whether the friend's own private online backup (the git remote \"backup\" of the game's own repository) is set up, or with --push --yes upload the current branch and its save points there; refuses a public or unconfirmed-private repository, any remote that is not \"backup\", and anything that points at origin or the paraloop project; never forces; nothing runs it by itself"
   build [--game NAME] [--lane ID] [--target native|web] [--release | --debug] [--define NAME[=VALUE]] [--title TEXT] [--feedback-url URL] [--full],"compile a game; structured compiler errors; --target web is a release build (--debug for the other) rendered to tmp/web/<game>/index.html with a build id, --define NAME[=VALUE] (web only) passes a define to the compile; --lane ID builds a helper's lane natively into tmp/lanes/<game>.<id>/"
+  bench <rules|sprites|build> [flags],"measure for the per-game-class performance gate: p50/p99 ms, resident memory and the machine; rules: pararules per tick at N entities under K per-entity rules beside a plain-loop and a no-session baseline; sprites: the sprite batch's CPU add, submit and GPU time in a hidden window; build: forced and unchanged rebuild seconds and binary bytes (`para bench --help`)"
   sim [--game NAME] --seed N --ticks N [--script FILE | --keys S] [--budget-ms X] [--trace N] [game flags] | --from DIR,"headless run, optionally replaying an input script or gating on p99 (state/entities/perf/hash/facts-hash; --trace N adds the facts hash every N ticks), or F9 bug replay; a game's own flags (a starting treasure, a gate on smashes or peak mobs, a room) come from its driver, `para sim --game NAME --help`"
   shot [--game NAME] [--at FRAMES] [--check] [--script FILE | --keys S] [--seed N] [game flags] [--fixtures DIR] [--size WxH] [--tolerance N] [--max-diff-px N] | --update-golden FRAMES,"render frames at ticks or phases from a scripted, seeded run, or from state fixtures (--fixtures), and diff them against goldens"
   driver GAME [COMMAND ARGS...],run a command only that game has through its driver program (games/GAME/tools/GAME_driver.nim; `sim` and `shot` use the same program for a game that is not linked into para)
@@ -39,12 +40,13 @@ commands[20]{command,summary}:
 flags[2]{flag,description}:
   --help,show help for any command
   --version,print the version
-examples[9]:
+examples[10]:
   para new mygame
   para test
   para check --game mygame
   para save --game mygame -m "ship moves"
   para sim --game hello --seed 7 --ticks 3600
+  para bench rules --n 300 --rules 3
   para shot --game hello --at title,t600 --check
   para driver mygame replay --seed 8
   para build --target web --game hello --title Hello

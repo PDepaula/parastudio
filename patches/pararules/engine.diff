@@ -1,6 +1,6 @@
 --- pararules/engine.nim (1.4.0)
 +++ pararules/engine.nim (patched)
-@@ -1,4 +1,45 @@
+@@ -1,4 +1,85 @@
 -import tables, algorithm, sets, sequtils
 +## pararules 1.4.0 engine, patched for paraloop (see engine.diff for the exact
 +## changes against upstream). paraloop/sim needs a session's behavior to be a
@@ -40,14 +40,54 @@
 +## - `matchCount` reads a rule's number of enabled matches by rule name in
 +##   O(1): a `then` cannot name another rule, so it asks by string, and
 +##   `queryAll` would copy every match to count them.
++## - Under `-d:prof` only, every public entry (`insertFact`, `retractFact`,
++##   `fireRules`, `find`, `findAll`, `queryAll`, `get`) adds the time spent
++##   in its outermost call to `profRulesNs` (and counts it in
++##   `profRulesCalls`), so `paraloop/prof` can split a tick into pararules
++##   time and everything else. Nested calls (a `then` inserting, an insert
++##   firing its rules) are inside the outer one's time and are not counted
++##   twice. Without `-d:prof` the `{.profiled.}` pragma returns the proc
++##   unchanged.
 +
 +import tables, algorithm, sets, sequtils, random
++from std/macros import nil
 +
 +const paraloopEnginePatched* = true
++
++when defined(prof):
++  import std/monotimes
++  var
++    profRulesNs*: int64 ## nanoseconds spent in outermost engine calls (`-d:prof` only)
++    profRulesCalls*: int64 ## how many outermost engine calls there were (`-d:prof` only)
++    profDepth: int
++
++  template profEngine(body: untyped) =
++    if profDepth == 0:
++      let profStart = getMonoTime().ticks
++      inc profDepth
++      try:
++        body
++      finally:
++        dec profDepth
++        profRulesNs += getMonoTime().ticks - profStart
++        inc profRulesCalls
++    else:
++      inc profDepth
++      try:
++        body
++      finally:
++        dec profDepth
++
++macro profiled(p: untyped): untyped =
++  ## Times the proc's body into `profRulesNs` under `-d:prof`; the proc as
++  ## written otherwise.
++  result = p
++  when defined(prof):
++    macros.`body=`(result, macros.newStmtList(macros.newCall(macros.ident"profEngine", macros.body(p))))
  
  type
    # facts
-@@ -52,12 +93,20 @@
+@@ -52,12 +133,20 @@
      child: JoinNode[T, MatchT]
      leafNode: MemoryNode[T, MatchT]
      lastMatchId: int
@@ -68,7 +108,7 @@
          condFn: CondFn[MatchT]
          thenFn: WrappedThenFn[MatchT]
          thenFinallyFn: WrappedThenFinallyFn
-@@ -70,11 +119,17 @@
+@@ -70,11 +159,17 @@
      alphaNode: AlphaNode[T, MatchT]
      condition: Condition[T]
      idName: string
@@ -87,7 +127,7 @@
    Condition[T] = object
      nodes: seq[tuple[testField: Field, testValue: T]]
      vars: seq[Var]
-@@ -94,8 +149,20 @@
+@@ -94,8 +189,20 @@
      thenQueue: ref HashSet[tuple[node: ptr MemoryNode[T, MatchT], idAttrs: IdAttrs]]
      thenFinallyQueue: ref HashSet[ptr MemoryNode[T, MatchT]]
      triggeredNodeIds: ref HashSet[ptr MemoryNode[T, MatchT]]
@@ -109,7 +149,7 @@
  
  proc addNode(node: AlphaNode, newNode: AlphaNode): AlphaNode =
    for child in node.children:
-@@ -165,7 +232,7 @@
+@@ -165,7 +272,7 @@
      # successors must be sorted by ancestry (descendents first) to avoid duplicate rule firings
      leafAlphaNode.successors.sort(proc (x, y: JoinNode[T, MatchT]): int =
        if isAncestor(x, y): 1 else: -1)
@@ -118,7 +158,7 @@
      if memNode.nodeType == Leaf:
        memNode.condFn = production.condFn
        if production.thenFn != nil:
-@@ -237,8 +304,8 @@
+@@ -237,8 +344,8 @@
        for alphaFact in node.alphaNode.facts[id].values:
          session.leftActivation(node, idAttrs, vars, token, alphaFact)
    else:
@@ -129,7 +169,7 @@
          session.leftActivation(node, idAttrs, vars, token, alphaFact)
  
  proc leftActivation[T, MatchT](session: var Session[T, MatchT], node: var MemoryNode[T, MatchT], idAttrs: IdAttrs, vars: MatchT, token: Token[T], isNew: bool) =
-@@ -251,14 +318,21 @@
+@@ -251,14 +358,21 @@
    # add or remove the match
    case token.kind:
    of Insert, Update:
@@ -151,7 +191,7 @@
      node.matchIds[match.id] = idAttrs
      node.matches[idAttrs] = match
      if node.nodeType == Leaf and node.trigger:
-@@ -266,11 +340,18 @@
+@@ -266,11 +380,18 @@
          session.thenQueue[].incl((node.addr, idAttrs))
        if node.thenFinallyFn != nil:
          session.thenFinallyQueue[].incl(node.addr)
@@ -172,7 +212,7 @@
      if node.nodeType == Leaf:
        if node.thenFinallyFn != nil:
          session.thenFinallyQueue[].incl(node.addr)
-@@ -284,12 +365,18 @@
+@@ -284,12 +405,18 @@
      if getVarsFromFact(vars, node.condition, token.fact):
        session.leftActivation(node.child, @[idAttr], vars, token, true)
    else:
@@ -197,7 +237,7 @@
        if getVarsFromFact(newVars, node.condition, token.fact):
          var newIdAttrs = idAttrs
          newIdAttrs.add(idAttr)
-@@ -308,6 +395,8 @@
+@@ -308,6 +435,8 @@
      assert not exists
    of Retract:
      node.facts[idAttr.id].del(idAttr.attr)
@@ -206,7 +246,16 @@
      let missing = session.idAttrNodes[idAttr].missingOrExcl(node.addr)
      assert not missing
      if session.idAttrNodes[idAttr].len == 0:
-@@ -377,10 +466,15 @@
+@@ -363,7 +492,7 @@
+         text &= strutils.join(cycle, " -> ")
+     raiseRecursionLimit(limit, text)
+ 
+-proc fireRules*[T, MatchT](session: var Session[T, MatchT], recursionLimit: int = 16) =
++proc fireRules*[T, MatchT](session: var Session[T, MatchT], recursionLimit: int = 16) {.profiled.} =
+   if session.insideRule:
+     return
+   when not defined(release):
+@@ -377,10 +506,15 @@
          else:
            raiseRecursionLimit(recursionLimit, executedNodes)
        recurCount += 1
@@ -224,7 +273,7 @@
      # reset state
      session.thenQueue[].clear
      session.thenFinallyQueue[].clear
-@@ -404,9 +498,8 @@
+@@ -404,9 +538,8 @@
          nodeToMatches[node] = node.matches
      # execute `then` blocks
      for (node, idAttrs) in thenQueue:
@@ -236,7 +285,7 @@
          if match.enabled:
            when not defined(release):
              session.triggeredNodeIds[].clear
-@@ -424,7 +517,7 @@
+@@ -424,7 +557,7 @@
        # save triggered node ids
        executedNodes.add(nodeToTriggeredNodeIds)
  
@@ -245,7 +294,7 @@
    if root:
      for child in node.children.mitems:
        session.getAlphaNodesForFact(child, fact, false, nodes)
-@@ -435,14 +528,14 @@
+@@ -435,14 +568,14 @@
        of Field.Value: fact[2]
      if val != node.testValue:
        return
@@ -263,7 +312,7 @@
        session.rightActivation(n[], Token[T](fact: fact, kind: Insert))
    else:
      let existingNodes = session.idAttrNodes[idAttr]
-@@ -454,7 +547,7 @@
+@@ -454,21 +587,21 @@
          let oldFact = n.facts[fact.id.slot0][fact.attr.slot1.ord]
          session.rightActivation(n[], Token[T](fact: oldFact, kind: Retract))
      # update or insert facts, depending on whether the node already exists
@@ -272,16 +321,33 @@
        if existingNodes.contains(n):
          let oldFact = n.facts[fact.id.slot0][fact.attr.slot1.ord]
          session.rightActivation(n[], Token[T](fact: fact, kind: Update, oldFact: oldFact))
-@@ -462,7 +555,7 @@
+       else:
          session.rightActivation(n[], Token[T](fact: fact, kind: Insert))
  
- proc insertFact*[T, MatchT](session: var Session[T, MatchT], fact: Fact[T]) =
+-proc insertFact*[T, MatchT](session: var Session[T, MatchT], fact: Fact[T]) =
 -  var nodes = initHashSet[ptr AlphaNode[T, MatchT]](initialSize = 4)
++proc insertFact*[T, MatchT](session: var Session[T, MatchT], fact: Fact[T]) {.profiled.} =
 +  var nodes: seq[ptr AlphaNode[T, MatchT]]
    getAlphaNodesForFact(session, session.alphaNode, fact, true, nodes)
    session.upsertFact(fact, nodes)
    if session.autoFire:
-@@ -505,6 +598,7 @@
+     session.fireRules()
+ 
+-proc retractFact*[T, MatchT](session: var Session[T, MatchT], fact: Fact[T]) =
++proc retractFact*[T, MatchT](session: var Session[T, MatchT], fact: Fact[T]) {.profiled.} =
+   let idAttr = fact.getIdAttr
+   # we use toSeq here to make a copy of idAttrNodes[idAttr], since
+   # rightActivation will modify it
+@@ -481,7 +614,7 @@
+   let attr = attr.slot1.ord
+   retractFact(session, id, attr)
+ 
+-proc retractFact*[T, MatchT](session: var Session[T, MatchT], id: int, attr: int) =
++proc retractFact*[T, MatchT](session: var Session[T, MatchT], id: int, attr: int) {.profiled.} =
+   let idAttr = (id, attr)
+   # we use toSeq here to make a copy of idAttrNodes[idAttr], since
+   # rightActivation will modify it
+@@ -505,6 +638,7 @@
      result.triggeredNodeIds[] = initHashSet[ptr MemoryNode[T, MatchT]]()
    result.autoFire = autoFire
    result.initMatch = initMatch
@@ -289,7 +355,7 @@
  
  proc initProduction*[T, U, MatchT](name: string, convertMatchFn: ConvertMatchFn[MatchT, U], condFn: CondFn[MatchT], thenFn: ThenFn[T, U, MatchT], thenFinallyFn: ThenFinallyFn[T, U, MatchT]): Production[T, U, MatchT] =
    result.name = name
-@@ -513,6 +607,10 @@
+@@ -513,35 +647,51 @@
    result.thenFn = thenFn
    result.thenFinallyFn = thenFinallyFn
  
@@ -300,46 +366,53 @@
  proc matchesParams[I, T, MatchT](vars: MatchT, params: array[I, (string, T)]): bool =
    for (varName, val) in params:
      if vars[varname] != val:
-@@ -520,26 +618,38 @@
+       return false
    true
  
- proc find*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): int =
+-proc find*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): int =
 -  for match in session.leafNodes[prod.name].matches.values:
 -    if match.enabled and matchesParams(match.vars, params):
 -      return match.id
 -  -1
+-
+-proc find*(session: Session, prod: Production): int =
+-  for match in session.leafNodes[prod.name].matches.values:
+-    if match.enabled:
+-      return match.id
+-  -1
+-
+-proc findAll*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): seq[int] =
+-  for match in session.leafNodes[prod.name].matches.values:
++proc find*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): int {.profiled.} =
 +  result = -1
 +  var first: IdAttrs
 +  for idAttrs, match in session.leafNodes[prod.name].matches.pairs:
 +    if match.enabled and matchesParams(match.vars, params) and (result == -1 or cmpIdAttrs(idAttrs, first) < 0):
 +      first = idAttrs
 +      result = match.id
- 
- proc find*(session: Session, prod: Production): int =
--  for match in session.leafNodes[prod.name].matches.values:
--    if match.enabled:
--      return match.id
--  -1
++
++proc find*(session: Session, prod: Production): int {.profiled.} =
 +  result = -1
 +  var first: IdAttrs
 +  for idAttrs, match in session.leafNodes[prod.name].matches.pairs:
 +    if match.enabled and (result == -1 or cmpIdAttrs(idAttrs, first) < 0):
 +      first = idAttrs
 +      result = match.id
- 
- proc findAll*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): seq[int] =
--  for match in session.leafNodes[prod.name].matches.values:
++
++proc findAll*[I, T](session: Session, prod: Production, params: array[I, (string, T)]): seq[int] {.profiled.} =
 +  let node = session.leafNodes[prod.name]
 +  var keys: seq[IdAttrs]
 +  for idAttrs, match in node.matches.pairs:
      if match.enabled and matchesParams(match.vars, params):
 -      result.add(match.id)
+-
+-proc findAll*(session: Session, prod: Production): seq[int] =
+-  for match in session.leafNodes[prod.name].matches.values:
 +      keys.add(idAttrs)
 +  for match in node.sortedMatches(keys):
 +    result.add(match.id)
- 
- proc findAll*(session: Session, prod: Production): seq[int] =
--  for match in session.leafNodes[prod.name].matches.values:
++
++proc findAll*(session: Session, prod: Production): seq[int] {.profiled.} =
 +  let node = session.leafNodes[prod.name]
 +  var keys: seq[IdAttrs]
 +  for idAttrs, match in node.matches.pairs:
@@ -349,13 +422,18 @@
 +  for match in node.sortedMatches(keys):
 +    result.add(match.id)
  
- proc queryAll*[T, MatchT](session: Session[T, MatchT]): seq[tuple[id: int, attr: int, value: T]] =
+-proc queryAll*[T, MatchT](session: Session[T, MatchT]): seq[tuple[id: int, attr: int, value: T]] =
++proc queryAll*[T, MatchT](session: Session[T, MatchT]): seq[tuple[id: int, attr: int, value: T]] {.profiled.} =
    for idAttr, nodes in session.idAttrNodes.pairs:
-@@ -550,9 +660,27 @@
+     assert nodes.len > 0
+     let
+@@ -549,12 +699,30 @@
+       fact = firstNode[].facts[idAttr.id][idAttr.attr]
      result.add((idAttr.id, idAttr.attr, fact.value))
  
- proc queryAll*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT]): seq[U] =
+-proc queryAll*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT]): seq[U] =
 -  for match in session.leafNodes[prod.name].matches.values:
++proc queryAll*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT]): seq[U] {.profiled.} =
 +  let node = session.leafNodes[prod.name]
 +  var keys: seq[IdAttrs]
 +  for idAttrs, match in node.matches.pairs:
@@ -379,9 +457,12 @@
 +proc matchCount*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT]): int =
 +  session.enabledMatchCount(prod.name)
  
- proc get*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT], i: int): U =
+-proc get*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT], i: int): U =
++proc get*[T, U, MatchT](session: Session[T, MatchT], prod: Production[T, U, MatchT], i: int): U {.profiled.} =
    let idAttrs = session.leafNodes[prod.name].matchIds[i]
-@@ -566,3 +694,43 @@
+   prod.convertMatchFn(session.leafNodes[prod.name].matches[idAttrs].vars)
+ 
+@@ -566,3 +734,43 @@
  
  proc contains*[T, MatchT](session: Session[T, MatchT], id: int, attr: int): bool =
    session.idAttrNodes.contains((id, attr))

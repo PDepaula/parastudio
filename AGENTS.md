@@ -140,7 +140,7 @@ wiring beyond existing.
 ## Nimcache
 
 Never build against the shared, per-machine Nim cache. `config.nims` sets
-`--nimcache:.nimcache/<target>/<project>_<d|r|dev>` (repo-local, gitignored) so every
+`--nimcache:.nimcache/<target>/<project>_<d|r|dev>[_prof]` (repo-local, gitignored) so every
 worktree, program and build mode gets its own build state instead of colliding on
 `~/.cache/nim/<project>_d`.
 
