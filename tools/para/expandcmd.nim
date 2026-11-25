@@ -134,12 +134,12 @@ proc expandReport*(source, sourceText, output: string, maxRatio: float): tuple[r
       @[@[source, $exps.len, $s.written, $s.generated, ratioText(s.ratio)]])
   if maxRatio > 0.0:
     if s.overBudget(maxRatio):
-      result.run.output.add &"error: ratio {ratioText(s.ratio)} is over the budget of {ratioText(maxRatio)}\n" &
+      result.run.output.add &"error: ratio {ratioText(s.ratio)} is over the budget of {maxRatio}\n" &
         toonHelp(@["Read " & outPath & " to see which blocks grew",
                    "Raise the budget in .github/scripts/model-budget.sh only on purpose, in the same change"])
       result.run.code = 1
     else:
-      result.run.output.add &"budget: ok, ratio {ratioText(s.ratio)} is within {ratioText(maxRatio)}\n"
+      result.run.output.add &"budget: ok, ratio {ratioText(s.ratio)} is within {maxRatio}\n"
 
 proc runExpand*(args: seq[string]): Run =
   let source = defaultSource

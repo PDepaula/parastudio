@@ -94,7 +94,7 @@ suite "what a successful compile comes to":
     check r.code == 0
     check text == expandedText(desk, deskSource, parseExpansions(cannedOutput, desk))
     check r.output.startsWith("expand: wrote /w/tools/para/desk.expanded.nim\n")
-    check "budget: ok, ratio 0.67 is within 1.50" in r.output
+    check "budget: ok, ratio 0.67 is within 1.5" in r.output
     check expandReport(desk, deskSource, cannedOutput, 0.5).run.code == 1
     check expandReport(desk, deskSource, cannedOutput, -1.0).run.code == 0
 
@@ -148,4 +148,4 @@ suite "para expand: the studio's desk, for real":
   test "a ratio over the budget is a finding, exit 1":
     let r = runExpand(@["--max-ratio", "0.5"])
     check r.code == 1
-    check "is over the budget of 0.50" in r.output
+    check "is over the budget of 0.5" in r.output
