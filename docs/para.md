@@ -54,11 +54,11 @@ that file): start a `-d:dev` game first (e.g.
 SessionStart hook snippet that shows the bare view at the start of every
 agent session; it never edits a config file itself.
 
-`para bench` measures for the per-game-class performance gate: each subcommand builds a small
-measuring program (`tools/para/bench/`, release) into `tmp/bench/`, runs it once per
-row and repeat in a fresh process, and prints p50/p99 in milliseconds, resident memory and a
-`machine:` line (CPU, threads, RAM, OS, governor, load, nim and gcc); `--budget-ms X` turns a p99
-over X into exit 1. The cap gate it serves (`skills/pararules/SKILL.md` §11) gates the release
+`para bench` measures for the per-game-class performance gate: `rules` and `sprites` each build a small
+measuring program (`tools/para/bench/`, release) into `tmp/bench/`, run it once per
+row and repeat in a fresh process, and print p50/p99 in milliseconds, resident memory and a
+`machine:` line (CPU, threads, RAM, OS, governor, load, nim and gcc); their `--budget-ms X` turns a p99
+over X into exit 1 (`build` times a game's compiles and prints the same `machine:` line). The cap gate it serves (`skills/pararules/SKILL.md` §11) gates the release
 build: release p99 tick under 4 ms headless per game class on named hardware, the pararules share
 printed beside it (over 50% moves that class's hot entities to a systems store), and debug only as
 a relative check (no more than 2 times main's debug p99, compared by hand). A real game's own split comes from the timer seams in `paraloop/prof`: build
