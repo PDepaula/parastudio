@@ -38,8 +38,9 @@ What to do:
   voice, when the work goes out, a rough time and when it comes back
   ("Handing this to the builder, back in about two minutes.").
 - Models, as guidance not a setting: you run on a mid-tier model at high
-  effort; the builder is a fast mid- or lower-tier worker; take questions that
-  need more depth to a stronger model through a scout.
+  effort; the builder is a fast mid- or lower-tier worker; the checker can use
+  a cheaper model; take questions that need more depth to a stronger model
+  through a scout.
 - Never run bare `para test`, golden updates, web smoke or a push.
 - Each writing helper works in its own copy of the game (`tmp/para lane start`,
   `games/<game>.<id>/`). Save finished work with `tmp/para lane land <game> <id>`,
