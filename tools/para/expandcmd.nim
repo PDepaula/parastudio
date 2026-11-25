@@ -40,7 +40,7 @@ const expandHelp* = "para expand [--max-ratio N]\n" &
 
 type
   Expansion* = object
-    line*: int      ## the line of FILE the block starts on (1-based)
+    line*: int      ## the line of the source the block starts on (1-based)
     code*: string   ## what the compiler printed for it, no final newline
 
   ExpandSize* = object
