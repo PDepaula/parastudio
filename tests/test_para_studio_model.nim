@@ -114,17 +114,27 @@ type
 proc name(r: Route): string = r.meth & " " & r.path
 
 proc readRoutes(src: string): seq[Route] =
-  ## The routes of `handle`: the first `case req.path` is the GET one, the second the POST one.
+  ## The routes of `handle`: the `of` labels of its first `case req.path` (the GET one) and its second (the
+  ## POST one), at that `case`'s own indent, so a comment or an inner `case` is no route.
   let start = src.find("proc handle(")
   let stop = src.find("\nproc ", start + 1)
   var meth = ""
+  var caseIndent = -1
   for raw in src[start ..< (if stop < 0: src.len else: stop)].splitLines:
     let line = raw.strip
+    if line.len == 0 or line.startsWith("#"): continue
+    let indent = raw.len - raw.strip(trailing = false).len
     if line.startsWith("case req.path"):
       meth = if meth == "": "GET" else: "POST"
-    if not line.startsWith("of \"/api/"): continue
-    var r = Route(meth: meth, path: line["of \"".len ..< line.find('"', 4)])
-    let hash = line.find('#')
+      caseIndent = indent
+      continue
+    if caseIndent < 0 or indent < caseIndent or (indent == caseIndent and not line.startsWith("of ")):
+      caseIndent = -1
+      continue
+    if indent != caseIndent or not line.startsWith("of \"/api/"): continue
+    let close = line.find('"', "of \"".len)
+    var r = Route(meth: meth, path: line["of \"".len ..< close])
+    let hash = line.find('#', close)
     let tag = if hash < 0: "" else: line[hash + 1 .. ^1].strip
     if tag == "no block":
       r.kind = "none"
@@ -136,22 +146,26 @@ proc readRoutes(src: string): seq[Route] =
     result.add r
 
 proc readCalls(page: string): seq[Call] =
-  ## Every `"/api/...` the page names: through `api(METHOD, ...)`, through `startStep` (which posts), or
-  ## through a bare `fetch` (a GET). Anything else comes back with method "?", so it is told, not dropped.
-  var at = page.find("\"/api/")
+  ## Every `/api/...` the page names: in double quotes through `api(METHOD, ...)`, through `startStep`
+  ## (which posts), or through a bare `fetch` (a GET). Anything else (another quote, a backtick, a path
+  ## built up) comes back with method "?", so it is told, not dropped.
+  const pathChars = Letters + Digits + {'/', '-', '_', '.'}
+  var at = page.find("/api/")
   while at >= 0:
-    var stop = at + 1
-    while stop < page.len and page[stop] notin {'"', '?'}: inc stop
-    let before = page[max(0, at - 16) ..< at]
+    var stop = at
+    while stop < page.len and page[stop] in pathChars: inc stop
+    let quoted = at > 0 and page[at - 1] == '"' and stop < page.len and page[stop] in {'"', '?'}
+    let before = page[max(0, at - 17) ..< max(0, at - 1)]
     let eol = page.find('\n', stop)
     let meth =
-      if before.endsWith("api(\"GET\", "): "GET"
+      if not quoted: "?"
+      elif before.endsWith("api(\"GET\", "): "GET"
       elif before.endsWith("api(\"POST\", "): "POST"
       elif before.endsWith("startStep("): "POST"
       elif before.endsWith("fetch(") and "method" notin page[stop ..< (if eol < 0: page.len else: eol)]: "GET"
       else: "?"
-    result.add (meth, page[at + 1 ..< stop])
-    at = page.find("\"/api/", stop)
+    result.add (meth, page[at ..< stop])
+    at = page.find("/api/", stop)
 
 proc onScreens(m: Model, n: string, screens: openArray[string]): bool =
   screens.anyIt(n in m.find(it).edge("commands") & m.find(it).edge("queries"))
@@ -160,8 +174,6 @@ proc routeDrift(routes: seq[Route], calls: seq[Call], m: Model): seq[string] =
   ## Where the routes, the page's calls and the model's screens disagree; empty when they agree.
   proc called(r: Route): bool = (meth: r.meth, path: r.path) in calls
   for r in routes:
-    if routes.countIt(it.meth == r.meth and it.path == r.path) > 1:
-      result.add "route " & r.name & " is in the case twice"
     case r.kind
     of "":
       result.add "route " & r.name & " names no model block: end its `of` line with `# query X`, `# command X` or `# no block`"
@@ -205,9 +217,30 @@ suite "the page's routes are the screens' commands and queries":
   test "every route and every call was read":
     check routes.len > 0 and calls.len > 0
     check routes.allIt(it.meth in ["GET", "POST"])
-    check page.count("\"/api/") == calls.len
-    let step = page[page.find("async function startStep(") .. ^1]
-    check "await api(\"POST\", path, body)" in step[0 ..< step.find("\n}")]
+
+  test "only the `of` labels of handle's own cases are routes":
+    let src = """
+proc handle(st: ptr Studio, req: Request): Response =
+  if req.meth == "GET":
+    case req.path
+    of "/api/a": # query A
+      case req.query
+      of "/api/inner": discard
+      else: discard
+    # of "/api/commented": # query C
+    else: discard
+  case req.path
+  of "/api/b": # command B
+    discard
+  else: discard
+  # of "/api/after": # command D
+
+proc other() =
+  case x
+  of "/api/elsewhere": discard
+"""
+    check readRoutes(src).mapIt(it.name) == @["GET /api/a", "POST /api/b"]
+    check readRoutes(src).mapIt(it.blocks) == @[@["A"], @["B"]]
 
   test "the routes with no panel on the page yet are the HelperApi screen's three, and the page calls none of them":
     let uncalled = routes.filterIt((meth: it.meth, path: it.path) notin calls).mapIt(it.name)
@@ -222,6 +255,8 @@ suite "the page's routes are the screens' commands and queries":
       "the page calls POST /api/chat/rename, which is not a route" in it)
     check routeDrift(routes, readCalls("const u = base + \"/api/state\";"), m).anyIt("cannot read" in it)
     check routeDrift(routes, readCalls("fetch(\"/api/play/stop\", { method: \"POST\" });"), m).anyIt("cannot read" in it)
+    check readCalls("api(\"POST\", `/api/chat/rename`, {}); api('GET', '/api/x');") ==
+      @[(meth: "?", path: "/api/chat/rename"), (meth: "?", path: "/api/x")]
     var untagged = routes
     untagged[0].kind = ""
     check routeDrift(untagged, calls, m).anyIt("names no model block" in it)
