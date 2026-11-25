@@ -55,6 +55,7 @@ const
     ("paraloop/clock", "it reads the clock"),
     ("paraloop/dev", "it opens the dev control channel"),
     ("paraloop/devsock", "it opens a socket"),
+    ("paraloop/prof", "it reads the clock"),
     ("paraloop/render2d", "it draws"),
     ("paraloop/save", "it writes files"),
     ("paraloop/testkit", "it is for tests"),
