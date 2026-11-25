@@ -142,8 +142,8 @@ tmp/para save --list
 tmp/para save --back 1 --yes
 ```
 
-`check` runs the game's tests and builds it; it has to pass before `save`
-will save. `save --list` should show save point 1 with your note. `save --back
+`check` checks the game's core files stay pure, runs the game's tests and
+builds it; it has to pass before `save` will save. `save --list` should show save point 1 with your note. `save --back
 1 --yes` adds a new save point that puts the game back as it was at point 1
 (nothing is deleted); to see it do something, change a file in `games/mygame/`,
 run `tmp/para check` and `tmp/para save -m "second save"` first, then go back

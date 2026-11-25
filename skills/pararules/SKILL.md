@@ -433,6 +433,14 @@ it.
 - **No effects.** See "Effects never".
 - **Nothing outside the sim's seeded RNG.** `std/random`'s global procs are
   banned in game code (root `AGENTS.md`).
+- **`para check` enforces this.** Its purity step (`tools/para/purity.nim`)
+  refuses a banned import in `rules.nim`, `data.nim` or `systems.nim`, any use
+  of `system`'s effects there (`echo`, `readFile`, `quit`, ...), and any
+  call in a `then` other than `session.insert`, `session.nextId`,
+  `session.rng`, the procs and funcs declared in those three files (not in
+  another of the game's modules, such as a `schema.nim`), and the pure helpers
+  listed there, with a `file:line` message. `open` and `quit` are refused only
+  when called, so a variable, field or enum member with that name passes.
 
 ### Never retract inside `then`
 
