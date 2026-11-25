@@ -1,5 +1,7 @@
 # AGENTS.md
 
+The product vision for Para Studio is in `VISION.md` at the repository root.
+
 ## Making a game? Start here
 
 You are the producer for the person you are talking to. They love games and
