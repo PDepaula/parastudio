@@ -72,7 +72,7 @@ suite "the file it writes":
   let exps = parseExpansions(cannedOutput, desk)
   let text = expandedText("tools/para/desk.nim", deskSource, exps)
 
-  test "sits beside the module as FILE.expanded.nim":
+  test "sits beside the module as <module>.expanded.nim":
     check expandedPath("tools/para/studiodesk.nim") == "tools/para/studiodesk.expanded.nim"
 
   test "says where it came from, not to edit it, and its size":
@@ -99,36 +99,33 @@ suite "para expand: flags":
     check runExpand(@["--max-ratio"]).code == 2
     check runExpand(@["--max-ratio", "lots"]).code == 2
     check runExpand(@["--max-ratio", "0"]).code == 2
-    check runExpand(@["--out"]).code == 2
-    check runExpand(@["a.nim", "b.nim"]).code == 2
-    check runExpand(@[repoRoot / "tools" / "para" / "no_such_module.nim"]).code == 2
-    let src = repoRoot / defaultSource
-    check runExpand(@[src, "--out", src]).code == 2
+    check runExpand(@["--max-ratio", "nan"]).code == 2
+    check runExpand(@["--max-ratio", "inf"]).code == 2
+    check runExpand(@["--max-ratio", "-inf"]).code == 2
+    check runExpand(@[defaultSource]).code == 2
+    check runExpand(@["--out", "x.nim"]).code == 2
 
 suite "para expand: the studio's desk, for real":
-  let src = repoRoot / defaultSource
-  let dir = repoRoot / "tmp" / "expand-test"  # not tmp/test_para_expand: that is this test's binary
-  createDir(dir)
-  let first = dir / "first.nim"
-  let second = dir / "second.nim"
+  setCurrentDir(repoRoot)
+  let written = expandedPath(defaultSource)
 
-  test "writes every block's expansion, the same bytes each run":
-    let r = runExpand(@[src, "--out", first])
+  test "writes every block's expansion beside the model file, the same bytes each run":
+    let r = runExpand(@[])
     check r.code == 0
-    check r.output.startsWith("expand: wrote " & first)
+    check r.output.startsWith("expand: wrote " & written)
     check r.output.contains("size[1]{file,blocks,written,generated,ratio}:")
     var calls = 0
-    for line in readFile(src).splitLines:
+    for line in readFile(defaultSource).splitLines:
       for m in blockMacros:
         if line.startsWith(m & " ") or line.startsWith(m & "("): inc calls
-    let text = readFile(first)
-    check text.count("\n# " & src.replace('\\', '/') & ":") == calls
+    let text = readFile(written)
+    check text.count("\n# " & defaultSource & ":") == calls
     for m in ["record", "event", "command", "view", "query", "processor", "sealModel"]:
       check ("  " & m) in text
-    check runExpand(@[src, "--out", second]).code == 0
-    check readFile(second) == text
+    check runExpand(@[]).code == 0
+    check readFile(written) == text
 
   test "a ratio over the budget is a finding, exit 1":
-    let r = runExpand(@[src, "--out", second, "--max-ratio", "0.5"])
+    let r = runExpand(@["--max-ratio", "0.5"])
     check r.code == 1
     check "is over the budget of 0.50" in r.output

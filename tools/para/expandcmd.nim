@@ -1,10 +1,10 @@
-# `para expand`: the Nim that a module's Eversince blocks (`record`, `event`, `command`, `view`,
-# `query`, `processor`, `sealModel`) turn into, written next to the model file, so the code the
-# compiler builds is something a person or an agent can open and read. The default is the studio's
-# desk, tools/para/studiodesk.nim (its model file is studiodesk.em, beside it), written to
+# `para expand`: the Nim that the studio's desk's Eversince blocks (`record`, `event`, `command`,
+# `view`, `query`, `processor`, `sealModel`) turn into, written next to the model file, so the code
+# the compiler builds is something a person or an agent can open and read. It always expands
+# tools/para/studiodesk.nim (its model file is studiodesk.em, beside it) and writes
 # tools/para/studiodesk.expanded.nim. The expansion is the compiler's own: `nim check
 # --expandMacro:<name>` for each block macro prints every call's expansion as a hint, and this file
-# keeps the ones of the module asked for, in source order. The written file is not kept in git (it
+# keeps the desk's own ones, in source order. The written file is not kept in git (it
 # changes with the compiler version, and a model change would make it a big diff again).
 #
 # It also prints the size: the module's own lines (written), the lines the blocks expand to
@@ -27,15 +27,14 @@ const
   hintMark = " Hint: expanded macro:"
   hintTail = " [ExpandMacro]"
 
-const expandHelp* = "para expand [FILE.nim] [--out PATH] [--max-ratio N]\n" &
-  "  writes the Nim that FILE's Eversince blocks (" & blockMacros.join(", ") & ") expand to\n" &
-  "  next to it, as FILE.expanded.nim (default FILE: " & defaultSource & ", the studio's desk, whose model\n" &
-  "  file is studiodesk.em), and prints its size: the lines FILE has (written), the lines its blocks expand\n" &
-  "  to (generated) and generated/written (ratio). The expansion is the compiler's own (`nim check\n" &
-  "  --expandMacro`), in source order, each block headed by its line in FILE; the same compiler and FILE\n" &
-  "  always write the same bytes. The written file is for reading, never for editing or importing; git\n" &
-  "  ignores it.\n" &
-  "  --out PATH     write the expansion there instead\n" &
+const expandHelp* = "para expand [--max-ratio N]\n" &
+  "  writes the Nim that the studio's desk's Eversince blocks (" & blockMacros.join(", ") & ")\n" &
+  "  expand to next to the model file: " & defaultSource & " (model file studiodesk.em) to\n" &
+  "  " & defaultSource.changeFileExt("expanded.nim") & ", and prints its size: the lines the desk has\n" &
+  "  (written), the lines its blocks expand to (generated) and generated/written (ratio). The expansion is\n" &
+  "  the compiler's own (`nim check --expandMacro`), in source order, each block headed by its line in the\n" &
+  "  desk; the same compiler and desk always write the same bytes. The written file is for reading, never\n" &
+  "  for editing or importing; git ignores it. Run it from the repository root.\n" &
   "  --max-ratio N  a ratio over N is a finding (exit 1); CI's size budget\n" &
   "                 (.github/scripts/model-budget.sh)\n"
 
@@ -63,7 +62,7 @@ proc overBudget*(s: ExpandSize, maxRatio: float): bool =
   parseFloat(ratioText(s.ratio)) > maxRatio
 
 proc expandedPath*(source: string): string =
-  ## Where the expansion goes by default: beside FILE, as FILE.expanded.nim.
+  ## Where the expansion goes: beside the module, as <module>.expanded.nim.
   source.changeFileExt("expanded.nim")
 
 proc sameFile(a, b: string): bool =
@@ -118,8 +117,8 @@ proc expandedText*(sourceName, sourceText: string, exps: seq[Expansion]): string
     result.add &"\n# {sourceName}:{e.line}  {label}\n{e.code}\n"
 
 proc runExpand*(args: seq[string]): Run =
-  var source = ""
-  var outPath = ""
+  let source = defaultSource
+  let outPath = expandedPath(source)
   var maxRatio = -1.0
   var i = 0
   while i < args.len:
@@ -127,30 +126,16 @@ proc runExpand*(args: seq[string]): Run =
     case a
     of "--help", "-h":
       return (expandHelp, 0)
-    of "--out":
-      inc i
-      if i >= args.len: return errorOut("--out needs a path", @[])
-      outPath = args[i]
     of "--max-ratio":
       inc i
       if i >= args.len: return errorOut("--max-ratio needs a number", @["For example --max-ratio 1.5"])
       try: maxRatio = parseFloat(args[i])
       except ValueError: maxRatio = -1.0
-      if maxRatio <= 0.0:
-        return errorOut(&"bad --max-ratio \"{args[i]}\"", @["It is a number over 0, for example 1.5"])
+      if not (maxRatio > 0.0 and maxRatio < Inf):
+        return errorOut(&"bad --max-ratio \"{args[i]}\"", @["It is a finite number over 0, for example 1.5"])
     else:
-      if a.startsWith("-"):
-        return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --out PATH, --max-ratio N, --help"])
-      if source.len > 0:
-        return errorOut(&"one file at a time (got \"{source}\" and \"{a}\")", @[])
-      source = a
+      return errorOut(&"unknown argument \"{a}\"", @["Valid flags: --max-ratio N, --help"])
     inc i
-  if source.len == 0: source = defaultSource
-  if not fileExists(source):
-    return errorOut(&"no such file \"{source}\"", @["Give a .nim file that uses Eversince blocks, or none for " & defaultSource])
-  if outPath.len == 0: outPath = expandedPath(source)
-  if sameFile(outPath, source):
-    return errorOut("--out would overwrite the file being expanded", @[])
 
   var nimArgs = @["check", "--colors:off", "--listFullPaths:on", "--hint:ExpandMacro:on"]
   for m in blockMacros: nimArgs.add "--expandMacro:" & m
@@ -167,12 +152,7 @@ proc runExpand*(args: seq[string]): Run =
     return
   let sourceText = readFile(source)
   let exps = parseExpansions(res.output, source)
-  if exps.len == 0:
-    return (&"error: {source} has no Eversince block to expand\n" &
-      toonHelp(@["The blocks are " & blockMacros.join(", ") & " (import eversince)"]), 1)
-  let outDir = outPath.parentDir
-  if outDir.len > 0: createDir(outDir)
-  writeFile(outPath, expandedText(source.replace('\\', '/'), sourceText, exps))
+  writeFile(outPath, expandedText(source, sourceText, exps))
   let s = measure(sourceText, exps)
   result.output = &"expand: wrote {outPath}\n" &
     toonTable("size", ["file", "blocks", "written", "generated", "ratio"],
