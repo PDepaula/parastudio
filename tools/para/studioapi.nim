@@ -25,46 +25,8 @@
 # the hooks below do not take it). They only start threads and never wait for one; the job thread
 # ends its step by handing `EndStep` back, as before.
 #
-# Routes (all JSON; the page is `GET /`):
-#   GET  /api/state?game=NAME   games, the chosen game and the resume facts, the helpers' lanes, the current job
-#   GET  /api/lanes?game=NAME   just the helpers' lanes (the page polls it while a turn runs)
-#   GET  /api/savepoints?game=  the save points, oldest first
-#   GET  /api/backup?game=      whether a private online backup is set up for the game's own repository, and where
-#   GET  /api/job?id=&since=    a job's progress: its output from byte `since`, and whether it ended
-#   POST /api/check             {game}: run `para check`
-#   POST /api/save              {game, message}: run `para save -m`
-#   POST /api/backup            {game, confirm: true, isPrivate?: bool}: run `para backup --game G --push --yes`
-#   POST /api/new               {name}: run `para new NAME` (a new game from template/, with its own git repository)
-#   POST /api/lane/land         {game, id}: run `para lane land GAME ID` (a helper's work goes into the game, unsaved)
-#   GET  /api/agent?game=       the producer's tool for this game (installed? version?), who pays, the turn time
-#                               limit, `model` and `effort` the producer last reported ("" until it has run a turn;
-#                               the studio sets neither), and `agents`: every producer the page may pick, with `current` named
-#   GET  /api/preflight?game=   setup checks for the producer this game talks to (installed, signed in, folder trusted, edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line; the optional programs (Lavish, for visual boards: `ok` or `absent`, never in `ready`) with the command that adds one; also this folder and whether the page may offer to open a terminal in it
-#   POST /api/terminal          {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
-#   POST /api/agent/pick        {game, agent}: talk to this producer from the next message on (each keeps its own conversation);
-#                               no game: the studio-wide pick, which games without their own pick follow
-#   POST /api/speed/pick        {game, speed}: how hard this game's producer thinks, "quick", "standard" or "deep", from the next message on
-#                               (kept for the game; refused with 409 while that game's turn runs). `GET /api/agent` and `GET /api/chat` return
-#                               `speed` (the pick), `speeds` (each one's words and what it asks of the producer) and `ran`: the speed
-#                               the producer's last turn started with, the model and effort the studio passed (`askedModel`, `askedEffort`)
-#                               and the ones it reported (`model`, `effort`)
-#   GET  /api/chat?game=&since= the open chat's lines after number `since`, which chat that is, whether a turn is running for this game, `working`: every game with a turn running, and the `model` and `effort` its producer last reported ("" until it has run a turn)
-#   GET  /api/chats?game=       the game's past chats with its producer, the one used last first: number, title, times, which one is open
-#   POST /api/chat/send         {game, text}: one turn with the producer in the open chat (one at a time for each game; refused while two other games have helpers building)
-#   POST /api/chat/stop         {game}: end that game's running turn and everything it started; other games' turns go on
-#   POST /api/chat/new          {game}: the next message starts a new chat; the earlier ones stay in the list
-#   POST /api/chat/open         {game, id}: open an earlier chat, its lines read back; the next message continues its conversation
-#   POST /api/chat/delete       {game, id, confirm: true}: forget a chat (its title, times, session id and kept lines); nothing in the game's folder changes
-#   GET  /api/play              the game window: idle, building, starting, running, failed or exited, in plain words
-#   POST /api/play/start        {game}: build the game with its dev channel and open its native window (a second one restarts it)
-#   POST /api/play/stop         {}: close the game window, or stop its build
-#   POST /api/play/shot         {game}: ask the open window for a picture and put it in the chat as a card
-#   GET  /api/shot?name=        one of the studio's own pictures (image/png); only names the studio made, only from its folder
-#   GET  /api/helpers?game=     the scout helpers this studio started for the game (the desk's Helpers view): id, topic, state (working,
-#                               done, failed, stopped or lost), why, tool calls, what it is doing, and where its report is; and how many work now
-#   POST /api/helper/start      {game, topic, ticket, agent?, speed?}: one scout writing games/<game>/reports/<topic>.md, run by the studio
-#                               (at most 3 work at a time, one per report; refused with 409 otherwise); three counters stop it, none restarts it
-#   POST /api/helper/stop       {game, id}: end a working scout (its report may be missing or partial)
+# The routes are the `case` in `handle`, at the bottom of this file: one `of` line each, with the model
+# blocks it rests on and what it takes and gives back.
 #
 # The chat is studiochat.nim (turns, the list of chats, stopping) on top of agent.nim's adapter
 # interface; nothing in this file knows which agent it is. Each game has its own turn, so the
@@ -757,68 +719,144 @@ proc pageResponse(): Response =
              "'; connect-src 'self'; img-src data: blob:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")])
 
 proc handle(st: ptr Studio, req: Request): Response =
+  # Every route is one `of` line below (all JSON; the page is `GET /`), and the comment on that line
+  # names the model blocks it rests on: `query X` or `command X` (several are comma-separated), or
+  # `no block` when the desk knows nothing of it. tests/test_para_studio_model.nim holds these names
+  # to the screens of studiodesk.em and the page's own calls (studio/index.html) to these routes.
+  # What a route takes and gives back is the comment under its line.
   if req.meth == "GET":
     case req.path
     of "/": return pageResponse()
-    of "/api/state": return stateJson(st, req.queryValue("game"))
-    of "/api/savepoints": return savePointsJson(st, req.queryValue("game"))
-    of "/api/backup": return backupJson(st, req.queryValue("game"))
-    of "/api/job": return jobJson(st, req)
-    of "/api/agent": return agentJson(st, req)
-    of "/api/preflight": return preflightJson(st, req)
-    of "/api/chat": return chatJson(st, req)
-    of "/api/chats": return chatsJson(st, req)
-    of "/api/play": return playJson(st)
-    of "/api/lanes":
+    of "/api/state": # query DeskNow
+      # ?game=NAME: games, the chosen game and the resume facts, the helpers' lanes, the current job
+      return stateJson(st, req.queryValue("game"))
+    of "/api/savepoints": # no block
+      # ?game=: the save points, oldest first
+      return savePointsJson(st, req.queryValue("game"))
+    of "/api/backup": # no block
+      # ?game=: whether a private online backup is set up for the game's own repository, and where
+      return backupJson(st, req.queryValue("game"))
+    of "/api/job": # query JobNow
+      # ?id=&since=: a job's progress: its output from byte `since`, and whether it ended
+      return jobJson(st, req)
+    of "/api/agent": # query ProducerNow
+      # ?game=: the producer's tool for this game (installed? version?), who pays, the turn time limit,
+      # `model` and `effort` the producer last reported ("" until it has run a turn; the studio sets
+      # neither), and `agents`: every producer the page may pick, with `current` named; also `speed`
+      # (the pick), `speeds` (each one's words and what it asks of the producer) and `ran`: the speed the
+      # producer's last turn started with, the model and effort the studio passed (`askedModel`,
+      # `askedEffort`) and the ones it reported (`model`, `effort`)
+      return agentJson(st, req)
+    of "/api/preflight": # no block
+      # ?game=: setup checks for the producer this game talks to (installed, signed in, folder trusted,
+      # edits allowed in games/): `ready`, and each check's state and, when not ok, one plain fix line;
+      # the optional programs (Lavish, for visual boards: `ok` or `absent`, never in `ready`) with the
+      # command that adds one; also this folder and whether the page may offer to open a terminal in it
+      return preflightJson(st, req)
+    of "/api/chat": # query ChatSince,ProducerNow
+      # ?game=&since=: the open chat's lines after number `since`, which chat that is, whether a turn is
+      # running for this game, `working`: every game with a turn running, the `model` and `effort` its
+      # producer last reported ("" until it has run a turn), and `speed`, `speeds` and `ran` as above
+      return chatJson(st, req)
+    of "/api/chats": # query ChatList
+      # ?game=: the game's past chats with its producer, the one used last first: number, title, times,
+      # which one is open
+      return chatsJson(st, req)
+    of "/api/play": # query PlayNow
+      # the game window: idle, building, starting, running, failed or exited, in plain words
+      return playJson(st)
+    of "/api/lanes": # no block
+      # ?game=NAME: just the helpers' lanes (the page polls it while a turn runs)
       var game: string
       let picked = pickGame(st, req.queryValue("game"), game)
       if picked.status != 0: return picked
       return jsonResponse(200, %*{"game": game, "lanes": lanesJson(st, game)})
-    of "/api/shot": return shotImage(st, req)
-    of "/api/helpers": return helpersJson(st, req)
+    of "/api/shot": # no block
+      # ?name=: one of the studio's own pictures (image/png); only names the studio made, only from its folder
+      return shotImage(st, req)
+    of "/api/helpers": # query HelpersNow
+      # ?game=: the scout helpers this studio started for the game (the desk's Helpers view): id, topic,
+      # state (working, done, failed, stopped or lost), why, tool calls, what it is doing, and where its
+      # report is; and how many work now
+      return helpersJson(st, req)
     else: return fail(404, "Not found.", "not-found")
   var body: JsonNode
   let parsed = bodyObject(req, body)
   if parsed.status != 0: return parsed
   var game: string
   case req.path
-  of "/api/check":
+  of "/api/check": # command StartStep
+    # {game}: run `para check`
     let picked = pickGame(st, body.fieldString("game"), game)
     if picked.status != 0: return picked
     startJob(st, "check", game, @["check", "--game", game])
-  of "/api/save":
+  of "/api/save": # command StartStep
+    # {game, message}: run `para save -m`
     let picked = pickGame(st, body.fieldString("game"), game)
     if picked.status != 0: return picked
     let message = body.fieldString("message").strip()
     startJob(st, "save", game, @["save", "--game", game, "-m", message], message)
-  of "/api/new": newGameRoute(st, body)
-  of "/api/lane/land":
+  of "/api/new": # command NewGame
+    # {name}: run `para new NAME` (a new game from template/, with its own git repository)
+    newGameRoute(st, body)
+  of "/api/lane/land": # command LandLane
+    # {game, id}: run `para lane land GAME ID` (a helper's work goes into the game, unsaved)
     let picked = pickGame(st, body.fieldString("game"), game)
     if picked.status != 0: return picked
     let id = body.fieldString("id")
     startJob(st, "land", game, @["lane", "land", game, id],
              lanes = lanesOf(st.root, game, quick = true).mapIt(it.id).filterIt(validLaneId(it)))
-  of "/api/terminal": terminalRoute(st)
-  of "/api/play/start": playStartJson(st, body)
-  of "/api/play/stop":
+  of "/api/terminal": # no block
+    # {}: open a terminal window in this folder, where the system has one standard way to (macOS only); else 501
+    terminalRoute(st)
+  of "/api/play/start": # command StartPlay
+    # {game}: build the game with its dev channel and open its native window (a second one restarts it)
+    playStartJson(st, body)
+  of "/api/play/stop": # command StopPlay
+    # {}: close the game window, or stop its build
     jsonResponse(200, %*{"stopped": stopPlay(addr st.play)})
-  of "/api/play/shot": shotRoute(st, body)
-  of "/api/helper/start": helperStartJson(st, body)
-  of "/api/helper/stop": helperStopJson(st, body)
-  of "/api/agent/pick": agentPickJson(st, body)
-  of "/api/speed/pick": speedPickJson(st, body)
-  of "/api/chat/send": sendJson(st, body)
-  of "/api/chat/stop":
+  of "/api/play/shot": # command TakeShot
+    # {game}: ask the open window for a picture and put it in the chat as a card
+    shotRoute(st, body)
+  of "/api/helper/start": # command StartHelper
+    # {game, topic, ticket, agent?, speed?}: one scout writing games/<game>/reports/<topic>.md, run by the
+    # studio (at most 3 work at a time, one per report; refused with 409 otherwise); three counters stop
+    # it, none restarts it
+    helperStartJson(st, body)
+  of "/api/helper/stop": # command StopHelper
+    # {game, id}: end a working scout (its report may be missing or partial)
+    helperStopJson(st, body)
+  of "/api/agent/pick": # command PickProducer
+    # {game, agent}: talk to this producer from the next message on (each keeps its own conversation);
+    # no game: the studio-wide pick, which games without their own pick follow
+    agentPickJson(st, body)
+  of "/api/speed/pick": # command PickSpeed
+    # {game, speed}: how hard this game's producer thinks, "quick", "standard" or "deep", from the next
+    # message on (kept for the game; refused with 409 while that game's turn runs)
+    speedPickJson(st, body)
+  of "/api/chat/send": # command StartTurn,UseChat
+    # {game, text}: one turn with the producer in the open chat (one at a time for each game; refused
+    # while two other games have helpers building)
+    sendJson(st, body)
+  of "/api/chat/stop": # command StopTurn
+    # {game}: end that game's running turn and everything it started; other games' turns go on
     jsonResponse(200, %*{"stopped": stopChat(st, body)})
-  of "/api/chat/new":
+  of "/api/chat/new": # command NewChat
+    # {game}: the next message starts a new chat; the earlier ones stay in the list
     let picked = pickGame(st, body.fieldString("game"), game)
     if picked.status != 0: return picked
     if not newConversation(addr st.chat, game):
       return fail(409, "The producer is still working on this game. Stop the turn first.", "busy")
     jsonResponse(200, %*{"ok": true})
-  of "/api/chat/open": chatPickJson(st, body, delete = false)
-  of "/api/chat/delete": chatPickJson(st, body, delete = true)
-  of "/api/backup":
+  of "/api/chat/open": # command OpenChat
+    # {game, id}: open an earlier chat, its lines read back; the next message continues its conversation
+    chatPickJson(st, body, delete = false)
+  of "/api/chat/delete": # command DeleteChat
+    # {game, id, confirm: true}: forget a chat (its title, times, session id and kept lines); nothing in
+    # the game's folder changes
+    chatPickJson(st, body, delete = true)
+  of "/api/backup": # command StartStep
+    # {game, confirm: true, isPrivate?: bool}: run `para backup --game G --push --yes`
     if not (body.hasKey("confirm") and body["confirm"].kind == JBool and body["confirm"].getBool):
       return fail(400, "A backup uploads your saved work, so it only runs after you say yes to it.", "needs-confirm")
     let isPrivate = body.hasKey("isPrivate") and body["isPrivate"].kind == JBool and body["isPrivate"].getBool
