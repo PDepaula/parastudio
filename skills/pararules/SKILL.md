@@ -43,11 +43,17 @@ steps over a whole population, menus, timers and derived state.
 **The test for adding an exception.** A new one must show one of:
 
 - **A measurement.** On the cap gate command (see "The measured boundary"),
-  the rule form puts the debug p99 above 75% of the tick (12.5 ms) or more
-  than doubles the release p99, with both numbers and the command in the PR.
-  For scale: enemy movement as a rule (`moveEnemy`, as shipped) measures 69%
-  and 1.4 times, so it does not qualify; the sword-against-enemy join measured
-  287% and 10 times, so it does.
+  the rule form takes a class that is within its budget on main (release p99
+  under 4 ms) over that budget, or breaks the relative check (debug p99 more
+  than 2 times main's). Both numbers, main's and the branch's, and the command
+  go in the PR. A form is not counted as over budget merely because main
+  already fails the budget: a class that is over on main does not qualify for
+  an exception by that alone. For scale, against the 2026-10-12 main (release
+  p99 0.804 ms, debug p99 6.4 ms): enemy movement as a rule (`moveEnemy`, as
+  shipped) measures 0.87 to 1.2 ms release p99 and about 1.5 times main's
+  debug p99, so it stays within budget and does not qualify; the
+  sword-against-enemy join measured 8.0 ms release p99 (over the 4 ms budget)
+  and 7.5 times main's debug p99, so it does.
 - **An engine constraint**, cited to a line of the engine patch
   (`patches/pararules/engine.nim`) or to this skill.
 - **It is an effect**, in which case it does not belong in the core at all.
@@ -556,7 +562,7 @@ Per-entity enemy movement over 200 mobs and the join, at the cap:
 | main (procedures) | 1.70 | 6.4 | 0.231 | 0.804 |
 | a rule that joins the player's position | 6.70 | 15.27 | not run | not run |
 | a rule with tick and position on the pulse, hot attrs last | 3.72 | 9.74 | 0.413 | 1.064 |
-| the same plus a sword-against-enemy join | 3.82 | **47.80**, over budget | 0.462 | **8.049** |
+| the same plus a sword-against-enemy join | 3.82 | **47.80** (7.5 times main) | 0.462 | **8.049**, over the 4 ms budget |
 
 How to read it:
 
