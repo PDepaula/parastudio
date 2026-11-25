@@ -67,7 +67,7 @@ suite "para bench: real runs at a tiny size":
   test "rules prints the machine, one row per count and variant, the fit, exit 0":
     let r = runBench(@["rules", "--n", "5,10", "--rules", "2", "--ticks", "3", "--warmup", "1", "--repeat", "1"])
     check r.code == 0
-    check r.output.startsWith("bench: rules, release build, 3 ticks after 1 warm-up, median of 1 run")
+    check r.output.startsWith("bench: rules, 3 ticks after 1 warm-up, median of 1 run")
     check r.output.contains("\nmachine: cpu ")
     check r.output.contains("results[6]{entities,rules,variant,p50_ms,p99_ms,p99_tick_pct,setup_ms,rss_mb,heap_mb}:\n")
     for row in ["  5,2,rules,", "  5,2,systems,", "  5,2,plain,", "  10,2,rules,", "  10,2,systems,", "  10,2,plain,"]:
@@ -78,7 +78,7 @@ suite "para bench: real runs at a tiny size":
   test "sprites prints the renderer and one row per count and call split, or says there is no display":
     let r = runBench(@["sprites", "--n", "10", "--calls", "1,2", "--frames", "2", "--warmup", "0", "--repeat", "1"])
     if r.code == 0:
-      check r.output.startsWith("bench: sprites, release build, 1280x720 hidden window")
+      check r.output.startsWith("bench: sprites, 1280x720 hidden window")
       check r.output.contains("\ngpu: renderer ")
       check r.output.contains("results[2]{sprites,calls,add_ms,submit_ms,gpu_ms,wait_ms,p50_ms,p99_ms,rss_mb}:\n")
       check "  10,1," in r.output

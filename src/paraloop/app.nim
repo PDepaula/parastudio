@@ -267,4 +267,4 @@ proc run*[G](game: sink G, title = "paraloop", width = 1024, height = 768) =
   gWindow.destroyWindow()
   glfwTerminate()
   when defined(prof):
-    stdout.write profSummary()
+    stdout.write profSummary(windowWarmupFrames())

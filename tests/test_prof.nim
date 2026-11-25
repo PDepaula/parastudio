@@ -62,6 +62,19 @@ suite "profSummary":
     check "  tick,0,0.000,0.000,0.000\n" in text
     check text.endsWith("rules-share: 0.0% of tick time\n")
 
+  test "a window's warm-up is 120 frames, or half of a shorter run":
+    check windowWarmupFrames() == 0
+    for i in 1 .. 60:
+      recordTick(1.0, 0.5)
+      recordFrame(FrameSample(frameMs: 2.0, drawMs: 0.5, swapMs: 0.25, ticks: 1))
+    check windowWarmupFrames() == 30
+    let text = profSummary(windowWarmupFrames())
+    check text.startsWith("prof: 30 frames and 30 ticks after 30 warm-up frames")
+    check "  tick,30,1.000,1.000,1.000\n" in text
+    for i in 61 .. 300:
+      recordFrame(FrameSample(frameMs: 2.0, drawMs: 0.5, swapMs: 0.25, ticks: 0))
+    check windowWarmupFrames() == profWarmupFrames
+
   test "warm-up frames and their ticks are left out; systems is tick minus rules":
     recordTick(50.0, 40.0)              # ran in the warm-up frame
     recordFrame(FrameSample(frameMs: 99.0, drawMs: 9.0, swapMs: 9.0, ticks: 1))

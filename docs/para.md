@@ -55,12 +55,13 @@ SessionStart hook snippet that shows the bare view at the start of every
 agent session; it never edits a config file itself.
 
 `para bench` measures for the per-game-class performance gate: each subcommand builds a small
-measuring program (`tools/para/bench/`, release unless `--debug`) into `tmp/bench/`, runs it once per
+measuring program (`tools/para/bench/`, release) into `tmp/bench/`, runs it once per
 row and repeat in a fresh process, and prints p50/p99 in milliseconds, resident memory and a
 `machine:` line (CPU, threads, RAM, OS, governor, load, nim and gcc); `--budget-ms X` turns a p99
 over X into exit 1. A real game's own split comes from the timer seams in `paraloop/prof`: build
 with `-d:prof` and a window prints its tick, rules, systems, draw, swap and frame percentiles when it
-closes (vsync off unless `-d:profVsync`; `-d:profFrames=N` closes it after N frames), while a
+closes (vsync off unless `-d:profVsync`; `-d:profFrames=N` closes it after N frames; the first 120
+frames and their ticks are left out as warm-up, or the first half of a run shorter than 240), while a
 `-d:prof` `para` or game driver adds a `rules:` line to `para sim`'s output (pararules time against
 the rest of each step). Without `-d:prof` neither seam costs anything or prints anything.
 

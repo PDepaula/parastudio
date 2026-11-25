@@ -13,8 +13,8 @@
 # - `build`: a game's forced debug and release compile times, an unchanged
 #   rebuild, and the binary sizes.
 #
-# The measuring programs are built here with the `nim` on PATH (release
-# unless --debug) into tmp/bench/ and run once per (count, variant, repeat),
+# The measuring programs are built release here with the `nim` on PATH
+# into tmp/bench/ and run once per (count, variant, repeat),
 # each in a fresh process, so resident memory belongs to one run; a row is
 # the median of its repeats. `para` itself never times anything it runs in
 # process, so its own debug build does not colour the numbers.
@@ -33,18 +33,18 @@ const tickMs = 1000.0 / 60.0
 
 const benchHelp* = "para bench <rules|sprites|build> [flags]\n" &
   "  measure what the per-game-class performance gate needs: p50/p99 in ms, resident memory, the machine\n" &
-  "  rules [--n 100,300,1000] [--rules 3] [--ticks 300] [--warmup 30] [--repeat 3] [--debug] [--budget-ms X]\n" &
+  "  rules [--n 100,300,1000] [--rules 3] [--ticks 300] [--warmup 30] [--repeat 3] [--budget-ms X]\n" &
   "    pararules per tick at N entities with K (1-3) per-entity rules fired by one DeltaTime insert, next to\n" &
   "    the systems pattern (a loop writing the same facts) and plain (the same math, no session); a\n" &
   "    per-entity fit across the counts; --budget-ms X: exit 1 when a rules row's p99 is over X\n" &
-  "  sprites [--n 1000,5000,10000] [--calls 1] [--frames 90] [--warmup 10] [--repeat 3] [--debug] [--budget-ms X]\n" &
+  "  sprites [--n 1000,5000,10000] [--calls 1] [--frames 90] [--warmup 10] [--repeat 3] [--budget-ms X]\n" &
   "    paranim's sprite batch in a hidden 1280x720 window: CPU add, submit, GPU and wait per frame for N\n" &
   "    sprites in C draw calls (each --calls value for each --n); needs a display (exit 1 without one);\n" &
   "    --budget-ms X: exit 1 when a row's p99 frame is over X\n" &
   "  build [--game NAME] [--skip-release]\n" &
   "    forced debug build, unchanged rebuild and forced release build of a game (default hello): seconds\n" &
   "    and binary bytes; --skip-release leaves out the slow forced release build\n" &
-  "  the programs are built release (unless --debug) with the nim on PATH into tmp/bench/; each row is\n" &
+  "  the programs are built release with the nim on PATH into tmp/bench/; each row is\n" &
   "  the median of --repeat fresh-process runs; for steadier numbers close other programs, and on Linux\n" &
   "  set the performance governor and pin a core (taskset -c 2 para bench rules)\n"
 
@@ -186,15 +186,13 @@ proc overBudget*(rows: seq[seq[string]], p99Col: int, budgetMs: float, onlyVaria
 
 # --- building the measuring programs ----------------------------------------------
 
-proc buildProgram(name: string, debug: bool, outPath: var string): Run =
-  ## Compiles tools/para/bench/<name>.nim to tmp/bench/<name>_<r|d>; code 0, or
+proc buildProgram(name: string, outPath: var string): Run =
+  ## Compiles tools/para/bench/<name>.nim release to tmp/bench/<name>; code 0, or
   ## the compiler's errors (exit 1).
   createDir("tmp" / "bench")
-  outPath = "tmp" / "bench" / (name & (if debug: "_d" else: "_r") & ExeExt)
-  var args = @["c", "--hints:off"]
-  if not debug: args.add "-d:release"
-  args.add @["-o:" & outPath, "tools" / "para" / "bench" / (name & ".nim")]
-  let res = runCaptured("nim", args)
+  outPath = "tmp" / "bench" / (name & ExeExt)
+  let res = runCaptured("nim", @["c", "--hints:off", "-d:release", "-o:" & outPath,
+                                 "tools" / "para" / "bench" / (name & ".nim")])
   if res.exitCode == 0: return ("", 0)
   let diags = parseNimDiagnostics(res.output).filterIt(it.severity == "Error")
   if diags.len > 0:
@@ -212,7 +210,6 @@ proc runRules(args: seq[string]): Run =
   var ticks = 300
   var warmup = 30
   var repeat = 3
-  var debug = false
   var budget = 0.0
   var i = 0
   while i < args.len:
@@ -236,7 +233,6 @@ proc runRules(args: seq[string]): Run =
     of "--repeat":
       if v.len == 0: return errorOut("--repeat needs a number", @[])
       bad = parseIntFlag("--repeat", v, 1, 99, repeat); inc i
-    of "--debug": debug = true
     of "--budget-ms":
       if v.len == 0: return errorOut("--budget-ms needs a number of milliseconds", @[])
       try: budget = v.parseFloat
@@ -244,12 +240,12 @@ proc runRules(args: seq[string]): Run =
       if not (budget > 0 and budget < Inf): return errorOut(&"--budget-ms must be above 0, got \"{v}\"", @[])
       inc i
     else:
-      return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --n N[,N...], --rules K, --ticks N, --warmup N, --repeat N, --debug, --budget-ms X"])
+      return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --n N[,N...], --rules K, --ticks N, --warmup N, --repeat N, --budget-ms X"])
     if bad.len > 0: return errorOut(bad, @[])
     inc i
 
   var exe: string
-  let built = buildProgram("rules_bench", debug, exe)
+  let built = buildProgram("rules_bench", exe)
   if built.code != 0: return built
 
   var rows: seq[seq[string]]
@@ -272,8 +268,7 @@ proc runRules(args: seq[string]): Run =
       if variant == "rules":
         fitN.add n.float; fitP50.add p50; fitP99.add p99; fitRss.add rss
 
-  let mode = if debug: "debug" else: "release"
-  result.output = &"bench: rules, {mode} build, {ticks} ticks after {warmup} warm-up, median of {repeat} " &
+  result.output = &"bench: rules, {ticks} ticks after {warmup} warm-up, median of {repeat} " &
     &"run{(if repeat == 1: \"\" else: \"s\")}, dt 1/60s (tick {fmt3(tickMs)}ms)\n"
   result.output.add machineLine()
   result.output.add toonTable("results",
@@ -305,7 +300,6 @@ proc runSprites(args: seq[string]): Run =
   var frames = 90
   var warmup = 10
   var repeat = 3
-  var debug = false
   var budget = 0.0
   var i = 0
   while i < args.len:
@@ -329,7 +323,6 @@ proc runSprites(args: seq[string]): Run =
     of "--repeat":
       if v.len == 0: return errorOut("--repeat needs a number", @[])
       bad = parseIntFlag("--repeat", v, 1, 99, repeat); inc i
-    of "--debug": debug = true
     of "--budget-ms":
       if v.len == 0: return errorOut("--budget-ms needs a number of milliseconds", @[])
       try: budget = v.parseFloat
@@ -337,7 +330,7 @@ proc runSprites(args: seq[string]): Run =
       if not (budget > 0 and budget < Inf): return errorOut(&"--budget-ms must be above 0, got \"{v}\"", @[])
       inc i
     else:
-      return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --n N[,N...], --calls C[,C...], --frames N, --warmup N, --repeat N, --debug, --budget-ms X"])
+      return errorOut(&"unknown flag \"{a}\"", @["Valid flags: --n N[,N...], --calls C[,C...], --frames N, --warmup N, --repeat N, --budget-ms X"])
     if bad.len > 0: return errorOut(bad, @[])
     inc i
   for n in counts:
@@ -345,7 +338,7 @@ proc runSprites(args: seq[string]): Run =
       if c > n: return errorOut(&"--calls {c} is more draw calls than --n {n} sprites", @[])
 
   var exe: string
-  let built = buildProgram("sprite_bench", debug, exe)
+  let built = buildProgram("sprite_bench", exe)
   if built.code != 0: return built
 
   var rows: seq[seq[string]]
@@ -371,8 +364,7 @@ proc runSprites(args: seq[string]): Run =
                  fmt3(runs.medianOf("gpu_ms")), fmt3(runs.medianOf("wait_ms")),
                  fmt3(runs.medianOf("p50_ms")), fmt3(p99), fmt1(runs.medianOf("rss_mb"))]
 
-  let mode = if debug: "debug" else: "release"
-  result.output = &"bench: sprites, {mode} build, 1280x720 hidden window, 32px sprites, vsync off, " &
+  result.output = &"bench: sprites, 1280x720 hidden window, 32px sprites, vsync off, " &
     &"{frames} frames after {warmup} warm-up, median of {repeat} run{(if repeat == 1: \"\" else: \"s\")}\n"
   result.output.add machineLine()
   result.output.add "gpu: renderer " & toonCell(renderer) & ", gl " & toonCell(glVersion) & "\n"

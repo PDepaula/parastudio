@@ -21,6 +21,11 @@
 ##   `-d:profVsync` is also given, so a frame is the work, not the display's
 ##   refresh; `-d:profFrames=N` closes the window after N frames.
 ##
+## The summary a window prints leaves out the first `profWarmupFrames` (120)
+## frames and the ticks they ran, or the first half of a shorter run
+## (`windowWarmupFrames`), so a quick `-d:profFrames=60` run still reports
+## its last 30 frames.
+##
 ## A native `-d:prof` window prints `profSummary()` to stdout when it closes.
 ## For the headless split, build a driver (or `para` itself, for the linked
 ## `hello`) with `-d:prof`, e.g. `nim c -d:prof -d:release --outdir:tmp/prof
@@ -79,6 +84,11 @@ proc resetProf*() =
 proc recordedTicks*(): seq[TickSample] = tickSamples
 proc recordedFrames*(): seq[FrameSample] = frameSamples
 proc frameCount*(): int = frameSamples.len
+
+proc windowWarmupFrames*(): int =
+  ## The warm-up a window's close-time summary leaves out: `profWarmupFrames`,
+  ## or half the recorded frames when there were fewer than twice that.
+  min(profWarmupFrames, frameSamples.len div 2)
 
 proc percentile*(xs: openArray[float], p: float): float =
   ## Nearest-rank percentile (`p` in 0..1) of `xs`: `sorted[(len - 1) * p]`,
